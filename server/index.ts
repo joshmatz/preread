@@ -1,0 +1,115 @@
+import express from "express";
+import { fileURLToPath } from "node:url";
+import { resolve, dirname } from "node:path";
+import { createServer as createViteServer } from "vite";
+import { repository, comparison, fileDiff, fileContext, stackFor } from "./git.ts";
+import { listCollections, putCollection } from "./collections.ts";
+import { snapshot, adHocReview, resolveReview, markGroup } from "./review.ts";
+import { reviewProgress, progressSource } from "../src/progress.ts";
+import type { Mode } from "../src/types.ts";
+
+import { readPullRequest } from "./pullRequests.ts";
+
+const app = express();
+const port = Number(process.env.PORT || 4780);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+app.disable("x-powered-by");
+app.use("/api", (req, res, next) => {
+  const origin = req.get("origin");
+  const host = req.get("host") ?? "";
+  if (
+    !hosts.has(host) ||
+    (origin && origin !== `http://${host}`) ||
+    req.get("sec-fetch-site") === "cross-site"
+  ) {
+    res.status(403).json({ error: "Local review requests must come from this app." });
+    return;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+});
+app.use("/api", express.json({ limit: "1mb" }));
+const query = (value: unknown) => (typeof value === "string" ? value : "");
+app.get("/api/bootstrap", (_req, res) =>
+  res.json({ defaultPath: process.argv[2] ?? process.env.REVIEW_PATH ?? "" }),
+);
+app.get("/api/repository", async (req, res) => res.json(await repository(query(req.query.path))));
+app.get("/api/compare", async (req, res) =>
+  res.json(
+    await comparison(query(req.query.path), query(req.query.base), query(req.query.mode) as Mode),
+  ),
+);
+app.get("/api/diff", async (req, res) =>
+  res.json(
+    await fileDiff(
+      query(req.query.path),
+      query(req.query.base),
+      query(req.query.mode) as Mode,
+      query(req.query.file),
+    ),
+  ),
+);
+app.get("/api/context", async (req, res) =>
+  res.json(
+    await fileContext(
+      query(req.query.path),
+      query(req.query.base),
+      query(req.query.mode) as Mode,
+      query(req.query.file),
+      query(req.query.version),
+      query(req.query.hash),
+    ),
+  ),
+);
+app.get("/api/collections", async (_req, res) => res.json(await listCollections()));
+app.put("/api/collections", async (req, res) => res.json(await putCollection(req.body)));
+app.get("/api/review-progress", async (req, res) => {
+  const collectionId = query(req.query.collection);
+  const review = await resolveReview(collectionId, query(req.query.review));
+  const current = await snapshot(review, collectionId);
+  res.json({ ...reviewProgress(current), source: progressSource(current) });
+});
+app.get("/api/pull-request", async (req, res) => {
+  const review = await resolveReview(query(req.query.collection), query(req.query.review));
+  res.json(
+    review.pullRequest
+      ? await readPullRequest(review.pullRequest, req.query.refresh === "1")
+      : null,
+  );
+});
+app.get("/api/review", async (req, res) => {
+  const collectionId = query(req.query.collection);
+  const review = collectionId
+    ? await resolveReview(collectionId, query(req.query.review))
+    : adHocReview(query(req.query.path), query(req.query.base), query(req.query.mode) as Mode);
+  res.json(await snapshot(review, collectionId || undefined));
+});
+app.post("/api/reviewed", async (req, res) => {
+  const { collection, review, group, fingerprint, reviewed } = req.body ?? {};
+  if (
+    ![collection, review, group, fingerprint].every((value) => typeof value === "string") ||
+    typeof reviewed !== "boolean"
+  )
+    throw new Error("Invalid review status request.");
+  res.json(await markGroup(collection, review, group, fingerprint, reviewed));
+});
+app.get("/api/stack", async (req, res) => res.json(await stackFor(query(req.query.path))));
+app.use("/api", (_req, res) => res.status(404).json({ error: "Unknown local review endpoint." }));
+app.use(
+  (error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const message = error.message.includes("not a git repository")
+      ? "That folder is not a Git repository. Choose a repository or worktree folder."
+      : error.message;
+    res.status(400).json({ error: message.slice(0, 1200) });
+  },
+);
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(resolve(root, "dist")));
+  app.get("/{*path}", (_req, res) => res.sendFile(resolve(root, "dist/index.html")));
+} else {
+  const vite = await createViteServer({ root, server: { middlewareMode: true }, appType: "spa" });
+  app.use(vite.middlewares);
+}
+app.listen(port, "127.0.0.1", () => console.log(`Worktree review: http://127.0.0.1:${port}`));
