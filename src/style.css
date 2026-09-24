@@ -8,6 +8,7 @@
   font-synthesis: none;
   font-size: 13px;
   color-scheme: light;
+  scroll-padding-top: 18px;
   --canvas: #fff;
   --subtle: #f7f8fa;
   --raised: #fff;
@@ -151,10 +152,9 @@ small,
   color: var(--secondary);
 }
 .app {
-  height: 100dvh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 .topbar {
   height: 57px;
@@ -262,7 +262,6 @@ small,
 }
 .main {
   flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -416,13 +415,22 @@ h1 {
   display: grid;
   grid-template-columns: 245px minmax(0, 1fr);
   flex: 1;
-  min-height: 0;
+}
+/* Paints the full-height sidebar column; the sticky sidebar is at most one viewport tall. */
+.changes-layout::before {
+  content: "";
+  grid-area: 1 / 1;
+  border-right: 1px solid var(--border);
+  background: var(--subtle);
 }
 .files-sidebar {
-  border-right: 1px solid var(--border);
+  grid-area: 1 / 1;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  max-height: 100dvh;
   overflow-y: auto;
   padding: 20px 12px;
-  background: var(--subtle);
 }
 .index-title {
   display: flex;
@@ -524,13 +532,9 @@ h1 {
   color: var(--secondary);
   font-size: 11px;
 }
-.review-scroll {
-  min-height: 0;
+.review-feed {
   min-width: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 0 25px 30px;
-  scroll-padding-top: 18px;
 }
 .feed-toolbar {
   display: flex;
@@ -1161,7 +1165,7 @@ fieldset {
   .changes-layout {
     grid-template-columns: 265px minmax(0, 1fr);
   }
-  .review-scroll {
+  .review-feed {
     padding-right: 35px;
     padding-left: 35px;
   }
@@ -1185,7 +1189,7 @@ fieldset {
   .changes-layout {
     grid-template-columns: 210px minmax(0, 1fr);
   }
-  .review-scroll {
+  .review-feed {
     padding: 0 15px 20px;
   }
 }
@@ -1240,8 +1244,6 @@ fieldset {
   }
   .review-description {
     font-size: 12px;
-    max-height: 90px;
-    overflow: auto;
   }
   .worktree-path {
     flex-wrap: wrap;
@@ -1281,13 +1283,12 @@ fieldset {
   }
   .changes-layout {
     display: block;
-    overflow: auto;
   }
+  .changes-layout::before,
   .files-sidebar {
     display: none;
   }
-  .review-scroll {
-    overflow: visible;
+  .review-feed {
     padding: 0 12px 20px;
   }
   .group-header {

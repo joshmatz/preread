@@ -78,9 +78,11 @@ export function Picker({
     };
     document.addEventListener("pointerdown", outside);
     window.addEventListener("resize", place);
+    window.addEventListener("scroll", place);
     return () => {
       document.removeEventListener("pointerdown", outside);
       window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place);
     };
   }, [open, searchable]);
   useEffect(() => {

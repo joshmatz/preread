@@ -547,7 +547,6 @@ export default function App() {
   const [recents, setRecents] = useState<string[]>(load("recents", []));
   const folderDialog = useRef<HTMLDialogElement>(null);
   const editDialog = useRef<HTMLDialogElement>(null);
-  const content = useRef<HTMLDivElement>(null);
   const jumped = useRef(false);
   const activeReview = useRef("");
   activeReview.current = `${collectionId}/${reviewId}`;
@@ -736,7 +735,7 @@ export default function App() {
     setTab("changes");
     setFilter("");
     setError("");
-    content.current?.scrollTo(0, 0);
+    window.scrollTo(0, 0);
     history.replaceState(null, "", location.pathname + location.search);
   };
   const openPath = (next: string) => {
@@ -1206,7 +1205,7 @@ export default function App() {
                 </button>
               )}
             </aside>
-            <div className={`review-scroll${wrap ? " wrap-lines" : ""}`} ref={content}>
+            <div className={`review-feed${wrap ? " wrap-lines" : ""}`}>
               <div className="feed-toolbar">
                 <span>
                   {comparison?.files.length} {comparison?.files.length === 1 ? "file" : "files"} ·
