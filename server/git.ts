@@ -5,6 +5,7 @@ import { basename, resolve, isAbsolute, relative, sep } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import type { ChangedFile, Comparison, Mode, Worktree, StackNode } from "../src/types.ts";
+import { CONTEXT_LINES } from "../src/diff-context.ts";
 
 const execute = promisify(execFile);
 // Apple's /usr/bin/git dispatches through developer-tool discovery on every spawn.
@@ -281,7 +282,7 @@ export const fileDiff = async (
   mode: Mode,
   name: string,
   snapshot?: Comparison,
-  contextLines = 5,
+  contextLines = CONTEXT_LINES,
 ) => {
   const path = await rootFor(input);
   // Membership, rather than a user-supplied filesystem path, determines which files can be read.
@@ -366,7 +367,7 @@ export async function trackedPatches(path: string, info: Comparison, mode: Mode)
     "--find-renames",
     "--src-prefix=a/",
     "--dst-prefix=b/",
-    "--unified=5",
+    `--unified=${CONTEXT_LINES}`,
     "--raw",
     "-z",
     "--patch",

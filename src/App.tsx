@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Copy,
   FileCode2,
+  FoldVertical,
   FolderGit2,
   GitBranch,
   GitCommitHorizontal,
@@ -132,29 +133,42 @@ function ThemePicker() {
   );
 }
 type ContextSource = { path: string; base: string; mode: Mode; version: string };
+// Gap rows gain buttons once context loads and can wrap onto a second line.
+const gapRowsAbove = (element: HTMLElement, gap: number) => {
+  let height = 0;
+  const body = element.querySelector(".d2h-diff-tbody");
+  for (const controls of body?.querySelectorAll<HTMLElement>(".context-controls") ?? [])
+    if (Number(controls.dataset.gap) < gap) height += controls.getBoundingClientRect().height;
+  return height;
+};
 function DiffView({
   preview,
   split,
   wrap,
   ignoreWhitespace,
   source,
+  context,
+  onContextChange,
 }: {
   preview: FilePreview;
   split: boolean;
   wrap: boolean;
   ignoreWhitespace: boolean;
   source: ContextSource;
+  context: ContextModel | null;
+  onContextChange: (context: ContextModel) => void;
 }) {
-  const [context, setContext] = useState<ContextModel | null>(null);
-  const [contextBusy, setContextBusy] = useState(false);
-  const [contextError, setContextError] = useState("");
+  const [contextStatus, setContextStatus] = useState<{ gap: number; error?: string } | null>(
+    null,
+  );
+  const contextBusy = !!contextStatus && !contextStatus.error;
   const abort = useRef(new AbortController());
   const focusGap = useRef<number | null>(null);
+  const rowsAbove = useRef<{ gap: number; height: number } | null>(null);
   const patch = context ? contextPatch(context) : preview.diff.patch;
   const reveal = async (gap: number, direction: "above" | "below" | "all") => {
     if (contextBusy) return;
-    setContextBusy(true);
-    setContextError("");
+    setContextStatus({ gap });
     focusGap.current = gap;
     try {
       let model = context;
@@ -166,11 +180,13 @@ function DiffView({
         );
         model = createContextModel(preview.diff.patch, expanded.patch);
       }
-      if (!abort.current.signal.aborted) setContext(expandContext(model, gap, direction));
+      if (!abort.current.signal.aborted) {
+        rowsAbove.current = { gap, height: gapRowsAbove(target.current!, gap) };
+        onContextChange(expandContext(model, gap, direction));
+        setContextStatus(null);
+      }
     } catch (cause) {
-      if (!abort.current.signal.aborted) setContextError((cause as Error).message);
-    } finally {
-      if (!abort.current.signal.aborted) setContextBusy(false);
+      if (!abort.current.signal.aborted) setContextStatus({ gap, error: (cause as Error).message });
     }
   };
   useEffect(() => {
@@ -232,16 +248,20 @@ function DiffView({
       }
     }
     highlightDiff(element);
-    const gaps = context ? contextGaps(context) : initialGaps(patch);
-    if (!context && (preview.file.untracked || ["A", "D"].includes(preview.file.status)))
-      gaps[gaps.length - 1].below = 0;
+    // A type change diffs as a deletion plus an addition, which share no context.
+    const gaps =
+      preview.file.status === "T" ? [] : context ? contextGaps(context) : initialGaps(patch);
+    // A "Show more below" that finds no more lines becomes "End of file" rather than vanishing.
+    const offeredMore = !!initialGaps(preview.diff.patch).at(-1)?.below;
     for (const body of element.querySelectorAll(".d2h-diff-tbody")) {
       // Split view has an empty matching hunk header on the right.
       const headings = [...body.querySelectorAll("tr")].filter((row) =>
         row.querySelector("td.d2h-info"),
       );
       gaps.forEach((gap, index) => {
-        if (!gap.above && !gap.below && !gap.otherChanges) return;
+        const empty = !gap.above && !gap.below && !gap.otherChanges;
+        const endOfFile = empty && offeredMore && !!context && index === gaps.length - 1;
+        if (empty && !endOfFile) return;
         const row = document.createElement("tr");
         row.className = "context-row";
         const gutter = document.createElement("td");
@@ -259,6 +279,12 @@ function DiffView({
           control.addEventListener("click", () => void reveal(index, direction));
           controls.append(control);
         };
+        const note = (text: string) => {
+          const span = document.createElement("span");
+          span.textContent = text;
+          controls.append(span);
+          return span;
+        };
         if (gap.below)
           button(
             !context && index === gaps.length - 1
@@ -269,16 +295,20 @@ function DiffView({
         if (gap.above) button(`↑ Show ${Math.min(20, gap.above)} lines above`, "above");
         if (context && gap.all && Math.max(gap.above, gap.below) > 20)
           button(`Show all ${Math.max(gap.above, gap.below)} lines`, "all");
-        if (gap.otherChanges) {
-          const notice = document.createElement("span");
-          notice.textContent = "Other changed blocks belong to another group";
-          controls.append(notice);
-        }
+        if (gap.otherChanges) note("Other changed blocks belong to another group");
+        if (endOfFile) note("End of file");
+        const status = note("");
+        status.className = "context-message";
+        status.setAttribute("role", "status");
         cell.append(controls);
         row.append(gutter, cell);
         if (headings[index]) headings[index].before(row);
         else body.append(row);
       });
+    }
+    if (rowsAbove.current) {
+      scrollBy(0, gapRowsAbove(element, rowsAbove.current.gap) - rowsAbove.current.height);
+      rowsAbove.current = null;
     }
     if (focusGap.current !== null) {
       const controls = [
@@ -329,11 +359,15 @@ function DiffView({
     };
   }, [patch, split, visible, wrap, context, ignoreWhitespace]);
   useEffect(() => {
-    for (const control of target.current?.querySelectorAll<HTMLButtonElement>(
-      ".context-controls button",
-    ) ?? [])
-      control.disabled = contextBusy;
-  }, [contextBusy, patch]);
+    for (const controls of target.current?.querySelectorAll<HTMLElement>(".context-controls") ??
+      []) {
+      for (const control of controls.querySelectorAll("button")) control.disabled = contextBusy;
+      const status = controls.querySelector(".context-message")!;
+      const current = contextStatus?.gap === Number(controls.dataset.gap);
+      status.textContent = current ? (contextStatus.error ?? "Loading…") : "";
+      status.classList.toggle("failed", current && !!contextStatus.error);
+    }
+  }, [contextStatus, patch]);
   let message = "";
   if (preview.error) message = preview.error;
   else if (preview.diff.tooLarge)
@@ -345,23 +379,6 @@ function DiffView({
     message = "No text changes. This file may be empty or have a mode change.";
   return (
     <div className="diff-body">
-      {(context || contextBusy || contextError) && (
-        <div className="context-status">
-          <span role="status">
-            {contextBusy ? "Loading surrounding lines…" : contextError || "Showing extra context"}
-          </span>
-          {context && (
-            <button
-              onClick={() => {
-                setContext(null);
-                setContextError("");
-              }}
-            >
-              Reset context
-            </button>
-          )}
-        </div>
-      )}
       {message ? (
         <p className="empty-file">{message}</p>
       ) : (
@@ -402,10 +419,16 @@ function FileCard({
   const [notesOpen, setNotesOpen] = useState(false);
   const [note, setNote] = useState(load<Record<string, string>>("notes", {})[noteKey] ?? "");
   const valid = !preview.error && !preview.diff.tooLarge && !preview.diff.binary;
+  const contextKey = `${preview.diff.hash}:${source.version}`;
+  const [expanded, setExpanded] = useState<{ key: string; model: ContextModel } | null>(null);
+  const context = expanded?.key === contextKey ? expanded.model : null;
+  const card = useRef<HTMLElement>(null);
+  const collapseButton = useRef<HTMLButtonElement>(null);
   return (
     <article
       className={`file-card ${reviewed ? "reviewed-file" : ""} ${collapsed ? "collapsed-file" : ""}`}
       id={anchor(section, preview.file.path)}
+      ref={card}
     >
       <header className="file-toolbar">
         <button
@@ -414,6 +437,7 @@ function FileCard({
           aria-expanded={!collapsed}
           aria-controls={bodyId}
           onClick={() => setCollapsed(!collapsed)}
+          ref={collapseButton}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
           <FileCode2 className="file-type-icon" size={16} />
@@ -421,6 +445,19 @@ function FileCard({
             <strong>{preview.file.path}</strong>
             {preview.file.oldPath && <small>Renamed from {preview.file.oldPath}</small>}
           </span>
+        </button>
+        <button
+          className={context ? "reset-context active" : "reset-context"}
+          aria-label="Reset context"
+          onClick={() => {
+            setExpanded(null);
+            collapseButton.current!.focus({ preventScroll: true });
+            if (card.current!.getBoundingClientRect().top < 0)
+              card.current!.scrollIntoView({ block: "start" });
+          }}
+        >
+          <FoldVertical size={14} />
+          <span>Reset context</span>
         </button>
         {preview.partial && <span className="pill">Selected blocks</span>}
         <button
@@ -463,12 +500,14 @@ function FileCard({
       )}
       <div id={bodyId} hidden={collapsed}>
         <DiffView
-          key={`${preview.diff.hash}:${source.version}`}
+          key={contextKey}
           preview={preview}
           split={split}
           wrap={wrap}
           ignoreWhitespace={ignoreWhitespace}
           source={source}
+          context={context}
+          onContextChange={(model) => setExpanded({ key: contextKey, model })}
         />
       </div>
     </article>

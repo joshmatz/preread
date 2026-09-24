@@ -12,6 +12,7 @@ interface Hunk {
   newCount: number;
 }
 type Interval = { start: number; end: number; heading: string };
+export const CONTEXT_LINES = 5;
 export interface ContextModel {
   header: string;
   rows: Row[];
@@ -92,10 +93,20 @@ export function contextGaps(model: ContextModel): ContextGap[] {
     return { above, below, all, otherChanges: !all && end > start };
   });
 }
+// Git ends a hunk with CONTEXT_LINES unchanged lines unless the file ends first.
+function endsFile({ rows }: Hunk) {
+  let context = 0;
+  while (context < rows.length && rows[rows.length - 1 - context].text.startsWith(" "))
+    context += 1;
+  return context < CONTEXT_LINES || rows.some((row) => row.text.startsWith("\\"));
+}
 export function initialGaps(patch: string): ContextGap[] {
   const { hunks } = parse(patch);
   return Array.from({ length: hunks.length + 1 }, (_, index) => {
-    if (index === hunks.length) return { above: 0, below: hunks.length ? 20 : 0, all: false };
+    if (index === hunks.length) {
+      const last = hunks.at(-1);
+      return { above: 0, below: last && !endsFile(last) ? 20 : 0, all: false };
+    }
     const hunk = hunks[index];
     const previous = hunks[index - 1];
     const gap = Math.max(

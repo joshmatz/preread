@@ -10,6 +10,7 @@ import { groupPreviews } from "../server/review.ts";
 import {
   createContextModel,
   contextGaps,
+  initialGaps,
   expandContext,
   contextPatch,
 } from "../src/diff-context.ts";
@@ -30,6 +31,7 @@ before(async () => {
   run("config", "user.email", "review@example.test");
   await writeFile(join(repo, "example.ts"), lines);
   await writeFile(join(repo, "rename.ts"), lines);
+  await writeFile(join(repo, "tail.ts"), `${lines}\n`);
   run("add", ".");
   run("commit", "-m", "Base");
   run("switch", "-c", "feature");
@@ -39,6 +41,10 @@ before(async () => {
   await writeFile(join(repo, "example.ts"), edited);
   await rename(join(repo, "rename.ts"), join(repo, "renamed.ts"));
   await writeFile(join(repo, "renamed.ts"), edited);
+  await writeFile(
+    join(repo, "tail.ts"),
+    `${lines.replace("value178 = 178", "value178 = 'tail'")}\n`,
+  );
   run("add", ".");
   run("commit", "-m", "Changes");
   await writeFile(
@@ -147,6 +153,18 @@ test("expansion rejects stale diffs, files outside the comparison and mismatched
     fileContext(repo, "main", "working", "example.ts", local.info.version, local.diff.hash),
     /Refresh/,
   );
+});
+test("the compact diff offers lines below its last hunk only when the file can continue", async () => {
+  const middle = await load("branch");
+  assert.equal(initialGaps(middle.diff.patch).at(-1)!.below, 20);
+  assert.ok(contextGaps(middle.model).at(-1)!.below > 0);
+  const tail = await load("branch", "tail.ts");
+  assert.equal(initialGaps(tail.diff.patch).at(-1)!.below, 0);
+  assert.equal(contextGaps(tail.model).at(-1)!.below, 0);
+  const header = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n";
+  const noNewline = `@@ -1,6 +1,6 @@\n-a\n+b\n${" c\n".repeat(5)}\\ No newline at end of file\n`;
+  assert.equal(initialGaps(header + noNewline).at(-1)!.below, 0);
+  assert.equal(initialGaps(`${header}@@ -0,0 +1,2 @@\n+one\n+two\n`).at(-1)!.below, 0);
 });
 test("zero-count insertion/deletion hunks and multiple changes retain the correct old/new offsets", () => {
   const header = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n";
