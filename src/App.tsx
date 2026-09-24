@@ -47,6 +47,7 @@ import {
   contextPatch,
   type ContextModel,
 } from "./diff-context";
+import { highlightDiff } from "./highlight";
 import "./style.css";
 
 const params = new URLSearchParams(location.search);
@@ -230,7 +231,7 @@ function DiffView({
         if (!change.textContent?.trim()) change.replaceWith(...change.childNodes);
       }
     }
-    view.highlightCode();
+    highlightDiff(element);
     const gaps = context ? contextGaps(context) : initialGaps(patch);
     if (!context && (preview.file.untracked || ["A", "D"].includes(preview.file.status)))
       gaps[gaps.length - 1].below = 0;
