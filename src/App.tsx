@@ -128,6 +128,7 @@ function ThemePicker() {
     </label>
   );
 }
+type Live = { instance: string; refresh: number; reload: number };
 type ContextSource = { path: string; base: string; mode: Mode; version: string };
 // Gap rows gain buttons once context loads and can wrap onto a second line.
 const gapRowsAbove = (element: HTMLElement, gap: number) => {
@@ -164,6 +165,7 @@ function DiffView({
   const patch = context ? contextPatch(context) : preview.diff.patch;
   const reveal = async (gap: number, direction: "above" | "below" | "all") => {
     if (contextBusy) return;
+    const { signal } = abort.current;
     setContextStatus({ gap });
     focusGap.current = gap;
     try {
@@ -172,24 +174,26 @@ function DiffView({
         const expanded = await request<Diff>(
           "context",
           { ...source, file: preview.file.path, hash: preview.contextHash ?? preview.diff.hash },
-          abort.current.signal,
+          signal,
         );
         model = createContextModel(preview.diff.patch, expanded.patch);
       }
-      if (!abort.current.signal.aborted) {
+      if (!signal.aborted) {
         rowsAbove.current = { gap, height: gapRowsAbove(target.current!, gap) };
         onContextChange(expandContext(model, gap, direction));
         setContextStatus(null);
       }
     } catch (cause) {
-      if (!abort.current.signal.aborted) setContextStatus({ gap, error: (cause as Error).message });
+      if (!signal.aborted) setContextStatus({ gap, error: (cause as Error).message });
     }
   };
   useEffect(() => {
     const controller = new AbortController();
     abort.current = controller;
+    focusGap.current = null;
+    setContextStatus(null);
     return () => controller.abort();
-  }, []);
+  }, [source.version, preview.diff.hash]);
   const target = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -501,8 +505,8 @@ function FileCard({
         {preview.diff.image ? (
           <ImageDiff key={preview.diff.hash} preview={preview} split={split} source={source} />
         ) : (
+          // Unkeyed: a remount would collapse the diff to a placeholder and shift the page.
           <DiffView
-            key={contextKey}
             preview={preview}
             split={split}
             wrap={wrap}
@@ -598,6 +602,9 @@ export default function App() {
   const jumped = useRef(false);
   const activeReview = useRef("");
   activeReview.current = `${collectionId}/${reviewId}`;
+  const loadedPath = useRef("");
+  const activeView = useRef("");
+  const loadedView = useRef("");
   const collection = collections.find((entry) => entry.id === collectionId);
   const review = collection?.reviews.find((entry) => entry.id === reviewId);
   const { entries: pullRequests, refreshPullRequest } = usePullRequests(collection, refresh);
@@ -608,6 +615,7 @@ export default function App() {
       ? JSON.stringify({ path, base, mode })
       : "";
   const scope = `${path}|${base}|${mode}`;
+  activeView.current = `${activeReview.current}|${scope}`;
   const fileStateVersion = useFileStateVersion();
   const snapshot = useMemo(
     () =>
@@ -639,6 +647,32 @@ export default function App() {
     { plus: 0, minus: 0 },
   );
 
+  // Polling, not an event stream: a stream per tab would use up the browser's six connections
+  // per host and hang the app.
+  useEffect(() => {
+    let seen: Live | undefined;
+    let pending = false;
+    const check = () => {
+      if (document.hidden || pending) return;
+      pending = true;
+      request<Live>("live")
+        .then((next) => {
+          if (seen && (next.instance !== seen.instance || next.reload !== seen.reload))
+            location.reload();
+          else if (seen && next.refresh !== seen.refresh) setRefresh((value) => value + 1);
+          seen = next;
+        })
+        .catch(() => {})
+        .finally(() => (pending = false));
+    };
+    check();
+    const timer = setInterval(check, 1000);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, []);
   useEffect(() => {
     request<Collection[]>("collections")
       .then((result) => {
@@ -660,6 +694,7 @@ export default function App() {
     setBase(review.base);
     setBaseDraft(review.base);
     setMode(review.mode);
+    setSnapshot(null);
   }, [review?.id, review?.path, review?.base, review?.mode, collectionId]);
   useEffect(() => {
     if (params.get("path") || collectionId) return;
@@ -681,11 +716,12 @@ export default function App() {
   useEffect(() => {
     if (!repositoryPath || (collectionId && !review)) return;
     const abort = new AbortController();
-    setRepo(null);
+    if (loadedPath.current !== repositoryPath) setRepo(null);
     setRepoBusy(true);
     request<Repository>("repository", { path: repositoryPath }, abort.signal)
       .then((result) => {
         if (abort.signal.aborted) return;
+        loadedPath.current = repositoryPath;
         setRepo(result);
         setRepoBusy(false);
         if (!base && !review) {
@@ -717,12 +753,17 @@ export default function App() {
     const abort = new AbortController();
     setBusy(true);
     setError("");
-    setSnapshot(null);
-    setStack(null);
+    // A refresh of the same comparison keeps the reader's place until the new snapshot arrives.
+    if (loadedView.current !== activeView.current) {
+      setSnapshot(null);
+      setStack(null);
+    }
     const { definition: _definition, ...values } = JSON.parse(reviewRequest);
     request<ReviewSnapshot>("review", values, abort.signal)
       .then((result) => {
         if (abort.signal.aborted) return;
+        // The saved review may have moved path, base, or mode while this request ran.
+        loadedView.current = activeView.current;
         setSnapshot(result);
         setBusy(false);
       })

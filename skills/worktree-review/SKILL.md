@@ -1,6 +1,6 @@
 ---
 name: worktree-review
-description: Present local Git changes for human review in the Worktree review app before anything is pushed. Use when the user asks to review, present, or walk through work in one or more worktrees or branches, asks for a review link or collection, or when finished work should be read before a commit, push, or pull request. Writes a collection manifest with worktree paths, comparison bases, and described change groups, imports it with the app's CLI, checks what each group shows, and hands over a local URL.
+description: Present local Git changes for human review in the Worktree review app before anything is pushed. Use when the user asks to review, present, or walk through work in one or more worktrees or branches, asks for a review link or collection, when finished work should be read before a commit, push, or pull request, or when a worktree already under review changed and the open review page should catch up. Writes a collection manifest with worktree paths, comparison bases, and described change groups, imports it with the app's CLI, checks what each group shows, refreshes the open page, and hands over a local URL.
 ---
 
 # Worktree review
@@ -90,7 +90,7 @@ Write the manifest outside every reviewed repository, for example in a temporary
 pnpm collection import /absolute/path/to/manifest.json
 ```
 
-Import rejects unknown fields, empty groups, and paths that aren't repository-relative, and prints the reason. Then check what each group actually contains, without a browser:
+Import rejects unknown fields, empty groups, and paths that aren't repository-relative, and prints the reason. A successful import also refreshes every open review page in place. Then check what each group actually contains, without a browser:
 
 ```sh
 curl -s "http://127.0.0.1:4780/api/review?collection=<collection-id>&review=<review-id>" \
@@ -100,6 +100,18 @@ curl -s "http://127.0.0.1:4780/api/review?collection=<collection-id>&review=<rev
 Fix every warning (a target that left the comparison, a range that matches no change, an overlap with an earlier group) and import again. Ranges drift when lines move, so check again after new commits.
 
 A group with `canReview: false` and no warnings holds a binary file that can't be previewed as an image, a diff over the size limit, or a file that failed to load, so it can't be marked reviewed. Tell the person which files to open locally.
+
+## Keep the page current
+
+Nothing watches the filesystem. After anything that changes what a review shows, such as new commits, edits, or a rebase in a reviewed worktree, run:
+
+```sh
+pnpm refresh
+```
+
+Within a second, every open review page re-reads its collection and worktree in place and keeps the reader's scroll position and Viewed marks. A background tab catches up when the person switches back to it. Import does this on its own. The command can't tell whether any page is open, so still hand over the link.
+
+`pnpm refresh --page` reloads the browser page itself. Use it only when the app's own code changed or the person says the page looks stale, because it drops unsaved text in an open dialog. After you restart the server, open pages reload themselves.
 
 ## Hand over
 

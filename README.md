@@ -124,9 +124,20 @@ Viewed marks belong to a file's current diff. When the diff changes, the mark cl
 
 Reviewed is a reading checkpoint. It doesn't approve anything on GitHub, and it isn't permission to push.
 
+## Keeping the page current
+
+Nothing watches your repositories. The Refresh button re-reads the worktree and the collection behind the page you're on and keeps your scroll position, Viewed marks, and open tabs. Agents can trigger the same refresh from the command line. Open pages check for it once a second, and a background tab catches up when you switch back to it:
+
+```sh
+pnpm refresh          # re-read every open review page in place
+pnpm refresh --page   # reload the browser page itself
+```
+
+Importing a collection refreshes open pages on its own. Use `--page` only when the app itself changed: it reloads the page like the browser's Reload button, so unsaved text in an open dialog is lost. Open pages also reload themselves when the server restarts, so a rebuilt app shows up without a manual reload.
+
 ## Using it with coding agents
 
-This repository includes an agent skill, [`skills/worktree-review`](skills/worktree-review/SKILL.md). It teaches an agent to plan a collection, choose bases from the real branch ancestry, write and import the manifest, check what each group shows, and hand you the link. It never marks work reviewed for you.
+This repository includes an agent skill, [`skills/worktree-review`](skills/worktree-review/SKILL.md). It teaches an agent to plan a collection, choose bases from the real branch ancestry, write and import the manifest, check what each group shows, refresh the page you have open, and hand you the link. It never marks work reviewed for you.
 
 Install it with the [skills CLI](https://github.com/vercel-labs/skills):
 
@@ -150,7 +161,7 @@ Worktree review is checked out at ~/src/worktree-review. Use the worktree-review
 
 - **Read-only Git.** Git runs from argument arrays, never through a shell. Hooks, fsmonitor, external diff tools, and textconv filters are off. Comparisons against the working tree read a private copy of the index, so the app never writes `.git/index`.
 - **Only files in the comparison.** The server reads file contents only for paths in the current comparison. An untracked symlink shows its target path and is never followed. Image previews are sent with a fixed image type under a sandboxing Content Security Policy, and SVG is never rendered, so a preview can't run script.
-- **Loopback only.** The server binds to 127.0.0.1. Its API accepts only `127.0.0.1` and `localhost` hosts and rejects requests that come from any other origin, including other local ports, so websites can't read your code through it, even with DNS rebinding.
+- **Loopback only.** The server binds to 127.0.0.1. Its API accepts only `127.0.0.1` and `localhost` hosts and rejects requests that come from any other origin, including other local ports, so websites can't read your code through it, even with DNS rebinding. Open pages poll a same-origin refresh counter, which carries no repository content.
 - **No third-party requests from the page.** All assets are bundled. There are no fonts, CDNs, or analytics.
 - **Data outside your repositories.** Collections and receipts live in `~/.worktree-review`, in files only your user can read.
 
@@ -173,7 +184,7 @@ Git still applies the repository's own clean filters when it reads working-tree 
 - Repositories and worktrees nested inside a worktree are left out of its untracked files. Review them on their own.
 - Line totals don't count the contents of untracked files.
 - The Commits tab shows the latest 100 commits.
-- Nothing watches the filesystem. Refresh to pick up new commits, edits, or collection changes.
+- Nothing watches the filesystem. Refresh, or have your agent run `pnpm refresh`, to pick up new commits, edits, or collection changes.
 
 ## Development
 

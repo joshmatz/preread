@@ -5,6 +5,7 @@ import { resolve, dirname } from "node:path";
 import { createServer as createViteServer } from "vite";
 import { repository, comparison, fileDiff, fileContext, fileImage, stackFor } from "./git.ts";
 import { listCollections, putCollection } from "./collections.ts";
+import { bump, live } from "./live.ts";
 import { snapshot, adHocReview, resolveReview, markGroup } from "./review.ts";
 import { reviewProgress, progressSource } from "../src/progress.ts";
 import type { Mode } from "../src/types.ts";
@@ -38,6 +39,12 @@ const query = (value: unknown) => (typeof value === "string" ? value : "");
 app.get("/api/bootstrap", (_req, res) =>
   res.json({ defaultPath: process.argv[2] ?? process.env.REVIEW_PATH ?? "" }),
 );
+app.get("/api/live", (_req, res) => res.json(live));
+app.post("/api/refresh", (req, res) => {
+  const page = req.body?.page ?? false;
+  if (typeof page !== "boolean") throw new Error("Invalid refresh request.");
+  res.json(bump(page));
+});
 app.get("/api/repository", async (req, res) => res.json(await repository(query(req.query.path))));
 app.get("/api/compare", async (req, res) =>
   res.json(
