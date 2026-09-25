@@ -81,7 +81,6 @@ body {
 }
 button,
 input,
-select,
 textarea {
   font: inherit;
   color: inherit;
@@ -104,7 +103,6 @@ button:disabled {
   cursor: default;
 }
 input,
-select,
 textarea {
   border: 1px solid var(--border);
   background: var(--canvas);
@@ -124,8 +122,7 @@ textarea {
   outline-offset: 3px;
 }
 button,
-input,
-select {
+input {
   transition:
     background-color 120ms,
     border-color 120ms;
@@ -223,12 +220,6 @@ small,
   gap: 5px;
   color: var(--secondary);
 }
-.theme-picker select {
-  background: transparent;
-  border: 0;
-  padding: 5px 20px 5px 3px;
-  font-size: 12px;
-}
 .collection-bar {
   min-height: 45px;
   display: flex;
@@ -238,16 +229,6 @@ small,
   border-bottom: 1px solid var(--border);
   background: var(--subtle);
   color: var(--secondary);
-}
-.collection-bar select {
-  border: 0;
-  background: transparent;
-  padding: 5px 22px 5px 3px;
-  max-width: 360px;
-  color: var(--text);
-}
-.collection-bar select:first-of-type {
-  font-weight: 600;
 }
 .collection-bar .quiet {
   margin-left: auto;
@@ -333,9 +314,6 @@ h1 {
   gap: 9px;
   align-items: center;
   margin: 18px 0 12px;
-}
-.comparison-bar select {
-  font-size: 12px;
 }
 .base-control {
   display: flex;
@@ -1013,7 +991,6 @@ fieldset {
   --d2h-dark-change-ins-color: var(--add-bg);
   --d2h-dark-change-del-color: var(--del-bg);
 }
-/* Diff2html's code span is itself .hljs; a descendant selector leaves its background opaque. */
 .d2h-wrapper {
   margin: 0;
   text-align: left;
@@ -1046,6 +1023,7 @@ fieldset {
 .d2h-code-line-ctn {
   vertical-align: middle;
 }
+/* Diff2html's code span is itself .hljs; a descendant selector leaves its background opaque. */
 .d2h-code-line-ctn.hljs,
 .d2h-code-line-ctn .hljs {
   background: transparent !important;
@@ -1194,9 +1172,6 @@ fieldset {
   .group-actions {
     max-width: none;
   }
-  .collection-bar select {
-    max-width: 300px;
-  }
   .changes-layout {
     grid-template-columns: 210px minmax(0, 1fr);
   }
@@ -1226,9 +1201,6 @@ fieldset {
   .theme-picker {
     gap: 0;
   }
-  .theme-picker select {
-    padding-right: 8px;
-  }
   .collection-bar {
     padding: 6px 12px;
     flex-wrap: wrap;
@@ -1238,11 +1210,6 @@ fieldset {
   .collection-bar .slash,
   .collection-bar .quiet {
     display: none;
-  }
-  .collection-bar select {
-    max-width: 100%;
-    width: 100%;
-    font-size: 11px;
   }
   .review-header {
     padding: 16px 15px 0;
@@ -1274,9 +1241,6 @@ fieldset {
   .base-control input {
     flex: 1;
     width: auto;
-  }
-  .comparison-bar select {
-    flex: 1;
   }
   .review-tabs {
     gap: 15px;

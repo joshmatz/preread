@@ -26,14 +26,8 @@ import {
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import type { Diff, Mode, Repository, StackNode } from "./types";
-import type {
-  Collection,
-  FilePreview,
-  Review,
-  ReviewSection,
-  ReviewSnapshot,
-} from "./review-types";
-import { whitespaceDiff } from "./whitespace-diff";
+import type { Collection, FilePreview, ReviewSection, ReviewSnapshot } from "./review-types";
+import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesViewed } from "./useFileState";
 import { Picker } from "./Picker";
 import { useCollectionProgress } from "./useCollectionProgress";
@@ -213,7 +207,8 @@ function DiffView({
   useEffect(() => {
     const element = target.current;
     if (!element || !visible || !patch || preview.error) return;
-    const view = new Diff2HtmlUI(element, ignoreWhitespace ? whitespaceDiff(patch) : patch, {
+    const shown = showCarriageReturns(patch);
+    const view = new Diff2HtmlUI(element, ignoreWhitespace ? whitespaceDiff(shown) : shown, {
       drawFileList: false,
       outputFormat: split ? "side-by-side" : "line-by-line",
       matching: "lines",
@@ -653,11 +648,11 @@ export default function App() {
     setMode(review.mode);
   }, [review?.id, review?.path, review?.base, review?.mode, collectionId]);
   useEffect(() => {
-    if (path || collectionId) return;
+    if (params.get("path") || collectionId) return;
     request<{ defaultPath: string }>("bootstrap")
       .then(({ defaultPath }) => {
-        if (defaultPath) setPath(defaultPath);
-        else setOpen(true);
+        if (defaultPath && defaultPath !== path) openPath(defaultPath);
+        else if (!path) setOpen(true);
       })
       .catch((cause) => setError(cause.message));
   }, []);
@@ -680,7 +675,7 @@ export default function App() {
         setRepo(result);
         setRepoBusy(false);
         if (!base && !review) {
-          const chosen = load<string>(`base:${result.path}`, result.defaultBase);
+          const chosen = load<string>(`base:${result.path}`, "") || result.defaultBase;
           setBase(chosen);
           setBaseDraft(chosen);
         }
@@ -1084,13 +1079,15 @@ export default function App() {
                 className="comparison-bar"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  if (baseDraft.trim() === base) setRefresh((value) => value + 1);
+                  const next = baseDraft.trim() || base;
+                  setBaseDraft(next);
+                  if (next === base) setRefresh((value) => value + 1);
                   else {
                     setCollectionId("");
                     setReviewId("");
-                    setBase(baseDraft.trim());
+                    setBase(next);
                   }
-                  save(`base:${path}`, baseDraft.trim());
+                  save(`base:${path}`, next);
                 }}
               >
                 <label className="base-control">

@@ -1,6 +1,15 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm, rename, symlink, readFile, realpath } from "node:fs/promises";
+import {
+  mkdtemp,
+  writeFile,
+  rm,
+  rename,
+  symlink,
+  readFile,
+  realpath,
+  utimes,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -11,6 +20,7 @@ import {
   stackFor,
   resolveRef,
   parseStatuses,
+  trackedPatches,
 } from "../server/git.ts";
 
 let directory: string;
@@ -114,19 +124,58 @@ test("rejects arbitrary filesystem reads and option-like refs", async () => {
 test("does not follow an untracked symlink outside the repository", async () => {
   await writeFile(join(directory, "outside.txt"), "Outside content");
   await symlink(join(directory, "outside.txt"), join(child, "outside-link"));
-  await assert.rejects(fileDiff(child, "main", "working", "outside-link"), /symlink/);
+  const diff = await fileDiff(child, "main", "working", "outside-link");
   await rm(join(child, "outside-link"));
+  assert.match(diff.patch, /new file mode 120000/);
+  assert.match(diff.patch, /\+.*outside\.txt/);
+  assert.doesNotMatch(diff.patch, /Outside content/);
+});
+test("nested repositories stay out of the parent's untracked files", async () => {
+  run(child, "init", "--quiet", "nested");
+  await writeFile(join(child, "nested", "inside.txt"), "Nested content\n");
+  const result = await comparison(child, "main", "working");
+  await rm(join(child, "nested"), { recursive: true, force: true });
+  assert.equal(
+    result.files.some((file) => file.path.startsWith("nested")),
+    false,
+  );
 });
 test("reading changes leaves HEAD, index, and working files untouched", async () => {
   const head = run(child, "rev-parse", "HEAD");
   const status = run(child, "status", "--porcelain=v1");
   const indexPath = run(child, "rev-parse", "--git-path", "index");
+  // A touched but unchanged file is what makes a working-tree diff rewrite the index.
+  const later = new Date(Date.now() + 60_000);
+  await utimes(join(child, "unchanged.txt"), later, later);
   const index = await readFile(indexPath);
-  await comparison(child, "main", "all");
+  const result = await comparison(child, "main", "all");
   await fileDiff(child, "main", "all", "edited.ts");
+  await trackedPatches(child, result, "all");
+  assert.deepEqual(await readFile(indexPath), index);
+  assert.equal(
+    result.files.some((file) => file.path === "unchanged.txt"),
+    false,
+  );
   assert.equal(run(child, "rev-parse", "HEAD"), head);
   assert.equal(run(child, "status", "--porcelain=v1"), status);
-  assert.deepEqual(await readFile(indexPath), index);
+});
+test("the default base follows the remote's default branch", async () => {
+  run(repo, "branch", "develop");
+  const clone = join(directory, "clone");
+  run(directory, "clone", "--quiet", repo, clone);
+  const result = await repository(clone);
+  assert.equal(result.defaultBase, "origin/main");
+  assert.equal(result.refs.includes("origin"), false);
+});
+test("a bare repository is not offered as one of its worktrees", async () => {
+  const bare = join(directory, "bare.git");
+  run(directory, "clone", "--quiet", "--bare", repo, bare);
+  const tree = join(directory, "bare worktree");
+  run(bare, "worktree", "add", "--quiet", tree, "main");
+  assert.deepEqual(
+    (await repository(tree)).worktrees.map((entry) => entry.path),
+    [tree],
+  );
 });
 test("stack shows actual ancestry rather than treating diverged worktrees as parents", async () => {
   run(child, "branch", "stack-parent", "HEAD~1");

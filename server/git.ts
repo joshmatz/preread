@@ -1,8 +1,19 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { realpath, stat, lstat, readFile } from "node:fs/promises";
-import { basename, resolve, isAbsolute, relative, sep } from "node:path";
-import { homedir } from "node:os";
+import { constants } from "node:fs";
+import {
+  realpath,
+  stat,
+  lstat,
+  readFile,
+  readlink,
+  mkdtemp,
+  copyFile,
+  utimes,
+  rm,
+} from "node:fs/promises";
+import { basename, resolve, isAbsolute, relative, sep, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import type { ChangedFile, Comparison, Mode, Worktree, StackNode } from "../src/types.ts";
 import { CONTEXT_LINES } from "../src/diff-context.ts";
@@ -22,9 +33,9 @@ const gitExecutable = async () => {
   }
 };
 const executable = gitExecutable();
-const MAX_PATCH = 2 * 1024 * 1024;
+export const MAX_PATCH = 2 * 1024 * 1024;
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
-export const git = async (cwd: string, args: string[]) => {
+export const git = async (cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) => {
   const { stdout } = await execute(
     await executable,
     [
@@ -36,6 +47,8 @@ export const git = async (cwd: string, args: string[]) => {
       "core.hooksPath=/dev/null",
       "-c",
       "core.quotePath=false",
+      "-c",
+      "log.showSignature=false",
       ...args,
     ],
     {
@@ -43,10 +56,43 @@ export const git = async (cwd: string, args: string[]) => {
       encoding: "utf8",
       maxBuffer: 24 * 1024 * 1024,
       timeout: 20_000,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat" },
+      env: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: "0",
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_PAGER: "cat",
+        ...env,
+      },
     },
   );
   return stdout;
+};
+// Diffing the working tree refreshes stat-dirty index entries and rewrites the index even
+// with --no-optional-locks, so those reads use a private copy of the index.
+const withPrivateIndex = async <TResult>(
+  path: string,
+  mode: Mode,
+  read: (env: NodeJS.ProcessEnv) => Promise<TResult>,
+) => {
+  if (mode !== "all" && mode !== "working") return read({});
+  const index = (
+    await git(path, ["rev-parse", "--path-format=absolute", "--git-path", "index"])
+  ).trim();
+  const directory = await mkdtemp(join(tmpdir(), "worktree-review-"));
+  const copy = join(directory, "index");
+  try {
+    try {
+      const { atime, mtime } = await stat(index);
+      await copyFile(index, copy, constants.COPYFILE_FICLONE);
+      // Git rechecks files as new as the index file, so the copy keeps its mtime.
+      await utimes(copy, atime, mtime);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    return await read({ GIT_INDEX_FILE: copy });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 };
 const localPath = async (input: string) => {
   if (!input || input.includes("\0")) throw new Error("Enter a local repository or worktree path.");
@@ -68,7 +114,7 @@ export const worktreesFor = async (path: string): Promise<Worktree[]> => {
   const raw = await git(path, ["worktree", "list", "--porcelain", "-z"]);
   const records = raw
     .split("\0\0")
-    .filter(Boolean)
+    .filter((record) => record && !record.split("\0").includes("bare"))
     .map((record) => {
       const fields = record.split("\0");
       const get = (key: string) =>
@@ -93,22 +139,36 @@ export const worktreesFor = async (path: string): Promise<Worktree[]> => {
 };
 export const repository = async (input: string) => {
   const path = await rootFor(input);
-  const [trees, refsText, head, branch, commonDir, status] = await Promise.all([
+  const [trees, refsText, head, branch, commonDir, status, remoteHead] = await Promise.all([
     worktreesFor(path),
-    git(path, ["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"]),
+    git(path, [
+      "for-each-ref",
+      "--format=%(refname)%00%(refname:short)",
+      "refs/heads",
+      "refs/remotes",
+    ]),
     resolveRef(path, "HEAD"),
     git(path, ["branch", "--show-current"]),
     git(path, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     git(path, ["status", "--porcelain", "-z", "--untracked-files=normal"]),
+    git(path, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).catch(() => ""),
   ]);
   const refs = refsText
     .trim()
     .split("\n")
-    .filter((ref) => ref && !ref.endsWith("/HEAD"));
+    .map((line) => line.split("\0"))
+    .filter(([name]) => name && !name.endsWith("/HEAD"))
+    .map(([, short]) => short);
   const defaultBase =
-    ["origin/develop", "origin/main", "origin/master", "develop", "main", "master"].find((ref) =>
-      refs.includes(ref),
-    ) ?? "HEAD";
+    [
+      remoteHead.trim(),
+      "origin/develop",
+      "origin/main",
+      "origin/master",
+      "develop",
+      "main",
+      "master",
+    ].find((ref) => ref && refs.includes(ref)) ?? "HEAD";
   return {
     path,
     name: basename(resolve(commonDir.trim(), "..")),
@@ -214,12 +274,16 @@ export const comparison = async (
   const resolved = source ?? (await comparisonSource(input, base, mode));
   const { path, revisions, head, mergeBase } = resolved;
   const options = ["--no-ext-diff", "--no-textconv", "--find-renames"];
-  const [statuses, stats, untracked, commitsRaw, count] = await Promise.all([
-    git(path, ["diff", ...options, "--name-status", "-z", ...revisions, "--"]),
-    git(path, ["diff", ...options, "--numstat", "-z", ...revisions, "--"]),
-    mode === "all" || mode === "working"
-      ? git(path, ["ls-files", "--others", "--exclude-standard", "-z"])
-      : "",
+  const [[statuses, stats, untracked], commitsRaw, count] = await Promise.all([
+    withPrivateIndex(path, mode, (env) =>
+      Promise.all([
+        git(path, ["diff", ...options, "--name-status", "-z", ...revisions, "--"], env),
+        git(path, ["diff", ...options, "--numstat", "-z", ...revisions, "--"], env),
+        mode === "all" || mode === "working"
+          ? git(path, ["ls-files", "--others", "--exclude-standard", "-z"], env)
+          : "",
+      ]),
+    ),
     git(path, [
       "log",
       "--max-count=100",
@@ -232,7 +296,8 @@ export const comparison = async (
   const files = parseStatuses(statuses);
   addStats(files, stats);
   const warnings: string[] = [];
-  for (const name of untracked.split("\0").filter(Boolean)) {
+  // Nested repositories and worktrees are listed as "dir/"; review them on their own.
+  for (const name of untracked.split("\0").filter((name) => name && !name.endsWith("/"))) {
     files.push({
       path: name,
       status: "?",
@@ -295,24 +360,22 @@ export const fileDiff = async (
   let binary = file.binary;
   if (file.untracked) {
     const absolute = resolve(path, name);
-    const resolved = await realpath(absolute);
-    const contained = relative(path, resolved);
-    if (
-      contained.startsWith(`..${sep}`) ||
-      isAbsolute(contained) ||
-      (await lstat(absolute)).isSymbolicLink()
-    ) {
-      throw new Error("Untracked symlink targets are not opened. Review the link locally.");
-    }
-    const size = (await stat(absolute)).size;
-    tooLarge = size > MAX_PATCH;
-    if (!tooLarge) {
-      const content = await readFile(absolute);
-      binary = content.includes(0);
-      if (!binary) {
-        const text = content.toString("utf8");
-        const lines = text ? text.replace(/\n$/, "").split("\n") : [];
-        patch = `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n`;
+    if ((await lstat(absolute)).isSymbolicLink()) {
+      patch = `diff --git a/${name} b/${name}\nnew file mode 120000\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1 @@\n+${await readlink(absolute)}\n\\ No newline at end of file\n`;
+    } else {
+      const contained = relative(path, await realpath(absolute));
+      if (contained.startsWith(`..${sep}`) || isAbsolute(contained))
+        throw new Error("This file resolves outside the repository. Review it locally.");
+      const size = (await stat(absolute)).size;
+      tooLarge = size > MAX_PATCH;
+      if (!tooLarge) {
+        const content = await readFile(absolute);
+        binary = content.includes(0);
+        if (!binary) {
+          const text = content.toString("utf8");
+          const lines = text ? text.replace(/\n$/, "").split("\n") : [];
+          patch = `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n`;
+        }
       }
     }
   } else {
@@ -323,7 +386,7 @@ export const fileDiff = async (
           ? ["--cached", info.head]
           : [info.mergeBase];
     try {
-      patch = await git(path, [
+      const args = [
         "diff",
         "--no-ext-diff",
         "--no-textconv",
@@ -336,7 +399,8 @@ export const fileDiff = async (
         "--",
         ...(file.oldPath ? [file.oldPath] : []),
         file.path,
-      ]);
+      ];
+      patch = await withPrivateIndex(path, mode, (env) => git(path, args, env));
       tooLarge = Buffer.byteLength(patch) > MAX_PATCH;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
@@ -359,7 +423,7 @@ export async function trackedPatches(path: string, info: Comparison, mode: Mode)
       : mode === "staged"
         ? ["--cached", info.head]
         : [info.mergeBase];
-  const output = await git(path, [
+  const args = [
     "diff",
     "--no-ext-diff",
     "--no-textconv",
@@ -373,7 +437,8 @@ export async function trackedPatches(path: string, info: Comparison, mode: Mode)
     "--patch",
     ...revisions,
     "--",
-  ]);
+  ];
+  const output = await withPrivateIndex(path, mode, (env) => git(path, args, env));
   if (!output) return new Map<string, string>();
   const boundary = output.indexOf("\0\0");
   if (boundary < 0) throw new Error("Could not read the changed-file patches.");

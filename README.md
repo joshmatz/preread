@@ -1,75 +1,94 @@
 # Worktree review
 
-A private local review app at `/Users/joshmatz/Projects/joshmatz/worktree-review`. It reads Git without checking out branches, staging, committing, fetching, or pushing. Linked PRs can read their status from GitHub through your signed-in `gh` CLI.
+Read what your coding agents wrote, on your own machine, before any of it becomes a pull request.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/review-dark.png">
+  <img alt="A review titled Retry failed webhook deliveries. The outline lists three described change groups plus Other changes. The first group is marked All viewed and collapsed; the second group's diff is open below it." src="docs/screenshots/review-light.png">
+</picture>
+
+Agents that work in parallel leave you with a pile of worktrees and branches to read. Worktree review lets the agent hand you a reading list instead: a collection of reviews, each pointing at a worktree and the base to compare it with, and each diff split into change groups that say what changed and why. You read in the browser and mark files Viewed as you go. The app keeps track of what you've finished and reopens anything that changes after you read it.
+
+It only reads Git. It never checks out, stages, commits, fetches, or pushes, and it runs on your machine. Its only network calls are optional pull request status reads through the GitHub CLI.
+
+## What you get
+
+- **Collections.** Related changes in one reading list, even across worktrees and repositories. Each review has its own base, so a stacked branch shows only its own layer.
+- **Change groups.** Files, or individual hunks, grouped under a title and a description of the decision. Anything left unassigned appears under Other changes, so nothing is hidden.
+- **Progress that follows the code.** A group is reviewed once every file in it is Viewed. When a file's diff changes, its mark clears and the group reopens.
+- **Four comparisons.** Branch commits, branch plus local edits (including untracked files), uncommitted changes, and staged changes.
+- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, context that expands 20 lines at a time, and private notes on any file.
+- **Pull request status.** Link a review to a GitHub pull request to see its state, checks, and review decision, and whether your local head and base still match it.
+- **Light and dark themes.** It follows your system setting by default.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/collection-dark.png">
+  <img alt="The collection view for Webhook delivery reliability: an overall progress bar reading 1 of 3 items reviewed, and a card for each review with its description, reviewed-group count, and base." src="docs/screenshots/collection-light.png">
+</picture>
+
+## Requirements
+
+- Node.js 22.13 or later
+- pnpm 11
+- Git 2.36 or later
+- Optional: the [GitHub CLI](https://cli.github.com), signed in, for pull request status
+
+Developed on macOS; the tests also run on Linux. Windows isn't supported.
+
+## Quick start
 
 ```sh
+git clone https://github.com/joshmatz/worktree-review.git
+cd worktree-review
 pnpm install
-pnpm dev /absolute/path/to/worktree
-# Or use the built version:
 pnpm build
-pnpm start /absolute/path/to/worktree
+pnpm start
 ```
 
-Open **http://127.0.0.1:4780**. The folder argument is optional. `PORT=4781 pnpm dev` uses a different port. The server binds to loopback, rejects foreign-origin API requests, and bundles all assets locally.
+Open <http://127.0.0.1:4780>, choose **Open folder**, and enter the absolute path of a repository or worktree. You can also pass an absolute path at startup with `pnpm start /path/to/worktree`.
 
-## Reviewing
+That opens an ad hoc comparison. Pick a base and a mode, then **Save a named review** to keep it. The app is most useful with collections, which you or your agent write as a manifest.
 
-The compact collection and review selectors replace the all-worktrees sidebar. A collection is a curated reading list, not a Git stack. Each review has its own friendly title, description, worktree path, base, and comparison mode. The Collection tab shows descriptions and current reviewed-group counts for every review, plus collection-wide completion. The review picker shows the same progress. All groups, including Other changes, must be reviewed before an item is complete; changed content reopens it. Items with no changes are labeled separately, and unavailable worktrees never count as complete. Progress is rechecked when opening the collection or refreshing; marking a group updates the current item immediately. Git ancestry remains a separate view of actual branch relationships.
+## Collections
 
-Files appear in one continuous scroll, organized into described change groups. The outline jumps to a file without hiding the others. Diffs render as they approach the viewport. Unified and split views share the same content. Gap controls reveal 20 lines above or below a change; after loading context, **Show all … lines** reveals the remaining unchanged gap. **Reset context** restores the compact diff. Extra context is fetched only on demand, uses the same comparison, and never changes review receipts or includes another group’s changed blocks. Stale worktree content must be refreshed before expansion. The **Ignore whitespace** toggle hides spacing-only changes, preserves line breaks, and remembers your preference in both layouts. Files and groups remain listed, with a notice for whitespace-only blocks; review status and totals still cover the original diff. The Wrap lines toggle applies to both layouts and remembers your preference; split rows stay aligned as their text wraps. Theme-aware pickers provide keyboard navigation and searchable collection/review choices. Light, Dark, and System themes are available; System is the default and follows changes in the OS preference.
-
-- **Branch commits** compares the merge base of the selected base and HEAD against HEAD.
-- **Branch + local edits** includes committed, staged, unstaged, and untracked changes since that merge base.
-- **Uncommitted changes** compares HEAD with the working tree.
-- **Staged changes** compares HEAD with the index.
-
-Choose the actual parent branch to inspect one layer, or the development branch to inspect cumulative changes. Verify that the chosen base has the intended local commit; the app never fetches automatically. Editing comparison controls opens an ad hoc comparison and leaves the saved review configuration untouched.
-
-A review can link to a GitHub PR through **Edit review details → Pull request URL** or the optional `pullRequest` manifest field. Links and draft/open/merged/closed status appear in the review header and collection. The header also shows checks, GitHub review status, and whether the local head/base match the PR. Local reviewed-group receipts remain independent of GitHub approval. PR reads run separately from diffs with two background workers, a 60-second cache, and request coalescing. **Refresh PR status** bypasses the cache; failed refreshes clearly retain the last known status. No GitHub writes or automatic Git fetches occur.
-
-Use **Save a named review** for an ad hoc comparison. Names and descriptions can be edited with the pencil controls. **Add change group** assigns whole files; agents can assign individual change blocks through the manifest below. Unassigned files and blocks always appear under **Other changes**.
-
-A group is reviewed when all of its current files (or selected blocks) are Viewed. The outline, review picker, and collection completion all derive from those same marks, including existing marks saved in the browser. **Mark all viewed** checks and collapses every file in the group; **All viewed** clears those marks. Individual file buttons stay available, so unchecking one immediately reopens the group. Changed file content needs viewing again. Unavailable previews or unmatched assignments still block completion. Reviewed is a reading checkpoint, never permission to publish.
-
-File Viewed marks are browser-local and synchronize between tabs on the same origin. Bulk group marks also retain the existing disk receipt as a default for other browsers; an explicit file mark in this browser takes precedence. Collection status reads compact file identities to include these browser-local marks, without fetching every diff or writing review receipts automatically.
-
-Click a file’s chevron or name to collapse or expand it. Marking a file Viewed collapses it and dims its outline entry; clearing Viewed reopens it. You can expand a viewed file without clearing its mark. Viewed and collapse states persist across refreshes in this browser and reset when that file’s diff changes. Individual Viewed buttons and private file notes are browser-local. Bulk receipts and collection descriptions are on disk; browser file marks survive browser/server restarts. Repository files are never changed by the application.
-
-## Agent workflow and manifest
-
-Create or update a collection with the CLI, preserving stable collection/review/group IDs so existing review receipts remain useful. Read an existing collection before editing; import replaces that collection’s configuration, but preserves the separate user review receipts. Do not mark real work reviewed on Josh’s behalf.
+A collection is a JSON manifest. Import it with the CLI, which prints a link to the first review:
 
 ```sh
-pnpm collection list
-pnpm collection show copilot-tools
 pnpm collection import /absolute/path/to/manifest.json
+pnpm collection list
+pnpm collection show <collection-id>
 ```
 
-The import command prints a local URL. To present a specific review, use `http://127.0.0.1:4780/?collection=copilot-tools&review=nested-groups`. Raw comparisons still support `?path=<encoded-absolute-path>&base=<encoded-ref>&mode=branch`. A `file` parameter jumps to that file. Copy link also preserves an outline anchor.
+Open any review directly at `http://127.0.0.1:4780/?collection=<collection-id>&review=<review-id>`.
 
 ```json
 {
-  "id": "example-collection",
-  "title": "Claim reporting decisions",
-  "description": "Related changes to review together; each has its own base.",
+  "id": "webhook-reliability",
+  "title": "Webhook delivery reliability",
+  "description": "Three changes planned for the next release. Read them in order.",
   "reviews": [
     {
-      "id": "status-reason",
-      "title": "Group claims by Status Reason",
-      "description": "Explain the behavior, reason for the change, and practical impact.",
-      "path": "/absolute/path/to/worktree",
-      "base": "codex/actual-parent-branch",
+      "id": "delivery-retries",
+      "title": "Retry failed webhook deliveries",
+      "description": "Failed deliveries now retry with exponential backoff instead of failing on the first error.",
+      "path": "/Users/you/src/courier-retries",
+      "base": "main",
       "mode": "branch",
-      "pullRequest": "https://github.com/owner/repo/pull/123",
+      "pullRequest": "https://github.com/owner/repo/pull/142",
       "groups": [
         {
-          "id": "projection",
-          "title": "Add the search projection",
-          "description": "Explain this decision and what needs attention.",
+          "id": "backoff-policy",
+          "title": "Backoff policy",
+          "description": "A pure function decides when to try again. Check the jitter bounds and the 30-minute cap.",
+          "targets": [{ "path": "src/delivery/backoff.ts" }, { "path": "test/backoff.test.ts" }]
+        },
+        {
+          "id": "delivery-worker",
+          "title": "Delivery worker",
+          "description": "Records every attempt and schedules the next one.",
           "targets": [
-            { "path": "src/index-config.ts" },
             {
-              "path": "src/shared-file.ts",
+              "path": "src/delivery/worker.ts",
               "ranges": [{ "side": "new", "start": 40, "end": 52 }]
             }
           ]
@@ -80,18 +99,92 @@ The import command prints a local URL. To present a specific review, use `http:/
 }
 ```
 
-File paths are exact and repository-relative. Omit `ranges` to include the whole file. Ranges use one-based old/new diff line numbers and select every complete Git change block (hunk) containing a changed line in that range, including its context. Use `old` for deleted lines. This deliberately does not split a replacement halfway through. Check the rendered selection after assigning ranges; moved lines may need updated ranges. Give each block one group; overlapping assignments produce an explicit warning. Unmatched ranges leave the diff in Other changes rather than hiding it.
+| Field | Meaning |
+| --- | --- |
+| `id` | Lowercase letters, digits, and hyphens, up to 80 characters. Keep IDs stable, because review receipts are keyed by them. `other-changes` is reserved. |
+| `path` | Absolute path to the worktree or repository. |
+| `base` | Any ref Git can resolve locally. Required for `branch` and `all`. The app never fetches, so make sure the ref has the commits you expect. |
+| `mode` | `branch` compares the merge base of `base` and HEAD with HEAD. `all` adds staged, unstaged, and untracked changes. `working` compares HEAD with the working tree, including untracked files. `staged` compares HEAD with the index. |
+| `pullRequest` | Optional GitHub pull request URL. |
+| `targets[].path` | Exact, repository-relative file path. |
+| `targets[].ranges` | Optional. One-based diff line numbers on the `new` side, or `old` for deleted lines. A range selects every complete hunk with a changed line inside it; hunks are never split. |
 
-The app stores collection manifests in `~/.worktree-review/collections/` and user review receipts in `~/.worktree-review/reviews/`. `WORKTREE_REVIEW_DATA_DIR` overrides that directory for isolated tests. Use the CLI for configuration; leave receipt files to the UI. Metadata stays outside reviewed repositories.
+Import rejects unknown fields, empty groups, and paths that aren't repository-relative, so a typo fails instead of importing a group that shows nothing. It replaces a collection's configuration and keeps its review receipts. Every changed hunk shows up somewhere: in the group that claims it, or under Other changes. A target that no longer matches the diff gets a warning, and so does a hunk claimed by two groups. Editing a comparison in the UI opens an ad hoc view and leaves the saved review alone.
 
-## Limits and validation
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/split-dark.png">
+  <img alt="Split view of a stacked review whose base is the retry branch, so it shows only the dashboard layer: a table gains an Attempts column and a RetryBadge cell." src="docs/screenshots/split-light.png">
+</picture>
 
-An existing repository needs at least one commit. Diffs over 2 MB receive an explicit notice. A review previews at most 500 files and roughly 24 MB of patch text; remaining files stay listed with an unavailable-preview message. Tracked line totals exclude untracked-file contents. Commit history shows the latest 100 commits. Refresh explicitly to load filesystem changes or agent updates to a collection.
+## Reviewing
 
-`pnpm test` uses disposable Git repositories for merge-base behavior, staged/unstaged separation, renames, symlink boundaries, literal filenames, repository/index immutability, partial-file grouping, review persistence, and stale-mark rejection. `pnpm build` checks TypeScript and builds the UI. Use the Codex in-app browser for visual checks.
+Mark a file **Viewed** to collapse it, or use **Mark all viewed** for a whole group. A group counts as reviewed when all of its files are Viewed, and a review is complete when every group is, including Other changes. The collection view shows progress for every review and rechecks it each time you open it.
 
-## Measuring local performance
+Viewed marks belong to a file's current diff. When the diff changes, the mark clears and the group needs reading again. Marks and notes are saved in your browser. **Mark all viewed** also writes a receipt to disk, so another browser starts from it.
 
-Run `pnpm benchmark <collection-id>` against the running server to measure opening its first review, checking every item with two background workers, and repeating those reads. Restart the server first for a cold first-open measurement. The benchmark only reads existing work and never marks anything reviewed. Browser rendering should also be checked in the in-app browser.
+Reviewed is a reading checkpoint. It doesn't approve anything on GitHub, and it isn't permission to push.
 
-Branch reviews share bounded in-memory Git content keyed by resolved HEAD and base commit IDs. Each request rechecks those refs and reads current group descriptions and receipts, so new commits, changed bases, and review decisions remain visible. Mutable working-tree and staged comparisons are reread. Patch reads are batched, and review navigation does not wait for repository metadata or the collection's background status checks.
+## Using it with coding agents
+
+This repository includes an agent skill, [`skills/worktree-review`](skills/worktree-review/SKILL.md). It teaches an agent to plan a collection, choose bases from the real branch ancestry, write and import the manifest, check what each group shows, and hand you the link. It never marks work reviewed for you.
+
+Install it with the [skills CLI](https://github.com/vercel-labs/skills):
+
+```sh
+npx skills add joshmatz/worktree-review
+```
+
+Or link it into your agent's skills directory by hand. For Claude Code:
+
+```sh
+mkdir -p ~/.claude/skills && ln -s "$PWD/skills/worktree-review" ~/.claude/skills/worktree-review
+```
+
+Then tell the agent where the app is checked out, for example in your global agent instructions:
+
+```text
+Worktree review is checked out at ~/src/worktree-review. Use the worktree-review skill to present finished work before you push.
+```
+
+## Security
+
+- **Read-only Git.** Git runs from argument arrays, never through a shell. Hooks, fsmonitor, external diff tools, and textconv filters are off. Comparisons against the working tree read a private copy of the index, so the app never writes `.git/index`.
+- **Only files in the comparison.** The server reads file contents only for paths in the current comparison. An untracked symlink shows its target path and is never followed.
+- **Loopback only.** The server binds to 127.0.0.1. Its API accepts only `127.0.0.1` and `localhost` hosts and rejects requests that come from any other origin, including other local ports, so websites can't read your code through it, even with DNS rebinding.
+- **No third-party requests from the page.** All assets are bundled. There are no fonts, CDNs, or analytics.
+- **Data outside your repositories.** Collections and receipts live in `~/.worktree-review`, in files only your user can read.
+
+Git still applies the repository's own clean filters when it reads working-tree files, and in a partial clone it may download missing file contents from the remote to build a diff. As with any Git client, open only repositories whose `.git/config` you trust.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `4780` | Server port |
+| `WORKTREE_REVIEW_DATA_DIR` | `~/.worktree-review` | Where collections and receipts are stored |
+| `REVIEW_PATH` | none | Absolute path of a folder to open when the app loads without a link, like the first argument to `pnpm start` |
+
+## Limits
+
+- A repository needs at least one commit.
+- A review previews up to 500 files and about 24 MB of patch text, and a single file's diff up to 2 MB. Anything over those limits stays listed with a notice.
+- Binary files and diffs over the limits can't be marked Viewed, so the group that contains one, and its review, stay incomplete.
+- Repositories and worktrees nested inside a worktree are left out of its untracked files. Review them on their own.
+- Line totals don't count the contents of untracked files.
+- The Commits tab shows the latest 100 commits.
+- Nothing watches the filesystem. Refresh to pick up new commits, edits, or collection changes.
+
+## Development
+
+```sh
+pnpm dev                         # server with Vite middleware and hot reload
+pnpm test                        # tests against disposable Git repositories
+pnpm build                       # type check and production build
+pnpm benchmark <collection-id>   # time opening and checking a collection on the running server
+```
+
+[DESIGN.md](DESIGN.md) records the interface decisions. [AGENTS.md](AGENTS.md) has the rules for agents working on this repository.
+
+## License
+
+[MIT](LICENSE)

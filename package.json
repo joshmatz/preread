@@ -2,12 +2,25 @@
   "name": "worktree-review",
   "version": "0.1.0",
   "private": true,
+  "description": "Review local Git worktrees in curated, described collections before anything is pushed.",
+  "license": "MIT",
+  "author": "Josh Matz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joshmatz/worktree-review.git"
+  },
+  "homepage": "https://github.com/joshmatz/worktree-review#readme",
+  "bugs": "https://github.com/joshmatz/worktree-review/issues",
   "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "dev": "tsx watch server/index.ts",
     "build": "tsc --noEmit && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 tsx --test tests/*.test.ts",
     "collection": "tsx scripts/collections.ts",
     "benchmark": "tsx scripts/benchmark.ts"
   },

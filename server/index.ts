@@ -1,4 +1,5 @@
 import express from "express";
+import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import { createServer as createViteServer } from "vite";
@@ -11,6 +12,7 @@ import type { Mode } from "../src/types.ts";
 import { readPullRequest } from "./pullRequests.ts";
 
 const app = express();
+const server = createServer(app);
 const port = Number(process.env.PORT || 4780);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -18,10 +20,11 @@ app.disable("x-powered-by");
 app.use("/api", (req, res, next) => {
   const origin = req.get("origin");
   const host = req.get("host") ?? "";
+  const site = req.get("sec-fetch-site");
   if (
     !hosts.has(host) ||
     (origin && origin !== `http://${host}`) ||
-    req.get("sec-fetch-site") === "cross-site"
+    (site && site !== "same-origin" && site !== "none")
   ) {
     res.status(403).json({ error: "Local review requests must come from this app." });
     return;
@@ -109,7 +112,20 @@ if (process.env.NODE_ENV === "production") {
   app.use(express.static(resolve(root, "dist")));
   app.get("/{*path}", (_req, res) => res.sendFile(resolve(root, "dist/index.html")));
 } else {
-  const vite = await createViteServer({ root, server: { middlewareMode: true }, appType: "spa" });
+  // Without an HMR server, middleware mode opens its own WebSocket port on every interface.
+  const vite = await createViteServer({
+    root,
+    server: { middlewareMode: true, hmr: { server } },
+    appType: "spa",
+  });
   app.use(vite.middlewares);
 }
-app.listen(port, "127.0.0.1", () => console.log(`Worktree review: http://127.0.0.1:${port}`));
+server.on("error", (error: NodeJS.ErrnoException) => {
+  console.error(
+    error.code === "EADDRINUSE"
+      ? `Port ${port} is already in use. Set PORT to use another port.`
+      : error.message,
+  );
+  process.exit(1);
+});
+server.listen(port, "127.0.0.1", () => console.log(`Worktree review: http://127.0.0.1:${port}`));

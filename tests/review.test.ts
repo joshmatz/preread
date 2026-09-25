@@ -9,9 +9,11 @@ import {
   validateCollection,
   putCollection,
   readCollection,
+  listCollections,
   setReceipt,
   readReceipts,
 } from "../server/collections.ts";
+import { reviewContent } from "../server/patches.ts";
 import type { Collection, FilePreview, ChangeGroup } from "../src/review-types.ts";
 
 const patch =
@@ -102,6 +104,12 @@ test("review receipts survive changes in an unrelated block of the same file", (
     false,
   );
 });
+test("receipts cover text after a carriage return or line separator", () => {
+  for (const separator of ["\r", "\u2028", "\u2029"]) {
+    const edited = (value: string) => `${patch}+safe${separator}index ${value}\n`;
+    assert.notEqual(reviewContent(edited("1")), reviewContent(edited("2")));
+  }
+});
 test("overlapping and missing assignments stay visible and cannot be silently marked reviewed", () => {
   const result = groupPreviews(
     [preview],
@@ -150,7 +158,10 @@ test("collection validation rejects traversal, malformed ranges, duplicate IDs a
     /Duplicate/,
   );
   for (const targets of [
+    [],
     [{ path: "../secret" }],
+    [{ path: "./example.ts" }],
+    [{ path: "example.ts", range: [{ side: "new", start: 1, end: 1 }] }],
     [{ path: "example.ts", ranges: [] }],
     [{ path: "example.ts", ranges: [{ side: "new", start: 8, end: 2 }] }],
   ]) {
@@ -169,6 +180,22 @@ test("collection validation rejects traversal, malformed ranges, duplicate IDs a
       }),
     /reserved/,
   );
+  assert.throws(
+    () => validateCollection({ ...collection, reviews: [{ ...collection.reviews[0], group: [] }] }),
+    /Unknown field “group” in reviews\[0\]/,
+  );
+  assert.throws(
+    () => validateCollection({ ...collection, reviews: [{ ...collection.reviews[0], base: " " }] }),
+    /needs a base/,
+  );
+});
+test("an unreadable collection file does not hide the other collections", async () => {
+  await putCollection(collection);
+  const broken = join(directory, "metadata", "collections", "broken.json");
+  await writeFile(broken, "{");
+  const ids = (await listCollections()).map((entry) => entry.id);
+  await rm(broken);
+  assert.equal(ids.includes("fixture"), true);
 });
 test("importing descriptions preserves user review receipts and concurrent writes preserve both groups", async () => {
   await putCollection(collection);

@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { comparison, comparisonSource, comparisonRefs, fileDiff, trackedPatches } from "./git.ts";
+import {
+  comparison,
+  comparisonSource,
+  comparisonRefs,
+  fileDiff,
+  trackedPatches,
+  MAX_PATCH,
+} from "./git.ts";
 import { readCollection, readReceipts, receiptKey, setReceipt } from "./collections.ts";
 import { matchesRanges, parsePatch, patchFor, reviewContent } from "./patches.ts";
 import type {
@@ -172,8 +179,7 @@ async function readReviewData(
   const path = source.path;
   const info = await comparison(path, review.base, review.mode, source);
   const files: FilePreview[] = [];
-  // A single Git read replaces a separate process (and root lookup) for every file.
-  // Very large patches fall back to the existing bounded per-file reader.
+  // When the combined read fails, each file falls back to the bounded per-file reader.
   const patches =
     info.files.length <= 500
       ? await trackedPatches(path, info, review.mode).catch(() => null)
@@ -192,7 +198,7 @@ async function readReviewData(
         try {
           const patch = patches?.get(file.path);
           if (!file.untracked && patch !== undefined) {
-            const tooLarge = Buffer.byteLength(patch) > 2 * 1024 * 1024;
+            const tooLarge = Buffer.byteLength(patch) > MAX_PATCH;
             return {
               file,
               partial: false,
@@ -239,7 +245,7 @@ export async function snapshot(review: Review, collectionId?: string): Promise<R
     readReviewData(review, await comparisonSource(review.path, review.base, review.mode, refs));
   let data: ReviewData;
   if (review.mode === "branch") {
-    // Validate refs on every request. Only immutable Git content is shared, never review receipts.
+    // Only immutable Git content is shared, never review receipts.
     const key = JSON.stringify([refs.path, review.base, refs.head, refs.baseSha]);
     let entry = branchCache.get(key);
     if (entry) {

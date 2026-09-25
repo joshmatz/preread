@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createTwoFilesPatch } from "diff";
-import { whitespaceDiff } from "../src/whitespace-diff.ts";
+import { parse } from "diff2html";
+import { showCarriageReturns, whitespaceDiff } from "../src/whitespace-diff.ts";
 import { createContextModel, expandContext, contextPatch } from "../src/diff-context.ts";
 import { parsePatch, patchFor } from "../server/patches.ts";
 
@@ -67,4 +68,13 @@ test("selected groups and expanded context retain their boundaries while ignorin
     displayed.some((line) => line.type === "insert" && line.content.includes("updated 13")),
   );
   assert.ok(displayed.every((line) => !line.content.includes("another group's change")));
+});
+test("a bare carriage return stays visible inside its changed line", () => {
+  const [file] = parse(
+    showCarriageReturns("--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-old();\n+ok();\rhidden();\n"),
+  );
+  assert.deepEqual(
+    file.blocks[0].lines.map((line) => line.content),
+    ["-old();", "+ok();\u240dhidden();"],
+  );
 });
