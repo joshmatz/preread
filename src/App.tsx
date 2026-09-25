@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Copy,
   FileCode2,
+  FileImage,
   FoldVertical,
   FolderGit2,
   GitBranch,
@@ -33,6 +34,7 @@ import { Picker } from "./Picker";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
+import { ImageDiff } from "./ImageDiff";
 import { usePullRequests } from "./usePullRequests";
 import {
   createContextModel,
@@ -413,7 +415,9 @@ function FileCard({
   const noteKey = `${scope}|${preview.file.path}`;
   const [notesOpen, setNotesOpen] = useState(false);
   const [note, setNote] = useState(load<Record<string, string>>("notes", {})[noteKey] ?? "");
-  const valid = !preview.error && !preview.diff.tooLarge && !preview.diff.binary;
+  const valid =
+    !preview.error && !preview.diff.tooLarge && (!preview.diff.binary || !!preview.diff.image);
+  const FileIcon = preview.diff.image ? FileImage : FileCode2;
   const contextKey = `${preview.diff.hash}:${source.version}`;
   const [expanded, setExpanded] = useState<{ key: string; model: ContextModel } | null>(null);
   const context = expanded?.key === contextKey ? expanded.model : null;
@@ -435,7 +439,7 @@ function FileCard({
           ref={collapseButton}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-          <FileCode2 className="file-type-icon" size={16} />
+          <FileIcon className="file-type-icon" size={16} />
           <span className="file-title">
             <strong>{preview.file.path}</strong>
             {preview.file.oldPath && <small>Renamed from {preview.file.oldPath}</small>}
@@ -494,16 +498,20 @@ function FileCard({
         </div>
       )}
       <div id={bodyId} hidden={collapsed}>
-        <DiffView
-          key={contextKey}
-          preview={preview}
-          split={split}
-          wrap={wrap}
-          ignoreWhitespace={ignoreWhitespace}
-          source={source}
-          context={context}
-          onContextChange={(model) => setExpanded({ key: contextKey, model })}
-        />
+        {preview.diff.image ? (
+          <ImageDiff key={preview.diff.hash} preview={preview} split={split} source={source} />
+        ) : (
+          <DiffView
+            key={contextKey}
+            preview={preview}
+            split={split}
+            wrap={wrap}
+            ignoreWhitespace={ignoreWhitespace}
+            source={source}
+            context={context}
+            onContextChange={(model) => setExpanded({ key: contextKey, model })}
+          />
+        )}
       </div>
     </article>
   );
@@ -527,7 +535,13 @@ function FileOutlineItem({
       aria-label={`${preview.file.path}${done ? ", viewed" : ""}`}
       onClick={onClick}
     >
-      {done ? <Check size={14} /> : <FileCode2 size={14} />}
+      {done ? (
+        <Check size={14} />
+      ) : preview.diff.image ? (
+        <FileImage size={14} />
+      ) : (
+        <FileCode2 size={14} />
+      )}
       <span>
         <strong>{filename(preview.file.path)}</strong>
         <small>

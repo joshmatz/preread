@@ -17,7 +17,7 @@ It only reads Git. It never checks out, stages, commits, fetches, or pushes, and
 - **Change groups.** Files, or individual hunks, grouped under a title and a description of the decision. Anything left unassigned appears under Other changes, so nothing is hidden.
 - **Progress that follows the code.** A group is reviewed once every file in it is Viewed. When a file's diff changes, its mark clears and the group reopens.
 - **Four comparisons.** Branch commits, branch plus local edits (including untracked files), uncommitted changes, and staged changes.
-- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, context that expands 20 lines at a time, and private notes on any file.
+- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, context that expands 20 lines at a time, before-and-after previews of changed images, and private notes on any file.
 - **Pull request status.** Link a review to a GitHub pull request to see its state, checks, and review decision, and whether your local head and base still match it.
 - **Light and dark themes.** It follows your system setting by default.
 
@@ -149,7 +149,7 @@ Worktree review is checked out at ~/src/worktree-review. Use the worktree-review
 ## Security
 
 - **Read-only Git.** Git runs from argument arrays, never through a shell. Hooks, fsmonitor, external diff tools, and textconv filters are off. Comparisons against the working tree read a private copy of the index, so the app never writes `.git/index`.
-- **Only files in the comparison.** The server reads file contents only for paths in the current comparison. An untracked symlink shows its target path and is never followed.
+- **Only files in the comparison.** The server reads file contents only for paths in the current comparison. An untracked symlink shows its target path and is never followed. Image previews are sent with a fixed image type under a sandboxing Content Security Policy, and SVG is never rendered, so a preview can't run script.
 - **Loopback only.** The server binds to 127.0.0.1. Its API accepts only `127.0.0.1` and `localhost` hosts and rejects requests that come from any other origin, including other local ports, so websites can't read your code through it, even with DNS rebinding.
 - **No third-party requests from the page.** All assets are bundled. There are no fonts, CDNs, or analytics.
 - **Data outside your repositories.** Collections and receipts live in `~/.worktree-review`, in files only your user can read.
@@ -168,7 +168,8 @@ Git still applies the repository's own clean filters when it reads working-tree 
 
 - A repository needs at least one commit.
 - A review previews up to 500 files and about 24 MB of patch text, and a single file's diff up to 2 MB. Anything over those limits stays listed with a notice.
-- Binary files and diffs over the limits can't be marked Viewed, so the group that contains one, and its review, stay incomplete.
+- Changed PNG, JPEG, GIF, WebP, AVIF, BMP, and ICO files preview as images up to 20 MB per version. SVG files show as text diffs.
+- Other binary files, larger images, and diffs over the limits can't be marked Viewed, so the group that contains one, and its review, stay incomplete.
 - Repositories and worktrees nested inside a worktree are left out of its untracked files. Review them on their own.
 - Line totals don't count the contents of untracked files.
 - The Commits tab shows the latest 100 commits.

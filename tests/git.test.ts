@@ -109,7 +109,7 @@ test("untracked text and binary files produce appropriate previews", async () =>
   assert.match(text.patch, /\+# Private local note/);
   const binary = await fileDiff(child, "main", "working", "new.bin");
   assert.equal(binary.binary, true);
-  assert.equal(binary.patch, "");
+  assert.match(binary.patch, /^index 0000000\.\.[a-f0-9]{64}$/m);
 });
 test("renames remain one file with both original and new paths", async () => {
   const result = await fileDiff(child, "main", "branch", "renamed.txt");

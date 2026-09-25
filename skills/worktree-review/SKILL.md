@@ -99,7 +99,7 @@ curl -s "http://127.0.0.1:4780/api/review?collection=<collection-id>&review=<rev
 
 Fix every warning (a target that left the comparison, a range that matches no change, an overlap with an earlier group) and import again. Ranges drift when lines move, so check again after new commits.
 
-A group with `canReview: false` and no warnings holds a binary file, a diff over the size limit, or a file that failed to load, so it can't be marked reviewed. Tell the person which files to open locally.
+A group with `canReview: false` and no warnings holds a binary file that can't be previewed as an image, a diff over the size limit, or a file that failed to load, so it can't be marked reviewed. Tell the person which files to open locally.
 
 ## Hand over
 

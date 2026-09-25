@@ -4,6 +4,7 @@ import {
   comparisonSource,
   comparisonRefs,
   fileDiff,
+  imagePreview,
   trackedPatches,
   MAX_PATCH,
 } from "./git.ts";
@@ -43,7 +44,8 @@ export function groupPreviews(
         preview.file.path,
         preview.file.oldPath,
         preview.file.status,
-        reviewContent(preview.diff.patch),
+        // reviewContent drops index lines, which are all that identify a binary file's content.
+        preview.diff.binary ? preview.diff.patch : reviewContent(preview.diff.patch),
         preview.diff.binary,
         preview.diff.tooLarge,
         preview.error,
@@ -63,7 +65,10 @@ export function groupPreviews(
         previews.length > 0 &&
         !warnings.length &&
         previews.every(
-          (preview) => !preview.error && !preview.diff.tooLarge && !preview.diff.binary,
+          (preview) =>
+            !preview.error &&
+            !preview.diff.tooLarge &&
+            (!preview.diff.binary || !!preview.diff.image),
         ),
       warnings,
     };
@@ -224,6 +229,13 @@ async function readReviewData(
             error: (error as Error).message,
           };
         }
+      }),
+    );
+    await Promise.all(
+      batch.map(async (preview) => {
+        if (!preview.diff.binary || preview.error) return;
+        const image = await imagePreview(path, info, review.mode, preview.file);
+        if (image) preview.diff.image = image;
       }),
     );
     files.push(...batch);

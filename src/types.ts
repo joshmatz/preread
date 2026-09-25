@@ -43,12 +43,14 @@ export interface Comparison {
   version: string;
   warnings: string[];
 }
+export type ImageSide = "old" | "new";
 export interface Diff {
   patch: string;
   binary: boolean;
   tooLarge: boolean;
   empty: boolean;
   hash: string;
+  image?: Partial<Record<ImageSide, { size: number }>>;
 }
 export interface StackNode {
   branch: string;

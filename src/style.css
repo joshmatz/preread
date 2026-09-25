@@ -750,6 +750,63 @@ h2 {
   color: var(--secondary);
   font-size: 12px;
 }
+.image-diff {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+.image-diff.split {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.image-version {
+  margin: 0;
+  min-width: 0;
+}
+.image-version figcaption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.image-version figcaption strong {
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--green);
+  background: var(--add-bg);
+}
+.image-version.old figcaption strong {
+  color: var(--red);
+  background: var(--del-bg);
+}
+.image-frame {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--subtle);
+  cursor: zoom-in;
+}
+.image-frame img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: repeating-conic-gradient(var(--hover) 0 25%, var(--canvas) 0 50%) 0 0 / 16px 16px;
+}
+.image-error {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  line-height: 1.6;
+  color: var(--secondary);
+  font-size: 12px;
+}
 .feed-end {
   text-align: center;
   color: var(--secondary);
@@ -1302,6 +1359,12 @@ fieldset {
   }
   .file-card {
     border-radius: 6px;
+  }
+  .image-diff {
+    padding: 12px;
+  }
+  .image-diff.split {
+    grid-template-columns: minmax(0, 1fr);
   }
   .section-content {
     padding: 20px 15px;
