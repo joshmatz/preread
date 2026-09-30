@@ -117,6 +117,28 @@ export function initialGaps(patch: string): ContextGap[] {
     return { above: gap, below: index ? gap : 0, all: false };
   });
 }
+const lines = (count: number) => `${count} ${count === 1 ? "line" : "lines"}`;
+export function gapControls(
+  gap: ContextGap,
+  loaded: boolean,
+  last: boolean,
+): { label: string; direction: "above" | "below" | "all" }[] {
+  // Both directions would reveal the same lines.
+  if (gap.above && gap.above === gap.below && gap.above <= 20 && (gap.all || !loaded))
+    return [{ label: `↕ Show ${lines(gap.above)}`, direction: "below" }];
+  const controls: { label: string; direction: "above" | "below" | "all" }[] = [];
+  if (gap.below)
+    controls.push({
+      label:
+        last && !loaded ? "↓ Show more below" : `↓ Show ${lines(Math.min(20, gap.below))} below`,
+      direction: "below",
+    });
+  if (gap.above)
+    controls.push({ label: `↑ Show ${lines(Math.min(20, gap.above))} above`, direction: "above" });
+  if (loaded && gap.all && Math.max(gap.above, gap.below) > 20)
+    controls.push({ label: `Show all ${Math.max(gap.above, gap.below)} lines`, direction: "all" });
+  return controls;
+}
 export function expandContext(
   model: ContextModel,
   gap: number,

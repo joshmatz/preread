@@ -1117,13 +1117,14 @@ fieldset {
   width: 48px;
   min-width: 48px;
 }
+.d2h-cntx {
+  background: var(--canvas);
+  border-color: var(--border);
+}
+/* Empty split-view cells also carry .d2h-cntx, so this has to come after it. */
 .d2h-code-side-emptyplaceholder,
 .d2h-emptyplaceholder {
   background: var(--subtle);
-  border-color: var(--border);
-}
-.d2h-cntx {
-  background: var(--canvas);
   border-color: var(--border);
 }
 .d2h-info {

@@ -11,6 +11,7 @@ import {
   createContextModel,
   contextGaps,
   initialGaps,
+  gapControls,
   expandContext,
   contextPatch,
 } from "../src/diff-context.ts";
@@ -178,4 +179,27 @@ test("zero-count insertion/deletion hunks and multiple changes retain the correc
   assert.doesNotMatch(contextPatch(model), /-third/);
   const deletion = createContextModel(header + "@@ -3,1 +3,0 @@\n-third\n", full);
   assert.match(contextPatch(deletion), /@@ -3,1 \+3,0 @@/);
+});
+test("a gap that either direction would fill offers one button, with singular line counts", () => {
+  const header = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n";
+  const original = header + "@@ -1,2 +1,2 @@\n-a\n+A\n b\n@@ -4,2 +4,2 @@\n-d\n+D\n e\n";
+  const model = createContextModel(original, header + "@@ -1,5 +1,5 @@\n-a\n+A\n b\n c\n-d\n+D\n e\n");
+  const controls = (gap: Parameters<typeof gapControls>[0], loaded = true, last = false) =>
+    gapControls(gap, loaded, last).map(({ label, direction }) => `${direction}: ${label}`);
+  assert.deepEqual(controls(initialGaps(original)[1], false), ["below: ↕ Show 1 line"]);
+  assert.deepEqual(controls(contextGaps(model)[1]), ["below: ↕ Show 1 line"]);
+  assert.match(contextPatch(expandContext(model, 1, "below")), /^@@ -1,5 \+1,5 @@$/m);
+  assert.deepEqual(controls({ above: 1, below: 0, all: true }), ["above: ↑ Show 1 line above"]);
+  assert.deepEqual(controls({ above: 2, below: 2, all: false, otherChanges: true }), [
+    "below: ↓ Show 2 lines below",
+    "above: ↑ Show 2 lines above",
+  ]);
+  assert.deepEqual(controls({ above: 30, below: 30, all: true }), [
+    "below: ↓ Show 20 lines below",
+    "above: ↑ Show 20 lines above",
+    "all: Show all 30 lines",
+  ]);
+  assert.deepEqual(controls({ above: 0, below: 20, all: false }, false, true), [
+    "below: ↓ Show more below",
+  ]);
 });

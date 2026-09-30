@@ -40,6 +40,7 @@ import {
   createContextModel,
   contextGaps,
   initialGaps,
+  gapControls,
   expandContext,
   contextPatch,
   type ContextModel,
@@ -286,16 +287,8 @@ function DiffView({
           controls.append(span);
           return span;
         };
-        if (gap.below)
-          button(
-            !context && index === gaps.length - 1
-              ? "↓ Show more below"
-              : `↓ Show ${Math.min(20, gap.below)} lines below`,
-            "below",
-          );
-        if (gap.above) button(`↑ Show ${Math.min(20, gap.above)} lines above`, "above");
-        if (context && gap.all && Math.max(gap.above, gap.below) > 20)
-          button(`Show all ${Math.max(gap.above, gap.below)} lines`, "all");
+        for (const { label, direction } of gapControls(gap, !!context, index === gaps.length - 1))
+          button(label, direction);
         if (gap.otherChanges) note("Other changed blocks belong to another group");
         if (endOfFile) note("End of file");
         const status = note("");
