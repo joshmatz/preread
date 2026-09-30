@@ -11,7 +11,6 @@ import {
   FolderGit2,
   GitBranch,
   GitCommitHorizontal,
-  GitCompareArrows,
   Layers3,
   LoaderCircle,
   MessageSquare,
@@ -35,6 +34,7 @@ import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
 import { ImageDiff } from "./ImageDiff";
+import { BrandMark } from "./BrandMark";
 import { usePullRequests } from "./usePullRequests";
 import {
   createContextModel,
@@ -957,9 +957,11 @@ export default function App() {
       <header className="topbar">
         <a href="/" className="brand">
           <span className="brand-icon">
-            <GitCompareArrows size={19} />
+            <BrandMark />
           </span>
-          worktree <span>review</span>
+          <span>
+            <span className="brand-pre">pre</span>read
+          </span>
         </a>
         <button
           className="open-button"

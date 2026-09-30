@@ -8,6 +8,8 @@ A group receipt records the diff content and description the user reviewed. Miss
 
 Light and dark palettes use semantic tokens for canvas, surfaces, text, borders, syntax, additions, deletions, warnings, and focus. System is the initial preference. Syntax-highlight spans have transparent backgrounds so they cannot erase a diff’s meaning. Status text and icons supplement color.
 
+The mark is a pair of reading glasses whose lenses are a diff’s minus and plus, drawn in the canvas color on an accent tile. The wordmark mutes “pre” so “read” leads.
+
 Native buttons, dialogs, and form controls provide keyboard behavior; the custom pickers implement listbox keyboard navigation. Focus remains visible. Reduced-motion disables animation. Narrow screens keep collection navigation and continuous diffs while hiding the optional file outline. Errors, loading, empty comparisons, missing files, and unavailable previews are explicit. A refresh, from the toolbar or from an agent, re-reads behind the current view and keeps the reader’s place; only a server restart or an explicit page reload replaces the page.
 
 Verify real comparisons, addition/deletion backgrounds in both themes and layouts, image previews, 3-digit line numbers, continuous scrolling, deep links, collection switching, modal keyboard behavior, and review persistence/invalidation with disposable fixtures.

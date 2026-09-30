@@ -39,10 +39,10 @@ const collection: Collection = {
 let directory: string;
 before(async () => {
   directory = await realpath(await mkdtemp(join(tmpdir(), "review-groups-")));
-  process.env.WORKTREE_REVIEW_DATA_DIR = join(directory, "metadata");
+  process.env.PREREAD_DATA_DIR = join(directory, "metadata");
 });
 after(async () => {
-  delete process.env.WORKTREE_REVIEW_DATA_DIR;
+  delete process.env.PREREAD_DATA_DIR;
   await rm(directory, { recursive: true, force: true });
 });
 

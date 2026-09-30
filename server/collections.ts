@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join, isAbsolute } from "node:path";
 import { homedir } from "node:os";
@@ -6,8 +7,13 @@ import type { Collection, ReviewReceipt } from "../src/review-types.ts";
 
 import { parsePullRequest } from "../src/pull-requests.ts";
 
+const home = (name: string) => join(homedir(), name);
+// Keeps the collections and receipts saved before the app was renamed.
 export const dataDirectory = () =>
-  process.env.WORKTREE_REVIEW_DATA_DIR || join(homedir(), ".worktree-review");
+  process.env.PREREAD_DATA_DIR ||
+  (existsSync(home(".worktree-review")) && !existsSync(home(".preread"))
+    ? home(".worktree-review")
+    : home(".preread"));
 const identifier = (value: unknown): string => {
   if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(value))
     throw new Error("IDs must use lowercase letters, numbers and hyphens (80 characters maximum).");

@@ -29,7 +29,7 @@ let child: string;
 const run = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 before(async () => {
-  directory = await realpath(await mkdtemp(join(tmpdir(), "worktree-review-test-")));
+  directory = await realpath(await mkdtemp(join(tmpdir(), "preread-test-")));
   repo = join(directory, "repository with spaces");
   run(directory, "init", "-b", "main", repo);
   run(repo, "config", "user.email", "local-review@example.test");

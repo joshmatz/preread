@@ -94,7 +94,7 @@ const withPrivateIndex = async <TResult>(
   const index = (
     await git(path, ["rev-parse", "--path-format=absolute", "--git-path", "index"])
   ).trim();
-  const directory = await mkdtemp(join(tmpdir(), "worktree-review-"));
+  const directory = await mkdtemp(join(tmpdir(), "preread-"));
   const copy = join(directory, "index");
   try {
     try {

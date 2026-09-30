@@ -9,7 +9,7 @@ if (unknown) {
     if (await requestRefresh(page))
       console.log(`Open review pages will ${page ? "reload" : "refresh"} within a second.`);
     else {
-      console.error(`No Worktree review server at ${origin}. Start it with pnpm start.`);
+      console.error(`No Preread server at ${origin}. Start it with pnpm start.`);
       process.exitCode = 1;
     }
   } catch (error) {

@@ -171,8 +171,7 @@ small,
   font-weight: 650;
   letter-spacing: -0.6px;
 }
-.brand > span:last-child {
-  font-weight: 400;
+.brand-pre {
   color: var(--secondary);
 }
 .brand-icon {
@@ -1246,7 +1245,6 @@ fieldset {
   .brand {
     font-size: 15px;
   }
-  .brand > span:last-child,
   .open-button span,
   .local-badge {
     display: none;

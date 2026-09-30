@@ -23,7 +23,7 @@ before(async () => {
   directory = await realpath(await mkdtemp(join(tmpdir(), "review-loading-")));
   repo = join(directory, "repo");
   trace = join(directory, "git.trace");
-  process.env.WORKTREE_REVIEW_DATA_DIR = join(directory, "metadata");
+  process.env.PREREAD_DATA_DIR = join(directory, "metadata");
   execFileSync("git", ["init", "-b", "main", repo], { stdio: "pipe" });
   run("config", "user.name", "Review Test");
   run("config", "user.email", "review@example.test");
@@ -61,7 +61,7 @@ before(async () => {
 });
 after(async () => {
   delete process.env.GIT_TRACE;
-  delete process.env.WORKTREE_REVIEW_DATA_DIR;
+  delete process.env.PREREAD_DATA_DIR;
   await rm(directory, { recursive: true, force: true });
 });
 

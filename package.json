@@ -1,16 +1,16 @@
 {
-  "name": "worktree-review",
+  "name": "preread",
   "version": "0.1.0",
   "private": true,
-  "description": "Review local Git worktrees in curated, described collections before anything is pushed.",
+  "description": "Read what your coding agents wrote before it becomes a pull request.",
   "license": "MIT",
   "author": "Josh Matz",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/joshmatz/worktree-review.git"
+    "url": "git+https://github.com/joshmatz/preread.git"
   },
-  "homepage": "https://github.com/joshmatz/worktree-review#readme",
-  "bugs": "https://github.com/joshmatz/worktree-review/issues",
+  "homepage": "https://github.com/joshmatz/preread#readme",
+  "bugs": "https://github.com/joshmatz/preread/issues",
   "type": "module",
   "engines": {
     "node": ">=22.13"

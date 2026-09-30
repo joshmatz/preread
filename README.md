@@ -1,190 +1,125 @@
-# Worktree review
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/preread-dark.svg">
+    <img alt="Preread" src="docs/brand/preread-light.svg" width="300">
+  </picture>
+</p>
 
-Read what your coding agents wrote, on your own machine, before any of it becomes a pull request.
+<h3 align="center">Read what your coding agents wrote before it becomes a pull request.</h3>
+
+<p align="center">
+  Your agent hands you a reading list: the changes grouped, explained, and in order.<br>
+  You read it on your own machine. Preread tracks what's left and reopens anything that changes after you read it.
+</p>
+
+<p align="center">
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="#put-your-agent-on-it">Agent skill</a> ·
+  <a href="docs/collections.md">Collections</a> ·
+  <a href="#your-code-stays-on-your-machine">Privacy</a>
+</p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/review-dark.png">
-  <img alt="A review titled Retry failed webhook deliveries. The outline lists three described change groups plus Other changes. The first group is marked All viewed and collapsed; the second group's diff is open below it." src="docs/screenshots/review-light.png">
+  <img alt="Preread showing a review titled Retry failed webhook deliveries. The outline lists three described change groups plus Other changes. The first group is marked All viewed and collapsed; the second group's diff is open below it." src="docs/screenshots/review-light.png">
 </picture>
 
-Agents that work in parallel leave you with a pile of worktrees and branches to read. Worktree review lets the agent hand you a reading list instead: a collection of reviews, each pointing at a worktree and the base to compare it with, and each diff split into change groups that say what changed and why. You read in the browser and mark files Viewed as you go. The app keeps track of what you've finished and reopens anything that changes after you read it.
+## Your agents write faster than you can read
 
-It only reads Git. It never checks out, stages, commits, fetches, or pushes, and it runs on your machine. Its only network calls are optional pull request status reads through the GitHub CLI.
+Run a few agents in parallel and you come back to a pile of worktrees, branches, and thousands of changed lines. Reading them as pull requests means pushing code nobody has read yet, one branch at a time, and `git diff` is a wall of text with no story.
 
-## What you get
+A pre-read is the memo you get before a meeting, so you walk in knowing what matters. Preread does that for code: your agent writes the memo, and you read the diff beside it.
 
-- **Collections.** Related changes in one reading list, even across worktrees and repositories. Each review has its own base, so a stacked branch shows only its own layer.
-- **Change groups.** Files, or individual hunks, grouped under a title and a description of the decision. Anything left unassigned appears under Other changes, so nothing is hidden.
-- **Progress that follows the code.** A group is reviewed once every file in it is Viewed. When a file's diff changes, its mark clears and the group reopens.
-- **Four comparisons.** Branch commits, branch plus local edits (including untracked files), uncommitted changes, and staged changes.
-- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, context that expands 20 lines at a time, before-and-after previews of changed images, and private notes on any file.
-- **Pull request status.** Link a review to a GitHub pull request to see its state, checks, and review decision, and whether your local head and base still match it.
-- **Light and dark themes.** It follows your system setting by default.
+## How it works
+
+1. **Your agents work in worktrees.** One agent or ten, in one repository or several. Preread reads any Git checkout, whatever wrote the code.
+2. **Your agent writes the reading list.** A collection is a short manifest of reviews. Each names a worktree, the base to compare it with, and change groups that give each part of the diff a title and a note on what to check. The included [agent skill](skills/preread/SKILL.md) teaches your agent to write one and hand you the link.
+3. **You read.** Mark files Viewed as you go. A group is reviewed when all of its files are Viewed, and a review is complete when all of its groups are. If the code changes after you've read it, it goes back on your list.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/collection-dark.png">
-  <img alt="The collection view for Webhook delivery reliability: an overall progress bar reading 1 of 3 items reviewed, and a card for each review with its description, reviewed-group count, and base." src="docs/screenshots/collection-light.png">
+  <img alt="The collection view for Webhook delivery reliability: a progress bar reading 1 of 3 items reviewed, and a card for each review with its description, reviewed-group count, and base." src="docs/screenshots/collection-light.png">
 </picture>
 
-## Requirements
+## What makes it different
 
-- Node.js 22.13 or later
-- pnpm 11
-- Git 2.36 or later
-- Optional: the [GitHub CLI](https://cli.github.com), signed in, for pull request status
-
-Developed on macOS; the tests also run on Linux. Windows isn't supported.
-
-## Quick start
-
-```sh
-git clone https://github.com/joshmatz/worktree-review.git
-cd worktree-review
-pnpm install
-pnpm build
-pnpm start
-```
-
-Open <http://127.0.0.1:4780>, choose **Open folder**, and enter the absolute path of a repository or worktree. You can also pass an absolute path at startup with `pnpm start /path/to/worktree`.
-
-That opens an ad hoc comparison. Pick a base and a mode, then **Save a named review** to keep it. The app is most useful with collections, which you or your agent write as a manifest.
-
-## Collections
-
-A collection is a JSON manifest. Import it with the CLI, which prints a link to the first review:
-
-```sh
-pnpm collection import /absolute/path/to/manifest.json
-pnpm collection list
-pnpm collection show <collection-id>
-```
-
-Open any review directly at `http://127.0.0.1:4780/?collection=<collection-id>&review=<review-id>`.
-
-```json
-{
-  "id": "webhook-reliability",
-  "title": "Webhook delivery reliability",
-  "description": "Three changes planned for the next release. Read them in order.",
-  "reviews": [
-    {
-      "id": "delivery-retries",
-      "title": "Retry failed webhook deliveries",
-      "description": "Failed deliveries now retry with exponential backoff instead of failing on the first error.",
-      "path": "/Users/you/src/courier-retries",
-      "base": "main",
-      "mode": "branch",
-      "pullRequest": "https://github.com/owner/repo/pull/142",
-      "groups": [
-        {
-          "id": "backoff-policy",
-          "title": "Backoff policy",
-          "description": "A pure function decides when to try again. Check the jitter bounds and the 30-minute cap.",
-          "targets": [{ "path": "src/delivery/backoff.ts" }, { "path": "test/backoff.test.ts" }]
-        },
-        {
-          "id": "delivery-worker",
-          "title": "Delivery worker",
-          "description": "Records every attempt and schedules the next one.",
-          "targets": [
-            {
-              "path": "src/delivery/worker.ts",
-              "ranges": [{ "side": "new", "start": 40, "end": 52 }]
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-```
-
-| Field | Meaning |
-| --- | --- |
-| `id` | Lowercase letters, digits, and hyphens, up to 80 characters. Keep IDs stable, because review receipts are keyed by them. `other-changes` is reserved. |
-| `path` | Absolute path to the worktree or repository. |
-| `base` | Any ref Git can resolve locally. Required for `branch` and `all`. The app never fetches, so make sure the ref has the commits you expect. |
-| `mode` | `branch` compares the merge base of `base` and HEAD with HEAD. `all` adds staged, unstaged, and untracked changes. `working` compares HEAD with the working tree, including untracked files. `staged` compares HEAD with the index. |
-| `pullRequest` | Optional GitHub pull request URL. |
-| `targets[].path` | Exact, repository-relative file path. |
-| `targets[].ranges` | Optional. One-based diff line numbers on the `new` side, or `old` for deleted lines. A range selects every complete hunk with a changed line inside it; hunks are never split. |
-
-Import rejects unknown fields, empty groups, and paths that aren't repository-relative, so a typo fails instead of importing a group that shows nothing. It replaces a collection's configuration and keeps its review receipts. Every changed hunk shows up somewhere: in the group that claims it, or under Other changes. A target that no longer matches the diff gets a warning, and so does a hunk claimed by two groups. Editing a comparison in the UI opens an ad hoc view and leaves the saved review alone.
+- **One reading list across worktrees.** A collection spans worktrees and repositories. Each review has its own base, so a stacked branch shows only its own layer.
+- **Change groups that say what to check.** Each one pairs files, or single hunks, with a title and a short description. Anything unassigned lands in Other changes, so nothing hides.
+- **Progress that follows the code.** A Viewed mark is tied to the diff you read. When that diff changes, the mark clears and its group reopens.
+- **Updates on your agent's cue.** After a change, your agent runs `pnpm refresh`, and the page you have open re-reads in place and keeps your scroll position and your marks.
+- **Any stage of the work.** Branch commits, branch plus local edits, uncommitted changes, or staged changes.
+- **The pull request, once you open one.** Link a review to its GitHub pull request to see its state, checks, and review decision, and whether your local head and base still match it.
+- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, expandable context, before-and-after images, and private notes on any file.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/split-dark.png">
   <img alt="Split view of a stacked review whose base is the retry branch, so it shows only the dashboard layer: a table gains an Attempts column and a RetryBadge cell." src="docs/screenshots/split-light.png">
 </picture>
 
-## Reviewing
+## Quick start
 
-Mark a file **Viewed** to collapse it, or use **Mark all viewed** for a whole group. A group counts as reviewed when all of its files are Viewed, and a review is complete when every group is, including Other changes. The collection view shows progress for every review and rechecks it each time you open it.
-
-Viewed marks belong to a file's current diff. When the diff changes, the mark clears and the group needs reading again. Marks and notes are saved in your browser. **Mark all viewed** also writes a receipt to disk, so another browser starts from it.
-
-Reviewed is a reading checkpoint. It doesn't approve anything on GitHub, and it isn't permission to push.
-
-## Keeping the page current
-
-Nothing watches your repositories. The Refresh button re-reads the worktree and the collection behind the page you're on and keeps your scroll position, Viewed marks, and open tabs. Agents can trigger the same refresh from the command line. Open pages check for it once a second, and a background tab catches up when you switch back to it:
+You need Node.js 22.13 or later, pnpm 11, and Git 2.36 or later. Preread is developed on macOS, and the tests also run on Linux; Windows isn't supported. The [GitHub CLI](https://cli.github.com), signed in, is optional and adds pull request status.
 
 ```sh
-pnpm refresh          # re-read every open review page in place
-pnpm refresh --page   # reload the browser page itself
+git clone https://github.com/joshmatz/preread.git
+cd preread
+pnpm install
+pnpm build
+pnpm start
 ```
 
-Importing a collection refreshes open pages on its own. Use `--page` only when the app itself changed: it reloads the page like the browser's Reload button, so unsaved text in an open dialog is lost. Open pages also reload themselves when the server restarts, so a rebuilt app shows up without a manual reload.
+Open <http://127.0.0.1:4780>, choose **Open folder**, and enter the absolute path of any repository or worktree. Pick a base and the changes to show, choose **Compare**, then **Save a named review** to keep it.
 
-## Using it with coding agents
+Preread is at its best when your agent writes the reading list, so set that up next.
 
-This repository includes an agent skill, [`skills/worktree-review`](skills/worktree-review/SKILL.md). It teaches an agent to plan a collection, choose bases from the real branch ancestry, write and import the manifest, check what each group shows, refresh the page you have open, and hand you the link. It never marks work reviewed for you.
+## Put your agent on it
+
+The [`preread` skill](skills/preread/SKILL.md) teaches an agent the whole handoff: plan a collection, choose each base from the real branch ancestry, write and import the manifest, check what every group shows, refresh the page you have open, and hand you the link. It never marks anything reviewed for you.
 
 Install it with the [skills CLI](https://github.com/vercel-labs/skills):
 
 ```sh
-npx skills add joshmatz/worktree-review
+npx skills add joshmatz/preread
 ```
 
-Or link it into your agent's skills directory by hand. For Claude Code:
+Or link it into your agent's skills directory by hand. For Claude Code, from your Preread checkout:
 
 ```sh
-mkdir -p ~/.claude/skills && ln -s "$PWD/skills/worktree-review" ~/.claude/skills/worktree-review
+mkdir -p ~/.claude/skills && ln -s "$PWD/skills/preread" ~/.claude/skills/preread
 ```
 
-Then tell the agent where the app is checked out, for example in your global agent instructions:
+Then tell your agent where Preread lives, for example in your global agent instructions:
 
 ```text
-Worktree review is checked out at ~/src/worktree-review. Use the worktree-review skill to present finished work before you push.
+Preread is checked out at ~/src/preread. Use the preread skill to present finished work before you push.
 ```
 
-## Security
+Now your agent hands you a link when work is ready to read, or whenever you ask it to present something in Preread:
 
-- **Read-only Git.** Git runs from argument arrays, never through a shell. Hooks, fsmonitor, external diff tools, and textconv filters are off. Comparisons against the working tree read a private copy of the index, so the app never writes `.git/index`.
+```text
+http://127.0.0.1:4780/?collection=webhook-reliability&review=delivery-retries
+```
+
+Rather write collections yourself? The [collections guide](docs/collections.md) covers the format.
+
+## Your code stays on your machine
+
+Preread runs where the code is. It only reads your repositories: it never checks out, stages, commits, fetches, or pushes, and it never sends your code anywhere. Apart from Git filling in a partial clone, described below, its only network calls are optional pull request status reads through the GitHub CLI.
+
+- **Read-only Git.** Git runs from argument arrays, never through a shell. Hooks, fsmonitor, external diff tools, and textconv filters are off. Comparisons against the working tree read a private copy of the index, so Preread never writes `.git/index`.
 - **Only files in the comparison.** The server reads file contents only for paths in the current comparison. An untracked symlink shows its target path and is never followed. Image previews are sent with a fixed image type under a sandboxing Content Security Policy, and SVG is never rendered, so a preview can't run script.
 - **Loopback only.** The server binds to 127.0.0.1. Its API accepts only `127.0.0.1` and `localhost` hosts and rejects requests that come from any other origin, including other local ports, so websites can't read your code through it, even with DNS rebinding. Open pages poll a same-origin refresh counter, which carries no repository content.
 - **No third-party requests from the page.** All assets are bundled. There are no fonts, CDNs, or analytics.
-- **Data outside your repositories.** Collections and receipts live in `~/.worktree-review`, in files only your user can read.
+- **Data outside your repositories.** Collections and receipts live in `~/.preread` by default, in files only your user can read.
 
-Git still applies the repository's own clean filters when it reads working-tree files, and in a partial clone it may download missing file contents from the remote to build a diff. As with any Git client, open only repositories whose `.git/config` you trust.
+Git still applies a repository's own clean filters when it reads working-tree files, and in a partial clone it may download missing file contents from the remote to build a diff. As with any Git client, open only repositories whose `.git/config` you trust.
 
-## Configuration
+## Documentation
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PORT` | `4780` | Server port |
-| `WORKTREE_REVIEW_DATA_DIR` | `~/.worktree-review` | Where collections and receipts are stored |
-| `REVIEW_PATH` | none | Absolute path of a folder to open when the app loads without a link, like the first argument to `pnpm start` |
-
-## Limits
-
-- A repository needs at least one commit.
-- A review previews up to 500 files and about 24 MB of patch text, and a single file's diff up to 2 MB. Anything over those limits stays listed with a notice.
-- Changed PNG, JPEG, GIF, WebP, AVIF, BMP, and ICO files preview as images up to 20 MB per version. SVG files show as text diffs.
-- Other binary files, larger images, and diffs over the limits can't be marked Viewed, so the group that contains one, and its review, stay incomplete.
-- Repositories and worktrees nested inside a worktree are left out of its untracked files. Review them on their own.
-- Line totals don't count the contents of untracked files.
-- The Commits tab shows the latest 100 commits.
-- Nothing watches the filesystem. Refresh, or have your agent run `pnpm refresh`, to pick up new commits, edits, or collection changes.
+- [Collections](docs/collections.md): the manifest format, the CLI, and how imports are checked.
+- [Reference](docs/reference.md): reviewing, keeping pages current, configuration, and limits.
+- [DESIGN.md](DESIGN.md): the interface decisions.
+- [AGENTS.md](AGENTS.md): rules for agents working on this repository.
 
 ## Development
 
@@ -194,8 +129,6 @@ pnpm test                        # tests against disposable Git repositories
 pnpm build                       # type check and production build
 pnpm benchmark <collection-id>   # time opening and checking a collection on the running server
 ```
-
-[DESIGN.md](DESIGN.md) records the interface decisions. [AGENTS.md](AGENTS.md) has the rules for agents working on this repository.
 
 ## License
 

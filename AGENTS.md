@@ -1,4 +1,4 @@
-# Worktree review
+# Preread
 
 This is a local, read-only code review application.
 
