@@ -1,6 +1,6 @@
 ---
 name: preread
-description: Present local Git changes for human review in Preread before anything is pushed. Use when the user asks to review, present, or walk through work in one or more worktrees or branches, asks for a review link or collection, when finished work should be read before a commit, push, or pull request, or when a worktree already under review changed and the open review page should catch up. Writes a collection manifest with worktree paths, comparison bases, and described change groups, imports it with Preread's CLI, checks what each group shows, refreshes the open page, and hands over a local URL.
+description: Present local Git changes for human review in Preread before anything is pushed. Use when the user asks to review, present, or walk through work in one or more worktrees or branches, asks for a review link or collection, when finished work should be read before a commit, push, or pull request, or when a worktree already under review changed and the open review page should catch up. Writes a collection manifest with worktree paths, comparison bases, and described change groups, imports it with Preread's CLI, checks what each group shows, refreshes the open page, and hands over a local URL. If Preread isn't set up yet, offers to clone and start it.
 ---
 
 # Preread
@@ -9,14 +9,23 @@ Preread is a local web app that reads Git worktrees and shows their diffs as col
 
 ## Find and start Preread
 
-1. Find the Preread checkout. The user's instructions usually say where it is; if they don't, ask. Run every `pnpm` command below from that directory.
-2. Check for a running server. The port is `PORT`, 4780 by default.
+Preread runs from a local checkout of [joshmatz/preread](https://github.com/joshmatz/preread). Run every `pnpm` command below from that checkout.
+
+1. Find the checkout. The user's instructions may say where it is. If they don't, ask the running server, which also tells you whether one is up. The port is `PORT`, 4780 by default.
 
    ```sh
-   curl -sf http://127.0.0.1:4780/api/bootstrap
+   curl -sf http://127.0.0.1:4780/api/bootstrap | jq -r '.checkout // empty'
    ```
 
-3. If nothing answers, build once and start the server as a long-running background process:
+2. If neither turns one up, offer to clone it. Suggest a folder beside the user's other repositories, and use whichever they choose:
+
+   ```sh
+   git clone https://github.com/joshmatz/preread.git <folder>
+   ```
+
+   Preread needs Node.js 22.13 or later, pnpm 11, and Git 2.36 or later. If any is missing, tell the user instead of installing it. After cloning, offer to add the path to the user's agent instructions so later sessions find it.
+
+3. If no server answered, build once and start the server as a long-running background process:
 
    ```sh
    pnpm install && pnpm build
@@ -24,6 +33,22 @@ Preread is a local web app that reads Git worktrees and shows their diffs as col
    ```
 
 Reuse a running server instead of starting another one.
+
+## Check for updates
+
+Preread changes often. The first time you use it in a session, check from the checkout whether it's behind:
+
+```sh
+git fetch --quiet && git log --oneline HEAD..@{upstream}
+```
+
+If the fetch fails or the checkout has no upstream, skip this without comment. If commits are listed, tell the user how many and what they change, then offer to update. Update only once they agree:
+
+```sh
+git pull --ff-only && pnpm install && pnpm build
+```
+
+If the pull stops on local changes, show them to the user rather than discarding them. Restart a running server afterward by stopping the process on the port and running `pnpm start` again; open pages reload themselves. Then reread `skills/preread/SKILL.md` in the checkout, which matches the version you just installed. If this skill was installed with the skills CLI, offer to run `npx skills update preread -g` too, so later sessions get the new instructions.
 
 ## Plan the collection
 

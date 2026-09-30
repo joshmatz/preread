@@ -63,6 +63,8 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 
 You need Node.js 22.13 or later, pnpm 11, and Git 2.36 or later. Preread is developed on macOS, and the tests also run on Linux; Windows isn't supported. The [GitHub CLI](https://cli.github.com), signed in, is optional and adds pull request status.
 
+Using a coding agent? [Install the skill](#put-your-agent-on-it) and ask for a review; your agent offers to clone and start Preread for you. To set it up by hand:
+
 ```sh
 git clone https://github.com/joshmatz/preread.git
 cd preread
@@ -77,21 +79,21 @@ Preread is at its best when your agent writes the reading list, so set that up n
 
 ## Put your agent on it
 
-The [`preread` skill](skills/preread/SKILL.md) teaches an agent the whole handoff: plan a collection, choose each base from the real branch ancestry, write and import the manifest, check what every group shows, refresh the page you have open, and hand you the link. It never marks anything reviewed for you.
+The [`preread` skill](skills/preread/SKILL.md) teaches an agent the whole handoff: plan a collection, choose each base from the real branch ancestry, write and import the manifest, check what every group shows, refresh the page you have open, and hand you the link. It sets Preread up if you haven't, tells you when there's an update, and never marks anything reviewed for you.
 
-Install it with the [skills CLI](https://github.com/vercel-labs/skills):
+Install it for all your projects with the [skills CLI](https://github.com/vercel-labs/skills):
 
 ```sh
-npx skills add joshmatz/preread
+npx skills add joshmatz/preread -g
 ```
 
-Or link it into your agent's skills directory by hand. For Claude Code, from your Preread checkout:
+Or link it into your agent's skills directory by hand, so it updates with your checkout. For Claude Code, from your Preread checkout:
 
 ```sh
 mkdir -p ~/.claude/skills && ln -s "$PWD/skills/preread" ~/.claude/skills/preread
 ```
 
-Then tell your agent where Preread lives, for example in your global agent instructions:
+If you cloned Preread yourself, tell your agent where it lives, for example in your global agent instructions:
 
 ```text
 Preread is checked out at ~/src/preread. Use the preread skill to present finished work before you push.

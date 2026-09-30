@@ -37,7 +37,7 @@ app.use("/api", (req, res, next) => {
 app.use("/api", express.json({ limit: "1mb" }));
 const query = (value: unknown) => (typeof value === "string" ? value : "");
 app.get("/api/bootstrap", (_req, res) =>
-  res.json({ defaultPath: process.argv[2] ?? process.env.REVIEW_PATH ?? "" }),
+  res.json({ defaultPath: process.argv[2] ?? process.env.REVIEW_PATH ?? "", checkout: root }),
 );
 app.get("/api/live", (_req, res) => res.json(live));
 app.post("/api/refresh", (req, res) => {
