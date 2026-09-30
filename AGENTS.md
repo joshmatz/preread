@@ -6,4 +6,4 @@ Keep repository access read-only: no checkout, staging, commit, reset, fetch, pu
 
 Store collections and review receipts in the app’s own data directory, outside reviewed repositories. Only the person reviewing writes receipts, through the UI.
 
-Use pnpm. Run `pnpm test` and `pnpm build` after functional changes. Check UI changes in both light and dark themes.
+Use pnpm. Run `pnpm test` and `pnpm build` after functional changes. Check UI changes in both light and dark themes, in your desktop client's in-app browser when it has one.

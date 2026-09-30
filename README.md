@@ -58,6 +58,9 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 
 ## Quick start
 
+> [!NOTE]
+> Preread is software I build for myself, and it may change at any time as the way I work changes. If you depend on it, pin a commit or fork it.
+
 You need Node.js 22.13 or later, pnpm 11, and Git 2.36 or later. Preread is developed on macOS, and the tests also run on Linux; Windows isn't supported. The [GitHub CLI](https://cli.github.com), signed in, is optional and adds pull request status.
 
 ```sh
@@ -99,6 +102,8 @@ Now your agent hands you a link when work is ready to read, or whenever you ask 
 ```text
 http://127.0.0.1:4780/?collection=webhook-reliability&review=delivery-retries
 ```
+
+If your agent runs in a desktop app with a built-in browser, such as the Codex or Claude desktop app, it opens the review there too, beside the conversation.
 
 Rather write collections yourself? The [collections guide](docs/collections.md) covers the format.
 

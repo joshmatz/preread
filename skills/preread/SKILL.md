@@ -121,5 +121,7 @@ Give the person the link to the first review they should read:
 http://127.0.0.1:4780/?collection=<collection-id>&review=<review-id>
 ```
 
+If your client has an in-app browser, such as the Codex or Claude desktop app's, also open the link there so the review sits beside the conversation. Opening it is the whole step: the API check above already covered what it shows, so don't screenshot or read the page. Don't launch a standalone browser unless the person asks.
+
 - Never mark anything reviewed for them. Don't call `/api/reviewed`, and don't write files in Preread's data directory; use the CLI for collections.
 - Reviewed is a reading checkpoint, not permission to commit, push, or open a pull request. Ask for those separately.
