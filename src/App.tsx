@@ -586,7 +586,7 @@ function FileCard({
   source: ContextSource;
 }) {
   const { viewed, collapsed, setViewed, setCollapsed } = useFileState(
-    scope,
+    source.path,
     preview.file.path,
     preview.diff.hash,
     defaultViewed,
@@ -704,16 +704,16 @@ function FileCard({
 }
 function FileOutlineItem({
   preview,
-  scope,
+  worktree,
   reviewed,
   onClick,
 }: {
   preview: FilePreview;
-  scope: string;
+  worktree: string;
   reviewed: boolean;
   onClick: () => void;
 }) {
-  const { viewed: done } = useFileState(scope, preview.file.path, preview.diff.hash, reviewed);
+  const { viewed: done } = useFileState(worktree, preview.file.path, preview.diff.hash, reviewed);
   const { status, path, oldPath } = preview.file;
   const change = statusNames[status] ?? "Changed";
   const from = oldPath ? ` from ${oldPath}` : "";
@@ -806,8 +806,8 @@ export default function App() {
   const snapshot = useMemo(
     () =>
       rawSnapshot &&
-      withFileViews(rawSnapshot, (file, hash, fallback) => fileViewed(scope, file, hash, fallback)),
-    [rawSnapshot, scope, fileStateVersion],
+      withFileViews(rawSnapshot, (file, hash, fallback) => fileViewed(path, file, hash, fallback)),
+    [rawSnapshot, path, fileStateVersion],
   );
   const defaultViewed = (section: string) =>
     rawSnapshot?.sections.find((entry) => entry.id === section)?.reviewed ?? false;
@@ -1131,7 +1131,7 @@ export default function App() {
         reviewed: !section.reviewed,
       });
       setFilesViewed(
-        scope,
+        path,
         section.files.map((preview) => ({ path: preview.file.path, hash: preview.diff.hash })),
         !section.reviewed,
       );
@@ -1509,7 +1509,7 @@ export default function App() {
                         <FileOutlineItem
                           key={preview.file.path}
                           preview={preview}
-                          scope={scope}
+                          worktree={path}
                           reviewed={defaultViewed(section.id)}
                           onClick={() => jump(section.id, preview.file.path)}
                         />

@@ -4,7 +4,7 @@
 
 Mark a file **Viewed** to collapse it, or use **Mark all viewed** for a whole group. A group counts as reviewed when all of its files are Viewed, and a review is complete when every group is, including Other changes. The collection view shows progress for every review and rechecks it each time you open it.
 
-Viewed marks belong to a file's current diff. When the diff changes, the mark clears and the group needs reading again. Marks and notes are saved in your browser. **Mark all viewed** also writes a receipt to disk, so another browser starts from it.
+Viewed marks belong to a file's current diff in its worktree, not to the review it appears in, so they carry over when a review moves to a new base. When the diff changes, the mark clears and the group needs reading again. Marks and notes are saved in your browser. **Mark all viewed** also writes a receipt to disk, so another browser starts from it.
 
 Reviewed is a reading checkpoint. It doesn't approve anything on GitHub, and it isn't permission to push.
 

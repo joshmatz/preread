@@ -8,7 +8,7 @@ const emit = () => {
   listeners.forEach((listener) => listener());
 };
 const storageChanged = (event: StorageEvent) => {
-  if (event.storageArea !== localStorage) return;
+  if (event.storageArea !== window.localStorage) return;
   if (event.key) memory.delete(event.key);
   else memory.clear();
   emit();
@@ -24,7 +24,7 @@ const subscribe = (listener: () => void) => {
 const read = (key: string, fallback: boolean) => {
   if (memory.has(key)) return memory.get(key)!;
   try {
-    const stored = JSON.parse(localStorage.getItem(key) ?? "null");
+    const stored = JSON.parse(window.localStorage.getItem(key) ?? "null");
     return typeof stored === "boolean" ? stored : fallback;
   } catch {
     return fallback;
@@ -34,27 +34,51 @@ const write = (key: string, value: boolean) => {
   // Keep controls usable in this session when browser storage is unavailable.
   memory.set(key, value);
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    window.localStorage.setItem(key, JSON.stringify(value));
   } catch {}
 };
+// Earlier keys put the review's base and mode between the worktree and the file.
+const legacyKey =
+  /^(file-(?:viewed|collapsed):[/~][^|]*)\|[^|]*\|(?:branch|all|working|staged)\|(.+\|(?:[0-9a-f]{64})?)$/s;
+export const currentKey = (key: string) => {
+  const match = legacyKey.exec(key);
+  return match ? `${match[1]}|${match[2]}` : undefined;
+};
+export function migrateMarks(storage: Storage) {
+  const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)!);
+  for (const key of keys) {
+    const next = currentKey(key);
+    if (!next) continue;
+    try {
+      const value = storage.getItem(key)!;
+      // Removing first leaves room for the shorter key when storage is full.
+      storage.removeItem(key);
+      if (value === "true" || storage.getItem(next) === null) storage.setItem(next, value);
+    } catch {}
+  }
+}
+try {
+  migrateMarks(window.localStorage);
+} catch {}
 
-export const fileViewed = (scope: string, path: string, hash: string, fallback = false) =>
-  read(`file-viewed:${scope}|${path}|${hash}`, fallback);
+// Leaves out the review's base and mode, so a mark survives the review moving to a new base.
+export const fileViewed = (worktree: string, path: string, hash: string, fallback = false) =>
+  read(`file-viewed:${worktree}|${path}|${hash}`, fallback);
 export const useFileStateVersion = () => useSyncExternalStore(subscribe, () => version);
 export function setFilesViewed(
-  scope: string,
+  worktree: string,
   files: Array<{ path: string; hash: string }>,
   value: boolean,
 ) {
   for (const file of files) {
-    const identity = `${scope}|${file.path}|${file.hash}`;
+    const identity = `${worktree}|${file.path}|${file.hash}`;
     write(`file-viewed:${identity}`, value);
     write(`file-collapsed:${identity}`, value);
   }
   emit();
 }
-export function useFileState(scope: string, path: string, hash: string, fallback = false) {
-  const identity = `${scope}|${path}|${hash}`;
+export function useFileState(worktree: string, path: string, hash: string, fallback = false) {
+  const identity = `${worktree}|${path}|${hash}`;
   const viewKey = `file-viewed:${identity}`;
   const collapseKey = `file-collapsed:${identity}`;
   const snapshot = useSyncExternalStore(subscribe, () => {

@@ -74,10 +74,9 @@ export function useCollectionProgress(
     for (const review of collection.reviews) {
       const entry = results.items[review.id];
       if (entry) {
-        const scope = `${review.path}|${review.base}|${review.mode}`;
         items[review.id] = entry.source
           ? progressFromSource(entry.source, (path, hash, fallback) =>
-              fileViewed(scope, path, hash, fallback),
+              fileViewed(review.path, path, hash, fallback),
             )
           : entry;
       }
