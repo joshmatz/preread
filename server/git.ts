@@ -412,6 +412,7 @@ export const fileDiff = async (
         "--no-textconv",
         "--no-color",
         "--find-renames",
+        "--full-index",
         "--src-prefix=a/",
         "--dst-prefix=b/",
         `--unified=${contextLines}`,
@@ -449,6 +450,8 @@ export async function trackedPatches(path: string, info: Comparison, mode: Mode)
     "--no-textconv",
     "--no-color",
     "--find-renames",
+    // Batched and per-file patches must hash identically regardless of Git abbreviation.
+    "--full-index",
     "--src-prefix=a/",
     "--dst-prefix=b/",
     `--unified=${CONTEXT_LINES}`,

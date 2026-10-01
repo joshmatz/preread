@@ -116,6 +116,24 @@ test("renames remain one file with both original and new paths", async () => {
   assert.match(result.patch, /rename from rename me.txt/);
   assert.match(result.patch, /rename to renamed.txt/);
 });
+test("batched and per-file patches stay identical when Git abbreviates object IDs differently", async () => {
+  const info = await comparison(child, "main", "all");
+  const read = async () => {
+    const batched = await trackedPatches(child, info, "all");
+    for (const [path, patch] of batched)
+      assert.equal((await fileDiff(child, "main", "all", path, info)).patch, patch);
+    return batched;
+  };
+  try {
+    run(repo, "config", "core.abbrev", "7");
+    const short = await read();
+    assert.equal(short.size, 2);
+    run(repo, "config", "core.abbrev", "12");
+    assert.deepEqual(await read(), short);
+  } finally {
+    run(repo, "config", "--unset", "core.abbrev");
+  }
+});
 test("rejects arbitrary filesystem reads and option-like refs", async () => {
   await assert.rejects(fileDiff(child, "main", "working", "../secret.txt"), /not part of/);
   await assert.rejects(fileDiff(child, "main", "working", "unchanged.txt"), /not part of/);
