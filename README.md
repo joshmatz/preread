@@ -38,7 +38,7 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/collection-dark.png">
-  <img alt="The collection view for Webhook delivery reliability: a progress bar reading 1 of 3 items reviewed, and a card for each review with its description, reviewed-group count, and base." src="docs/screenshots/collection-light.png">
+  <img alt="The collection view for Webhook delivery reliability: a progress bar reading 1 of 3 items reviewed, and a card for each review with its description and reviewed-group count." src="docs/screenshots/collection-light.png">
 </picture>
 
 ## What makes it different
@@ -73,7 +73,7 @@ pnpm build
 pnpm start
 ```
 
-Open <http://127.0.0.1:4780>, choose **Open folder**, and enter the absolute path of any repository or worktree. Pick a base and the changes to show, choose **Compare**, then **Save a named review** to keep it.
+Open <http://127.0.0.1:4780>, choose **Open folder**, and enter the absolute path of any repository or worktree. It starts with the branch's commits since your default branch; open the comparison beside the tabs to change the base or include local edits. Choose **Save a named review** to keep it.
 
 Preread is at its best when your agent writes the reading list, so set that up next.
 

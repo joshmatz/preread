@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCheck,
@@ -14,13 +14,11 @@ import {
   Layers3,
   LoaderCircle,
   MessageSquare,
-  Monitor,
-  Moon,
   Pencil,
   Plus,
   RefreshCw,
   Search,
-  Sun,
+  Settings,
   X,
 } from "lucide-react";
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
@@ -30,6 +28,7 @@ import type { Collection, FilePreview, ReviewSection, ReviewSnapshot } from "./r
 import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesViewed } from "./useFileState";
 import { Picker } from "./Picker";
+import { Popover } from "./Popover";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
@@ -89,6 +88,31 @@ const modeLabels: Record<Mode, string> = {
   working: "Uncommitted changes",
   staged: "Staged changes",
 };
+const modeHelp: Record<Mode, string> = {
+  branch: "Commits since the branch left the base",
+  all: "Those commits plus staged, unstaged, and untracked files",
+  working: "The working tree compared with HEAD",
+  staged: "The index compared with HEAD",
+};
+const comparesWithHead = (mode: Mode) => mode === "working" || mode === "staged";
+const comparisonSummary = (mode: Mode, base: string) => {
+  const named = /^[0-9a-f]{7,40}$/i.test(base) ? "" : base;
+  if (comparesWithHead(mode)) return modeLabels[mode];
+  if (mode === "all") return named ? `Since ${named}, with local edits` : modeLabels.all;
+  return named ? `Since ${named}` : modeLabels.branch;
+};
+const statusNames: Record<string, string> = {
+  A: "Added",
+  C: "Copied",
+  D: "Deleted",
+  M: "Modified",
+  R: "Renamed",
+  T: "Type changed",
+  U: "Unmerged",
+  "?": "Untracked",
+};
+// Untracked files take U, as in editors, so git's U for unmerged becomes !.
+const statusLetters: Record<string, string> = { "?": "U", U: "!" };
 const filename = (path: string) => path.split("/").at(-1)!;
 const short = (branch: string) => branch.replace(/^(codex|feat|fix)\//, "");
 const anchor = (section: string, path = "") => `change-${encodeURIComponent(`${section}:${path}`)}`;
@@ -99,7 +123,7 @@ const Loading = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 type Theme = "system" | "light" | "dark";
-function ThemePicker() {
+function useTheme() {
   const [theme, setTheme] = useState<Theme>(load("theme", "system"));
   useEffect(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
@@ -112,21 +136,133 @@ function ThemePicker() {
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [theme]);
-  const Icon = theme === "system" ? Monitor : theme === "dark" ? Moon : Sun;
+  return [theme, setTheme] as const;
+}
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: [T, string][];
+  onChange: (value: T) => void;
+}) {
   return (
-    <label className="theme-picker">
-      <Icon size={15} />
-      <Picker
-        label="Color theme"
-        value={theme}
-        onChange={(value) => setTheme(value as Theme)}
-        options={[
-          { value: "system", label: "System" },
-          { value: "light", label: "Light" },
-          { value: "dark", label: "Dark" },
-        ]}
-      />
-    </label>
+    <div className="segmented" role="group" aria-label={label}>
+      {options.map(([option, text]) => (
+        <button
+          key={option}
+          type="button"
+          aria-pressed={value === option}
+          onClick={() => onChange(option)}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+function Description({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  const paragraph = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => {
+    const element = paragraph.current!;
+    if (expanded) return;
+    const measure = () => setClamped(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, expanded]);
+  return (
+    <div className={`review-description${expanded ? " expanded" : ""}`}>
+      <p ref={paragraph}>{text}</p>
+      {(clamped || expanded) && (
+        <button className="more-button" onClick={() => setExpanded(!expanded)}>
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+function ComparisonForm({
+  repo,
+  base,
+  mode,
+  inCollection,
+  untracked,
+  onCompare,
+}: {
+  repo: Repository;
+  base: string;
+  mode: Mode;
+  inCollection: boolean;
+  untracked: boolean;
+  onCompare: (base: string, mode: Mode) => void;
+}) {
+  const [baseDraft, setBaseDraft] = useState(base || repo.defaultBase);
+  const [modeDraft, setModeDraft] = useState(mode);
+  return (
+    <form
+      className="comparison-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onCompare(
+          comparesWithHead(modeDraft) ? base : baseDraft.trim() || repo.defaultBase,
+          modeDraft,
+        );
+      }}
+    >
+      <p className="comparison-where">
+        <strong>{repo.name}</strong>
+        {repo.path.split(/(?=\/)/).map((part, index) => (
+          <span key={index}>{part}</span>
+        ))}
+      </p>
+      <fieldset>
+        <legend>Show</legend>
+        {(Object.keys(modeLabels) as Mode[]).map((value) => (
+          <label className="mode-option" key={value}>
+            <input
+              type="radio"
+              name="comparison-mode"
+              checked={modeDraft === value}
+              onChange={() => setModeDraft(value)}
+            />
+            <span>
+              {modeLabels[value]}
+              <small>{modeHelp[value]}</small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      <label className="base-field">
+        Base branch or commit
+        <input
+          list="branches"
+          value={baseDraft}
+          onChange={(event) => setBaseDraft(event.target.value)}
+          disabled={comparesWithHead(modeDraft)}
+          autoComplete="off"
+          data-1p-ignore
+        />
+        <datalist id="branches">
+          {repo.refs.map((ref) => (
+            <option key={ref} value={ref} />
+          ))}
+        </datalist>
+      </label>
+      {untracked && <p className="muted">Line counts leave out untracked files.</p>}
+      {inCollection && (
+        <p className="muted">A different comparison opens outside this collection.</p>
+      )}
+      <button className="primary" type="submit">
+        Compare
+      </button>
+    </form>
   );
 }
 type Live = { instance: string; refresh: number; reload: number };
@@ -525,11 +661,13 @@ function FileOutlineItem({
   onClick: () => void;
 }) {
   const { viewed: done } = useFileState(scope, preview.file.path, preview.diff.hash, reviewed);
+  const { status, path } = preview.file;
+  const change = statusNames[status] ?? "Changed";
   return (
     <button
       className={`file-item${done ? " file-item-viewed" : ""}`}
-      title={`${preview.file.path}${done ? " · Viewed" : ""}`}
-      aria-label={`${preview.file.path}${done ? ", viewed" : ""}`}
+      title={`${path} · ${change}${done ? " · Viewed" : ""}`}
+      aria-label={`${path}, ${change.toLowerCase()}${done ? ", viewed" : ""}`}
       onClick={onClick}
     >
       {done ? (
@@ -540,19 +678,24 @@ function FileOutlineItem({
         <FileCode2 size={14} />
       )}
       <span>
-        <strong>{filename(preview.file.path)}</strong>
-        <small>
-          {preview.file.path.includes("/")
-            ? preview.file.path.slice(0, preview.file.path.lastIndexOf("/"))
-            : "/"}
-        </small>
+        <strong>{filename(path)}</strong>
+        {path.includes("/") && <small>{path.slice(0, path.lastIndexOf("/"))}</small>}
       </span>
-      <em>{preview.file.status}</em>
+      <em className={`status-${change.toLowerCase().replace(" ", "-")}`}>
+        {statusLetters[status] ?? status}
+      </em>
     </button>
   );
 }
+const editorTitles = {
+  review: "Edit review details",
+  collection: "Edit collection details",
+  group: "Edit change group",
+  "new-group": "Add a change group",
+  save: "Save a named review",
+};
 interface Editor {
-  kind: "review" | "collection" | "group" | "new-group" | "save";
+  kind: keyof typeof editorTitles;
   title: string;
   description: string;
   groupId?: string;
@@ -565,7 +708,6 @@ export default function App() {
   const [reviewId, setReviewId] = useState(params.get("review") ?? "");
   const [path, setPath] = useState(params.get("path") ?? load("lastPath", ""));
   const [base, setBase] = useState(params.get("base") ?? "");
-  const [baseDraft, setBaseDraft] = useState(base);
   const [mode, setMode] = useState<Mode>(
     (params.get("mode") as Mode) in modeLabels ? (params.get("mode") as Mode) : "branch",
   );
@@ -582,6 +724,7 @@ export default function App() {
   const [split, setSplit] = useState(load("split", false));
   const [wrap, setWrap] = useState(load("wrapLines", false));
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(load("ignoreWhitespace", false));
+  const [theme, setTheme] = useTheme();
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
   const [pathDraft, setPathDraft] = useState(path);
@@ -685,7 +828,6 @@ export default function App() {
     if (!review) return;
     setPath(review.path);
     setBase(review.base);
-    setBaseDraft(review.base);
     setMode(review.mode);
     setSnapshot(null);
   }, [review?.id, review?.path, review?.base, review?.mode, collectionId]);
@@ -718,9 +860,7 @@ export default function App() {
         setRepo(result);
         setRepoBusy(false);
         if (!base && !review) {
-          const chosen = load<string>(`base:${result.path}`, "") || result.defaultBase;
-          setBase(chosen);
-          setBaseDraft(chosen);
+          setBase(load<string>(`base:${result.path}`, "") || result.defaultBase);
         }
         save("lastPath", result.path);
         setRecents((previous) => {
@@ -808,7 +948,6 @@ export default function App() {
     setReviewId(nextReview.id);
     setPath(nextReview.path);
     setBase(nextReview.base);
-    setBaseDraft(nextReview.base);
     setMode(nextReview.mode);
     if (nextCollection.id !== collectionId || nextReview.id !== reviewId) {
       setSnapshot(null);
@@ -825,11 +964,21 @@ export default function App() {
     setReviewId("");
     setPath(next.trim());
     setBase(load(`base:${next.trim()}`, ""));
-    setBaseDraft(load(`base:${next.trim()}`, ""));
     setSnapshot(null);
     setBusy(true);
     setOpen(false);
     setTab("changes");
+  };
+  const compare = (nextBase: string, nextMode: Mode) => {
+    if (nextMode === mode && (comparesWithHead(mode) || nextBase === base)) {
+      setRefresh((value) => value + 1);
+      return;
+    }
+    setCollectionId("");
+    setReviewId("");
+    setBase(nextBase);
+    setMode(nextMode);
+    save(`base:${path}`, nextBase);
   };
   const jump = (section: string, file = "") => {
     document.getElementById(anchor(section, file))?.scrollIntoView({ block: "start" });
@@ -956,8 +1105,87 @@ export default function App() {
             <span className="brand-pre">pre</span>read
           </span>
         </a>
+        <nav className="crumbs" aria-label="Collection">
+          <Layers3 size={15} />
+          <Picker
+            label="Review collection"
+            value={collection?.id ?? ""}
+            placeholder="Local comparison"
+            searchable
+            options={collections.map((entry) => ({
+              value: entry.id,
+              label: entry.title,
+              detail: `${entry.reviews.length} reviews`,
+            }))}
+            onChange={(value) => {
+              const selected = collections.find((entry) => entry.id === value);
+              if (selected) selectReview(selected);
+            }}
+          />
+          {collection && (
+            <>
+              <span className="slash">/</span>
+              <Picker
+                label="Review in collection"
+                value={reviewId}
+                searchable
+                options={collection.reviews.map((entry, index) => ({
+                  value: entry.id,
+                  label: `${index + 1}. ${entry.title}`,
+                  detail: progressLabel(itemProgress[entry.id]),
+                  complete: itemProgress[entry.id]?.status === "reviewed",
+                }))}
+                onChange={(value) =>
+                  selectReview(
+                    collection,
+                    collection.reviews.find((entry) => entry.id === value)!,
+                  )
+                }
+              />
+              <button
+                className="quiet collection-link"
+                title="View collection"
+                aria-current={tab === "collection" ? "page" : undefined}
+                onClick={showCollection}
+              >
+                {collectionStatus.complete ? (
+                  <>
+                    <CheckCheck size={14} />
+                    Collection reviewed
+                  </>
+                ) : (
+                  <>
+                    <span className="collection-link-text">View collection</span>
+                    <span className="pill">
+                      {collectionStatus.checkingItems
+                        ? "Checking…"
+                        : `${collectionStatus.reviewedItems}/${collectionStatus.totalItems} reviewed`}
+                    </span>
+                  </>
+                )}
+              </button>
+            </>
+          )}
+          {!collection && repo && (
+            <button
+              className="quiet"
+              onClick={() =>
+                edit({
+                  kind: "save",
+                  title: short(repo.branch) || repo.name,
+                  description: "",
+                  files: [],
+                })
+              }
+            >
+              <Plus size={14} />
+              Save a named review
+            </button>
+          )}
+        </nav>
         <button
           className="open-button"
+          title="Open folder"
           onClick={() => {
             setPathDraft(path);
             setOpen(true);
@@ -966,12 +1194,6 @@ export default function App() {
           <FolderGit2 size={16} />
           <span>Open folder</span>
         </button>
-        <div className="top-spacer" />
-        <ThemePicker />
-        <span className="local-badge">
-          <span />
-          Local
-        </span>
         <button
           className="icon-button"
           title="Copy local review link"
@@ -996,221 +1218,184 @@ export default function App() {
         >
           <RefreshCw size={17} className={busy ? "spin" : ""} />
         </button>
-      </header>
-      <div className="collection-bar">
-        <Layers3 size={15} />
-        <Picker
-          label="Review collection"
-          value={collection?.id ?? ""}
-          placeholder="Local comparison"
-          searchable
-          options={collections.map((entry) => ({
-            value: entry.id,
-            label: entry.title,
-            detail: `${entry.reviews.length} reviews`,
-          }))}
-          onChange={(value) => {
-            const selected = collections.find((entry) => entry.id === value);
-            if (selected) selectReview(selected);
-          }}
-        />
-        {collection && (
-          <>
-            <span className="slash">/</span>
-            <Picker
-              label="Review in collection"
-              value={reviewId}
-              searchable
-              options={collection.reviews.map((entry, index) => ({
-                value: entry.id,
-                label: `${index + 1}. ${entry.title}`,
-                detail: progressLabel(itemProgress[entry.id]),
-                complete: itemProgress[entry.id]?.status === "reviewed",
-              }))}
-              onChange={(value) =>
-                selectReview(
-                  collection,
-                  collection.reviews.find((entry) => entry.id === value)!,
-                )
-              }
-            />
-            <button className="quiet" onClick={showCollection}>
-              {collectionStatus.complete ? (
-                <>
-                  <CheckCheck size={14} />
-                  Collection reviewed
-                </>
-              ) : (
-                <>
-                  View collection{" "}
-                  <span className="pill">
-                    {collectionStatus.checkingItems
-                      ? "Checking…"
-                      : `${collectionStatus.reviewedItems}/${collectionStatus.totalItems} reviewed`}
-                  </span>
-                </>
-              )}
-            </button>
-          </>
-        )}
-        {!collection && repo && (
-          <button
-            className="quiet"
-            onClick={() =>
-              edit({
-                kind: "save",
-                title: short(repo.branch) || repo.name,
-                description: "",
-                files: [],
-              })
-            }
-          >
-            <Plus size={14} />
-            Save a named review
-          </button>
-        )}
-      </div>
-      <main className="main">
-        <section className="review-header">
-          <div className="eyebrow">
-            {repo?.name ?? "LOCAL CODE REVIEW"}
-            {collection && (
-              <>
-                <span> / </span>
-                {collection.title}
-              </>
-            )}
-          </div>
-          <div className="title-row">
-            <h1>
-              {review?.title ||
-                (repo ? short(repo.branch) || "Local changes" : "Open a local worktree")}
-            </h1>
-            {review && (
-              <button
-                className="icon-button"
-                aria-label="Edit review details"
-                onClick={() =>
-                  edit({
-                    kind: "review",
-                    title: review.title,
-                    description: review.description,
-                    pullRequest: review.pullRequest,
-                    files: [],
-                  })
-                }
-              >
-                <Pencil size={15} />
-              </button>
-            )}
-            {repo?.dirty && <span className="pill">Local edits</span>}
-          </div>
-          {review?.description && <p className="review-description">{review.description}</p>}
-          {review?.pullRequest && (
-            <PullRequest
-              url={review.pullRequest}
-              entry={pullRequests[review.pullRequest]}
-              comparison={comparison}
-              mode={review.mode}
-              onRefresh={() => refreshPullRequest(review.id)}
-            />
-          )}
-          {repo && (
-            <div className="worktree-path">
-              <GitBranch size={13} />
-              <code>{repo.branch || repo.head.slice(0, 8)}</code>
-              <span>·</span>
-              <span title={path}>{path}</span>
-            </div>
-          )}
-          {repo && (
-            <>
-              <form
-                className="comparison-bar"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const next = baseDraft.trim() || base;
-                  setBaseDraft(next);
-                  if (next === base) setRefresh((value) => value + 1);
-                  else {
-                    setCollectionId("");
-                    setReviewId("");
-                    setBase(next);
-                  }
-                  save(`base:${path}`, next);
-                }}
-              >
-                <label className="base-control">
-                  <span>Base</span>
-                  <input
-                    aria-label="Base branch or commit"
-                    list="branches"
-                    value={baseDraft}
-                    onChange={(event) => setBaseDraft(event.target.value)}
-                    disabled={mode === "working" || mode === "staged"}
-                  />
-                  <datalist id="branches">
-                    {repo.refs.map((ref) => (
-                      <option key={ref} value={ref} />
-                    ))}
-                  </datalist>
-                </label>
-                <Picker
-                  label="Changes to show"
-                  value={mode}
-                  options={Object.entries(modeLabels).map(([value, label]) => ({ value, label }))}
+        <Popover
+          label="Display settings"
+          title="Display settings"
+          className="icon-button"
+          width={280}
+          panel={() => (
+            <div className="settings">
+              <div className="setting">
+                <span>Diff layout</span>
+                <Segmented
+                  label="Diff layout"
+                  value={split ? "split" : "unified"}
+                  options={[
+                    ["unified", "Unified"],
+                    ["split", "Split"],
+                  ]}
                   onChange={(value) => {
-                    setCollectionId("");
-                    setReviewId("");
-                    setMode(value as Mode);
+                    setSplit(value === "split");
+                    save("split", value === "split");
                   }}
                 />
-                <button className="secondary" type="submit">
-                  Compare
-                </button>
-                <span className="comparison-tip">
-                  {mode === "working" || mode === "staged"
-                    ? "Compared with HEAD"
-                    : "Changes since the shared ancestor"}
+              </div>
+              <label className="setting-check">
+                <input
+                  type="checkbox"
+                  checked={ignoreWhitespace}
+                  onChange={(event) => {
+                    setIgnoreWhitespace(event.target.checked);
+                    save("ignoreWhitespace", event.target.checked);
+                  }}
+                />
+                <span>
+                  Ignore whitespace
+                  <small>Hide changes to spaces and tabs; line breaks still show</small>
                 </span>
-              </form>
-              <nav className="review-tabs" aria-label="Review sections">
-                <button
-                  className={tab === "changes" ? "active" : ""}
-                  onClick={() => setTab("changes")}
-                >
-                  <FileCode2 size={16} />
-                  Changes <span className="pill">{comparison?.files.length ?? "–"}</span>
-                </button>
-                {collection && (
-                  <button className={tab === "collection" ? "active" : ""} onClick={showCollection}>
-                    <Layers3 size={16} />
-                    Collection
-                  </button>
-                )}
-                <button
-                  className={tab === "commits" ? "active" : ""}
-                  onClick={() => setTab("commits")}
-                >
-                  <GitCommitHorizontal size={16} />
-                  Commits
-                </button>
-                <button className={tab === "stack" ? "active" : ""} onClick={() => setTab("stack")}>
-                  <GitBranch size={16} />
-                  Git ancestry
-                </button>
-                <div className="top-spacer" />
-                {totals && (
-                  <div className="totals">
-                    {comparison?.files.some((file) => file.untracked) && <small>tracked</small>}
-                    <span className="additions">+{totals.plus}</span>
-                    <span className="deletions">−{totals.minus}</span>
-                  </div>
-                )}
-              </nav>
-            </>
+              </label>
+              <label className="setting-check">
+                <input
+                  type="checkbox"
+                  checked={wrap}
+                  onChange={(event) => {
+                    setWrap(event.target.checked);
+                    save("wrapLines", event.target.checked);
+                  }}
+                />
+                <span>Wrap long lines</span>
+              </label>
+              <div className="setting">
+                <span>Theme</span>
+                <Segmented
+                  label="Color theme"
+                  value={theme}
+                  options={[
+                    ["system", "System"],
+                    ["light", "Light"],
+                    ["dark", "Dark"],
+                  ]}
+                  onChange={setTheme}
+                />
+              </div>
+            </div>
           )}
-        </section>
+        >
+          <Settings size={17} />
+        </Popover>
+      </header>
+      <main className="main">
+        {tab !== "collection" && (
+          <section className="review-header">
+            <div className="title-row">
+              <h1>
+                {review?.title ||
+                  (repo ? short(repo.branch) || "Local changes" : "Open a local worktree")}
+              </h1>
+              {review && (
+                <button
+                  className="icon-button"
+                  aria-label="Edit review details"
+                  onClick={() =>
+                    edit({
+                      kind: "review",
+                      title: review.title,
+                      description: review.description,
+                      pullRequest: review.pullRequest,
+                      files: [],
+                    })
+                  }
+                >
+                  <Pencil size={15} />
+                </button>
+              )}
+              {repo?.dirty && <span className="pill">Local edits</span>}
+            </div>
+            {review?.description && (
+              <Description key={`${collectionId}/${reviewId}`} text={review.description} />
+            )}
+            {review?.pullRequest && (
+              <PullRequest
+                url={review.pullRequest}
+                entry={pullRequests[review.pullRequest]}
+                comparison={comparison}
+                mode={review.mode}
+                onRefresh={() => refreshPullRequest(review.id)}
+              />
+            )}
+            {repo && (
+              <div className="review-bar">
+                <nav className="review-tabs" aria-label="Review sections">
+                  <button
+                    className={tab === "changes" ? "active" : ""}
+                    aria-current={tab === "changes" ? "page" : undefined}
+                    onClick={() => setTab("changes")}
+                  >
+                    <FileCode2 size={15} />
+                    Changes <span className="pill">{comparison?.files.length ?? "–"}</span>
+                  </button>
+                  <button
+                    className={tab === "commits" ? "active" : ""}
+                    aria-current={tab === "commits" ? "page" : undefined}
+                    onClick={() => setTab("commits")}
+                  >
+                    <GitCommitHorizontal size={15} />
+                    Commits
+                    {!!comparison?.commitCount && (
+                      <span className="pill">{comparison.commitCount}</span>
+                    )}
+                  </button>
+                  <button
+                    className={tab === "stack" ? "active" : ""}
+                    aria-current={tab === "stack" ? "page" : undefined}
+                    onClick={() => setTab("stack")}
+                  >
+                    <GitBranch size={15} />
+                    Git ancestry
+                  </button>
+                </nav>
+                <div className="review-meta">
+                  <Popover
+                    label="Comparison"
+                    className="comparison-chip"
+                    width={340}
+                    panel={(close) => (
+                      <ComparisonForm
+                        repo={repo}
+                        base={base}
+                        mode={mode}
+                        inCollection={!!review}
+                        untracked={!!comparison?.files.some((file) => file.untracked)}
+                        onCompare={(nextBase, nextMode) => {
+                          close();
+                          compare(nextBase, nextMode);
+                        }}
+                      />
+                    )}
+                  >
+                    <GitBranch size={14} />
+                    <strong>{repo.branch || repo.head.slice(0, 8)}</strong>
+                    <span>{comparisonSummary(mode, base)}</span>
+                    <ChevronDown size={13} />
+                  </Popover>
+                  {totals && (
+                    <div
+                      className="totals"
+                      title={
+                        comparison?.files.some((file) => file.untracked)
+                          ? "Untracked files aren’t counted"
+                          : undefined
+                      }
+                    >
+                      <span className="additions">+{totals.plus}</span>
+                      <span className="deletions">−{totals.minus}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
         {error && (
           <div className="error" role="alert">
             {error}
@@ -1237,23 +1422,22 @@ export default function App() {
         {tab === "changes" && snapshot && (
           <div className="changes-layout">
             <aside className="files-sidebar">
-              <div className="index-title">
-                Review outline{" "}
+              <div className="outline-head">
+                <label className="search-field">
+                  <Search size={14} />
+                  <input
+                    aria-label="Filter review outline"
+                    placeholder="Find a file…"
+                    value={filter}
+                    onChange={(event) => setFilter(event.target.value)}
+                  />
+                </label>
                 {review && (
                   <small>
                     {reviewedCount}/{snapshot.sections.length} reviewed
                   </small>
                 )}
               </div>
-              <label className="search-field">
-                <Search size={14} />
-                <input
-                  aria-label="Filter review outline"
-                  placeholder="Find a file…"
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
-                />
-              </label>
               <nav aria-label="Changed files">
                 {snapshot.sections.map((section) => (
                   <div className="index-group" key={section.id}>
@@ -1292,59 +1476,6 @@ export default function App() {
               )}
             </aside>
             <div className={`review-feed${wrap ? " wrap-lines" : ""}`}>
-              <div className="feed-toolbar">
-                <span>
-                  {comparison?.files.length} {comparison?.files.length === 1 ? "file" : "files"} ·
-                  scroll to review
-                </span>
-                <div className="diff-controls">
-                  <label
-                    className="wrap-toggle"
-                    title="Hide differences in spaces and tabs; keep line breaks"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={ignoreWhitespace}
-                      onChange={(event) => {
-                        setIgnoreWhitespace(event.target.checked);
-                        save("ignoreWhitespace", event.target.checked);
-                      }}
-                    />
-                    Ignore whitespace
-                  </label>
-                  <label className="wrap-toggle">
-                    <input
-                      type="checkbox"
-                      checked={wrap}
-                      onChange={(event) => {
-                        setWrap(event.target.checked);
-                        save("wrapLines", event.target.checked);
-                      }}
-                    />
-                    Wrap lines
-                  </label>
-                  <div className="diff-switch" role="group" aria-label="Diff layout">
-                    <button
-                      aria-pressed={!split}
-                      onClick={() => {
-                        setSplit(false);
-                        save("split", false);
-                      }}
-                    >
-                      Unified
-                    </button>
-                    <button
-                      aria-pressed={split}
-                      onClick={() => {
-                        setSplit(true);
-                        save("split", true);
-                      }}
-                    >
-                      Split
-                    </button>
-                  </div>
-                </div>
-              </div>
               {!comparison?.files.length && (
                 <div className="empty-state">
                   <CheckCheck size={28} />
@@ -1360,11 +1491,6 @@ export default function App() {
                       <div>
                         <h2>{section.title}</h2>
                         {section.description && <p>{section.description}</p>}
-                        <small>
-                          {section.files.length} {section.files.length === 1 ? "file" : "files"}
-                          {section.files.some((file) => file.partial) &&
-                            " · selected change blocks"}
-                        </small>
                       </div>
                     </div>
                     <div className="group-actions">
@@ -1444,25 +1570,26 @@ export default function App() {
         {tab === "collection" && collection && (
           <div className="section-content">
             <div className="section-heading">
-              <div>
-                <p className="eyebrow">REVIEW COLLECTION</p>
-                <h2>{collection.title}</h2>
-                <p>{collection.description}</p>
+              <div className="title-row">
+                <h1>{collection.title}</h1>
+                <button
+                  className="icon-button"
+                  aria-label="Edit collection details"
+                  onClick={() =>
+                    edit({
+                      kind: "collection",
+                      title: collection.title,
+                      description: collection.description,
+                      files: [],
+                    })
+                  }
+                >
+                  <Pencil size={15} />
+                </button>
               </div>
-              <button
-                className="secondary"
-                onClick={() =>
-                  edit({
-                    kind: "collection",
-                    title: collection.title,
-                    description: collection.description,
-                    files: [],
-                  })
-                }
-              >
-                <Pencil size={14} />
-                Edit details
-              </button>
+              {collection.description && (
+                <Description key={collection.id} text={collection.description} />
+              )}
             </div>
             <div
               className={`collection-progress ${collectionStatus.complete ? "complete" : ""}`}
@@ -1491,9 +1618,6 @@ export default function App() {
                 }
                 max={collectionStatus.totalItems || 1}
               />
-              <small>
-                Completion follows Viewed files. Changed code needs review again.
-              </small>
             </div>
             <div className="collection-grid">
               {collection.reviews.map((entry, index) => (
@@ -1517,7 +1641,6 @@ export default function App() {
                         {!itemProgress[entry.id] && <LoaderCircle size={13} className="spin" />}
                         <span>{progressLabel(itemProgress[entry.id])}</span>
                       </div>
-                      <code>Base: {entry.base}</code>
                     </div>
                     <span className="card-arrow">↗</span>
                   </button>
@@ -1642,13 +1765,7 @@ export default function App() {
           {editor && (
             <>
               <div className="dialog-heading">
-                <h2>
-                  {editor.kind === "new-group"
-                    ? "Add a change group"
-                    : editor.kind === "save"
-                      ? "Save a named review"
-                      : "Edit review details"}
-                </h2>
+                <h2>{editorTitles[editor.kind]}</h2>
                 <button
                   type="button"
                   className="icon-button"
