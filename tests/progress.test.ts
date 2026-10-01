@@ -7,6 +7,7 @@ import {
   progressSource,
   progressFromSource,
   withFileViews,
+  type ViewedReader,
 } from "../src/progress.ts";
 import { groupPreviews } from "../server/review.ts";
 import type { FilePreview, ReviewSnapshot } from "../src/review-types.ts";
@@ -129,8 +130,8 @@ test("empty items are labeled separately, but stale assignments still need atten
 test("individual viewed blocks complete their groups and collection without group receipts", () => {
   const snapshot = makeSnapshot();
   const viewed = new Set<string>();
-  const read = (_path: string, hash: string, fallback: boolean) => viewed.has(hash) || fallback;
-  viewed.add(snapshot.sections[0].files[0].diff.hash);
+  const read: ViewedReader = (file, fallback) => viewed.has(file.viewHash) || fallback;
+  viewed.add(snapshot.sections[0].files[0].viewHash!);
   const partial = withFileViews(snapshot, read);
   assert.equal(reviewProgress(partial).reviewedGroups, 1);
   assert.equal(
@@ -138,7 +139,7 @@ test("individual viewed blocks complete their groups and collection without grou
     false,
     "other blocks in the same file still need viewing",
   );
-  viewed.add(snapshot.sections[1].files[0].diff.hash);
+  viewed.add(snapshot.sections[1].files[0].viewHash!);
   const full = withFileViews(snapshot, read);
   assert.equal(reviewProgress(full).reviewedGroups, 2);
   assert.equal(collectionProgress([reviewProgress(full)]).complete, true);
@@ -155,9 +156,9 @@ test("an unchecked file overrides a bulk receipt and immediately reopens collect
     "example/first": receipt("first"),
     "example/other-changes": receipt("other-changes"),
   });
-  const unchecked = snapshot.sections[0].files[0].diff.hash;
-  const read = (_path: string, hash: string, fallback: boolean) =>
-    hash === unchecked ? false : fallback;
+  const unchecked = snapshot.sections[0].files[0].viewHash;
+  const read: ViewedReader = (file, fallback) =>
+    file.viewHash === unchecked ? false : fallback;
   const progress = progressFromSource(progressSource(snapshot), read);
   assert.equal(progress.reviewedGroups, 1);
   assert.equal(progress.status, "partial");
@@ -167,14 +168,14 @@ test("an unchecked file overrides a bulk receipt and immediately reopens collect
 test("changed files reopen while existing viewed files and unrelated groups remain complete", () => {
   const snapshot = makeSnapshot();
   const viewed = new Set(
-    snapshot.sections.flatMap((section) => section.files.map((preview) => preview.diff.hash)),
+    snapshot.sections.flatMap((section) => section.files.map((preview) => preview.viewHash)),
   );
   const changed = {
     ...file,
     diff: { ...file.diff, patch: file.diff.patch.replace("+new\n", "+newer\n") },
   };
   const updated = { comparison, sections: groupPreviews([changed], groups, {}, scope) };
-  const result = withFileViews(updated, (_path, hash) => viewed.has(hash));
+  const result = withFileViews(updated, (file) => viewed.has(file.viewHash));
   assert.equal(result.sections[0].reviewed, false);
   assert.equal(result.sections[1].reviewed, true);
   assert.equal(reviewProgress(result).reviewedGroups, 1);

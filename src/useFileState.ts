@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import type { MarkedFile } from "./review-types";
 
 const listeners = new Set<() => void>();
 const memory = new Map<string, boolean>();
@@ -21,13 +22,13 @@ const subscribe = (listener: () => void) => {
     if (!listeners.size) window.removeEventListener("storage", storageChanged);
   };
 };
-const read = (key: string, fallback: boolean) => {
-  if (memory.has(key)) return memory.get(key)!;
+const stored = (key: string) => {
+  if (memory.has(key)) return memory.get(key);
   try {
-    const stored = JSON.parse(window.localStorage.getItem(key) ?? "null");
-    return typeof stored === "boolean" ? stored : fallback;
+    const value = JSON.parse(window.localStorage.getItem(key) ?? "null");
+    return typeof value === "boolean" ? value : undefined;
   } catch {
-    return fallback;
+    return undefined;
   }
 };
 const write = (key: string, value: boolean) => {
@@ -61,41 +62,42 @@ try {
   migrateMarks(window.localStorage);
 } catch {}
 
+type Kind = "viewed" | "collapsed";
 // Leaves out the review's base and mode, so a mark survives the review moving to a new base.
-export const fileViewed = (worktree: string, path: string, hash: string, fallback = false) =>
-  read(`file-viewed:${worktree}|${path}|${hash}`, fallback);
+const key = (kind: Kind, worktree: string, file: MarkedFile, hash = file.viewHash) =>
+  `file-${kind}:${worktree}|${file.path}|${hash}`;
+const mark = (kind: Kind, worktree: string, file: MarkedFile, fallback: boolean) => {
+  const current = stored(key(kind, worktree, file));
+  if (current !== undefined) return current;
+  // Marks saved before view hashes are keyed by the patch hash, which any edit to the file
+  // changes. Copying one to its view hash keeps it until the block itself changes.
+  const saved = stored(key(kind, worktree, file, file.patchHash));
+  if (saved === undefined) return fallback;
+  write(key(kind, worktree, file), saved);
+  return saved;
+};
+export const fileViewed = (worktree: string, file: MarkedFile, fallback = false) =>
+  mark("viewed", worktree, file, fallback);
 export const useFileStateVersion = () => useSyncExternalStore(subscribe, () => version);
-export function setFilesViewed(
-  worktree: string,
-  files: Array<{ path: string; hash: string }>,
-  value: boolean,
-) {
+export function setFilesViewed(worktree: string, files: MarkedFile[], value: boolean) {
   for (const file of files) {
-    const identity = `${worktree}|${file.path}|${file.hash}`;
-    write(`file-viewed:${identity}`, value);
-    write(`file-collapsed:${identity}`, value);
+    write(key("viewed", worktree, file), value);
+    write(key("collapsed", worktree, file), value);
   }
   emit();
 }
-export function useFileState(worktree: string, path: string, hash: string, fallback = false) {
-  const identity = `${worktree}|${path}|${hash}`;
-  const viewKey = `file-viewed:${identity}`;
-  const collapseKey = `file-collapsed:${identity}`;
+export function useFileState(worktree: string, file: MarkedFile, fallback = false) {
   const snapshot = useSyncExternalStore(subscribe, () => {
-    const viewed = read(viewKey, fallback);
-    const collapsed = read(collapseKey, viewed);
+    const viewed = mark("viewed", worktree, file, fallback);
+    const collapsed = mark("collapsed", worktree, file, viewed);
     return Number(viewed) + Number(collapsed) * 2;
   });
   return {
     viewed: Boolean(snapshot & 1),
     collapsed: Boolean(snapshot & 2),
-    setViewed: (value: boolean) => {
-      write(viewKey, value);
-      write(collapseKey, value);
-      emit();
-    },
+    setViewed: (value: boolean) => setFilesViewed(worktree, [file], value),
     setCollapsed: (value: boolean) => {
-      write(collapseKey, value);
+      write(key("collapsed", worktree, file), value);
       emit();
     },
   };

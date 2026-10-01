@@ -40,7 +40,13 @@ export interface FilePreview {
   diff: Diff;
   partial: boolean;
   contextHash?: string;
+  viewHash?: string;
   error?: string;
+}
+export interface MarkedFile {
+  path: string;
+  viewHash: string;
+  patchHash: string;
 }
 export interface ReviewSection {
   id: string;
@@ -74,7 +80,7 @@ export interface ProgressSource {
     reviewed: boolean;
     canReview: boolean;
     changedSinceReview: boolean;
-    files: Array<{ path: string; hash: string }>;
+    files: MarkedFile[];
   }>;
 }
 export type ProgressDetails = ReviewProgress & { source?: ProgressSource };

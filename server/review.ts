@@ -22,6 +22,9 @@ import type { Mode } from "../src/types.ts";
 import { reviewable } from "../src/change-notes.ts";
 
 const hash = (input: unknown) => createHash("sha256").update(JSON.stringify(input)).digest("hex");
+// reviewContent drops index lines, which are all that identify a binary file's content.
+const shown = (preview: FilePreview) =>
+  preview.diff.binary ? preview.diff.patch : reviewContent(preview.diff.patch);
 export function groupPreviews(
   files: FilePreview[],
   groups: ChangeGroup[],
@@ -31,6 +34,7 @@ export function groupPreviews(
   const assigned = new Map<string, Set<number>>();
   const sections: ReviewSection[] = [];
   const parsed = new Map(files.map((file) => [file.file.path, parsePatch(file.diff.patch)]));
+  const views = new Map<string, number>();
   const finish = (
     group: ChangeGroup,
     previews: FilePreview[],
@@ -45,8 +49,7 @@ export function groupPreviews(
         preview.file.path,
         preview.file.oldPath,
         preview.file.status,
-        // reviewContent drops index lines, which are all that identify a binary file's content.
-        preview.diff.binary ? preview.diff.patch : reviewContent(preview.diff.patch),
+        shown(preview),
         preview.diff.binary,
         preview.diff.tooLarge,
         preview.error,
@@ -57,7 +60,15 @@ export function groupPreviews(
       id: group.id,
       title: group.title,
       description: group.description,
-      files: previews,
+      // Viewed marks follow what was shown, so edits to other blocks of a file leave them alone.
+      // Identical blocks of one file are numbered so each keeps its own mark.
+      files: previews.map((preview) => {
+        const viewHash = hash(shown(preview));
+        const id = `${preview.file.path}|${viewHash}`;
+        const repeat = views.get(id) ?? 0;
+        views.set(id, repeat + 1);
+        return { ...preview, viewHash: repeat ? hash([viewHash, repeat]) : viewHash };
+      }),
       fingerprint,
       reviewed: receipt?.fingerprint === fingerprint,
       reviewedAt: receipt?.reviewedAt,

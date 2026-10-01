@@ -75,8 +75,8 @@ export function useCollectionProgress(
       const entry = results.items[review.id];
       if (entry) {
         items[review.id] = entry.source
-          ? progressFromSource(entry.source, (path, hash, fallback) =>
-              fileViewed(review.path, path, hash, fallback),
+          ? progressFromSource(entry.source, (file, fallback) =>
+              fileViewed(review.path, file, fallback),
             )
           : entry;
       }

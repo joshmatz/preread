@@ -165,10 +165,9 @@ test("image previews can complete a group and their receipts follow the image co
   const first = groupPreviews([binary("1111111..2222222", image)], whole, {}, scope)[0];
   assert.equal(first.canReview, true);
   assert.equal(groupPreviews([binary("1111111..2222222")], whole, {}, scope)[0].canReview, false);
-  assert.notEqual(
-    groupPreviews([binary("1111111..3333333", image)], whole, {}, scope)[0].fingerprint,
-    first.fingerprint,
-  );
+  const replaced = groupPreviews([binary("1111111..3333333", image)], whole, {}, scope)[0];
+  assert.notEqual(replaced.fingerprint, first.fingerprint);
+  assert.notEqual(replaced.files[0].viewHash, first.files[0].viewHash);
 });
 test("a binary file moved without content changes can complete a group", () => {
   const moved: FilePreview = {
@@ -192,6 +191,75 @@ test("a binary file moved without content changes can complete a group", () => {
   };
   const whole = [{ ...group, targets: [{ path: "fonts/brand/Inter.woff2" }] }];
   assert.equal(groupPreviews([moved], whole, {}, scope)[0].canReview, true);
+});
+test("a block keeps its view hash when other blocks of its file change or move it", () => {
+  const views = (text: string) =>
+    groupPreviews([{ ...preview, diff: { ...preview.diff, patch: text } }], [group], {}, scope).map(
+      (section) => section.files[0].viewHash,
+    );
+  const [first, second] = views(patch);
+  const [, shifted] = views(
+    patch
+      .replace("1111111..2222222", "1111111..3333333")
+      .replace(
+        "@@ -1,2 +1,2 @@\n-old first\n+new first\n",
+        "@@ -1,2 +1,3 @@\n-old first\n+new first\n+added\n",
+      )
+      .replace("@@ -40,2 +40,2 @@", "@@ -40,2 +41,2 @@"),
+  );
+  assert.equal(shifted, second);
+  const [unchanged, edited] = views(patch.replace("new second", "different second"));
+  assert.equal(unchanged, first);
+  assert.notEqual(edited, second);
+});
+test("a renamed file's blocks and receipts ignore its similarity score", () => {
+  const renamed = (similarity: number, text: string): FilePreview => ({
+    ...preview,
+    file: { ...preview.file, oldPath: "old.ts", status: "R" },
+    diff: {
+      ...preview.diff,
+      patch: text.replace(
+        "index ",
+        `similarity index ${similarity}%\nrename from old.ts\nrename to example.ts\nindex `,
+      ),
+    },
+  });
+  const before = groupPreviews([renamed(96, patch)], [group], {}, scope);
+  const after = groupPreviews(
+    [renamed(95, patch.replace("new second", "different second"))],
+    [group],
+    {},
+    scope,
+  );
+  assert.equal(after[0].files[0].viewHash, before[0].files[0].viewHash);
+  assert.equal(after[0].fingerprint, before[0].fingerprint);
+  assert.notEqual(after[1].files[0].viewHash, before[1].files[0].viewHash);
+});
+test("identical blocks in one file keep separate view hashes", () => {
+  const block = (line: number) => `@@ -${line},2 +${line},2 @@\n-old\n+new\n context\n`;
+  const header = patch.slice(0, patch.indexOf("@@"));
+  const twice = { ...preview, diff: { ...preview.diff, patch: header + block(1) + block(40) } };
+  const [first, second] = groupPreviews([twice], [group], {}, scope);
+  assert.equal(second.id, "other-changes");
+  assert.notEqual(first.files[0].viewHash, second.files[0].viewHash);
+});
+test("a file without hunks keeps its view hash when it moves from Other changes into a group", () => {
+  const renamed: FilePreview = {
+    file: { path: "b.txt", oldPath: "a.txt", status: "R", additions: 0, deletions: 0, binary: false },
+    partial: false,
+    diff: {
+      patch: "diff --git a/a.txt b/b.txt\nsimilarity index 100%\nrename from a.txt\nrename to b.txt\n",
+      hash: "renamed",
+      binary: false,
+      tooLarge: false,
+      empty: false,
+    },
+  };
+  const other = groupPreviews([preview, renamed], [group], {}, scope).at(-1)!;
+  const grouped = groupPreviews([renamed], [{ ...group, targets: [{ path: "b.txt" }] }], {}, scope);
+  const moved = other.files.find((file) => file.file.path === "b.txt")!;
+  assert.ok(moved.viewHash);
+  assert.equal(grouped[0].files[0].viewHash, moved.viewHash);
 });
 test("collection validation rejects traversal, malformed ranges, duplicate IDs and reserved groups", () => {
   assert.throws(() => validateCollection({ ...collection, id: "../outside" }));

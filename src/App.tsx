@@ -47,7 +47,7 @@ import { Popover } from "./Popover";
 import { fileKind, fileKindLabels, type FileKind } from "./file-kinds";
 import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
 import { useCollectionProgress } from "./useCollectionProgress";
-import { collectionProgress, progressLabel, withFileViews } from "./progress";
+import { collectionProgress, markedFile, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
 import { ImageDiff } from "./ImageDiff";
 import { BrandMark } from "./BrandMark";
@@ -587,8 +587,7 @@ function FileCard({
 }) {
   const { viewed, collapsed, setViewed, setCollapsed } = useFileState(
     source.path,
-    preview.file.path,
-    preview.diff.hash,
+    markedFile(preview),
     defaultViewed,
   );
   const bodyId = `${anchor(section, preview.file.path)}-body`;
@@ -713,7 +712,7 @@ function FileOutlineItem({
   reviewed: boolean;
   onClick: () => void;
 }) {
-  const { viewed: done } = useFileState(worktree, preview.file.path, preview.diff.hash, reviewed);
+  const { viewed: done } = useFileState(worktree, markedFile(preview), reviewed);
   const { status, path, oldPath } = preview.file;
   const change = statusNames[status] ?? "Changed";
   const from = oldPath ? ` from ${oldPath}` : "";
@@ -806,7 +805,7 @@ export default function App() {
   const snapshot = useMemo(
     () =>
       rawSnapshot &&
-      withFileViews(rawSnapshot, (file, hash, fallback) => fileViewed(path, file, hash, fallback)),
+      withFileViews(rawSnapshot, (file, fallback) => fileViewed(path, file, fallback)),
     [rawSnapshot, path, fileStateVersion],
   );
   const defaultViewed = (section: string) =>
@@ -1130,11 +1129,7 @@ export default function App() {
         fingerprint: section.fingerprint,
         reviewed: !section.reviewed,
       });
-      setFilesViewed(
-        path,
-        section.files.map((preview) => ({ path: preview.file.path, hash: preview.diff.hash })),
-        !section.reviewed,
-      );
+      setFilesViewed(path, section.files.map(markedFile), !section.reviewed);
       if (activeReview.current === selection) setSnapshot(result);
     } catch (cause) {
       setError((cause as Error).message);

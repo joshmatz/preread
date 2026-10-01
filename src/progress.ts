@@ -1,6 +1,17 @@
-import type { ProgressSource, ReviewProgress, ReviewSnapshot } from "./review-types";
+import type {
+  FilePreview,
+  MarkedFile,
+  ProgressSource,
+  ReviewProgress,
+  ReviewSnapshot,
+} from "./review-types";
 
-export type ViewedReader = (path: string, hash: string, fallback: boolean) => boolean;
+export type ViewedReader = (file: MarkedFile, fallback: boolean) => boolean;
+export const markedFile = (preview: FilePreview): MarkedFile => ({
+  path: preview.file.path,
+  viewHash: preview.viewHash ?? preview.diff.hash,
+  patchHash: preview.diff.hash,
+});
 export function progressSource(snapshot: ReviewSnapshot): ProgressSource {
   return {
     empty:
@@ -10,7 +21,7 @@ export function progressSource(snapshot: ReviewSnapshot): ProgressSource {
       reviewed: section.reviewed,
       canReview: section.canReview,
       changedSinceReview: section.changedSinceReview,
-      files: section.files.map((preview) => ({ path: preview.file.path, hash: preview.diff.hash })),
+      files: section.files.map(markedFile),
     })),
   };
 }
@@ -20,7 +31,7 @@ export function sectionViewed(section: ProgressSource["sections"][number], viewe
     section.canReview &&
     section.files.length > 0 &&
     (viewed
-      ? section.files.every((file) => viewed(file.path, file.hash, section.reviewed))
+      ? section.files.every((file) => viewed(file, section.reviewed))
       : section.reviewed)
   );
 }

@@ -45,7 +45,19 @@ test("old keys move to worktree keys, and viewed wins when old reviews disagree"
   });
 });
 test("a mark stays with its worktree", () => {
-  setFilesViewed("/repo", [{ path: "src/a.ts", hash }], true);
-  assert.equal(fileViewed("/repo", "src/a.ts", hash), true);
-  assert.equal(fileViewed("/other", "src/a.ts", hash), false);
+  const file = { path: "src/a.ts", viewHash: hash, patchHash: hash };
+  setFilesViewed("/repo", [file], true);
+  assert.equal(fileViewed("/repo", file), true);
+  assert.equal(fileViewed("/other", file), false);
+});
+test("a mark saved under a patch hash moves to its view hash and outlasts edits elsewhere", () => {
+  const file = { path: "src/b.ts", viewHash: "view", patchHash: "patch" };
+  setFilesViewed("/repo", [{ ...file, viewHash: "patch" }], true);
+  assert.equal(fileViewed("/repo", file), true);
+  assert.equal(fileViewed("/repo", { ...file, patchHash: "edited elsewhere" }), true);
+  assert.equal(fileViewed("/repo", { ...file, viewHash: "edited", patchHash: "edited" }), false);
+  assert.equal(fileViewed("/other", file), false);
+  setFilesViewed("/repo", [file], false);
+  assert.equal(fileViewed("/repo", file, true), false);
+  assert.equal(fileViewed("/repo", { ...file, path: "src/c.ts" }, true), true);
 });

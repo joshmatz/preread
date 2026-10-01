@@ -43,11 +43,11 @@ export const matchesRanges = (hunk: PatchHunk, ranges: LineRange[]) =>
   );
 export const patchFor = (header: string, hunks: PatchHunk[]) =>
   header + hunks.map((hunk) => hunk.text).join("");
-// Whole-file blob IDs and shifted line numbers do not change the content of a selected block.
-// Split on "\n" only: a multiline regex also starts lines after CR, LS and PS inside content.
+// Whole-file blob IDs, rename similarity, and shifted line numbers do not change the content of a
+// selected block. Split on "\n" only: a multiline regex also starts lines after CR, LS and PS.
 export const reviewContent = (patch: string) =>
   patch
     .split("\n")
-    .filter((line) => !line.startsWith("index "))
+    .filter((line) => !/^(?:(?:dis)?similarity )?index /.test(line))
     .map((line) => line.replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/, "@@"))
     .join("\n");
