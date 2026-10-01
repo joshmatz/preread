@@ -1,25 +1,39 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  Archive,
+  BookOpen,
+  Braces,
   Check,
   CheckCheck,
   ChevronDown,
   ChevronRight,
   Copy,
+  Database,
   FileCode2,
-  FileImage,
+  Film,
+  FlaskConical,
   FoldVertical,
   FolderGit2,
   GitBranch,
   GitCommitHorizontal,
+  ImageIcon,
   Layers3,
   LoaderCircle,
+  Lock,
   MessageSquare,
+  Music,
+  Palette,
   Pencil,
   Plus,
   RefreshCw,
   Search,
   Settings,
+  Settings2,
+  Sheet,
+  SquareTerminal,
+  Type,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
@@ -29,6 +43,7 @@ import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesViewed } from "./useFileState";
 import { Picker } from "./Picker";
 import { Popover } from "./Popover";
+import { fileKind, fileKindLabels, type FileKind } from "./file-kinds";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
@@ -113,6 +128,23 @@ const statusNames: Record<string, string> = {
 };
 // Untracked files take U, as in editors, so git's U for unmerged becomes !.
 const statusLetters: Record<string, string> = { "?": "U", U: "!" };
+const kindIcons: Record<FileKind, LucideIcon> = {
+  code: FileCode2,
+  test: FlaskConical,
+  styles: Palette,
+  docs: BookOpen,
+  config: Settings2,
+  data: Braces,
+  table: Sheet,
+  database: Database,
+  script: SquareTerminal,
+  lockfile: Lock,
+  image: ImageIcon,
+  font: Type,
+  video: Film,
+  audio: Music,
+  archive: Archive,
+};
 const filename = (path: string) => path.split("/").at(-1)!;
 const short = (branch: string) => branch.replace(/^(codex|feat|fix)\//, "");
 const anchor = (section: string, path = "") => `change-${encodeURIComponent(`${section}:${path}`)}`;
@@ -550,7 +582,8 @@ function FileCard({
   const [note, setNote] = useState(load<Record<string, string>>("notes", {})[noteKey] ?? "");
   const valid =
     !preview.error && !preview.diff.tooLarge && (!preview.diff.binary || !!preview.diff.image);
-  const FileIcon = preview.diff.image ? FileImage : FileCode2;
+  const kind = fileKind(preview.file.path, !!preview.diff.image);
+  const FileIcon = kindIcons[kind];
   const contextKey = `${preview.diff.hash}:${source.version}`;
   const [expanded, setExpanded] = useState<{ key: string; model: ContextModel } | null>(null);
   const context = expanded?.key === contextKey ? expanded.model : null;
@@ -572,7 +605,9 @@ function FileCard({
           ref={collapseButton}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-          <FileIcon className="file-type-icon" size={16} />
+          <FileIcon className="file-type-icon" size={16}>
+            <title>{fileKindLabels[kind]}</title>
+          </FileIcon>
           <span className="file-title">
             <strong>{preview.file.path}</strong>
             {preview.file.oldPath && <small>Renamed from {preview.file.oldPath}</small>}
@@ -663,20 +698,16 @@ function FileOutlineItem({
   const { viewed: done } = useFileState(scope, preview.file.path, preview.diff.hash, reviewed);
   const { status, path } = preview.file;
   const change = statusNames[status] ?? "Changed";
+  const kind = fileKind(path, !!preview.diff.image);
+  const KindIcon = kindIcons[kind];
   return (
     <button
       className={`file-item${done ? " file-item-viewed" : ""}`}
-      title={`${path} · ${change}${done ? " · Viewed" : ""}`}
+      title={`${path} · ${fileKindLabels[kind]} · ${change}${done ? " · Viewed" : ""}`}
       aria-label={`${path}, ${change.toLowerCase()}${done ? ", viewed" : ""}`}
       onClick={onClick}
     >
-      {done ? (
-        <Check size={14} />
-      ) : preview.diff.image ? (
-        <FileImage size={14} />
-      ) : (
-        <FileCode2 size={14} />
-      )}
+      {done ? <Check size={14} /> : <KindIcon size={14} />}
       <span>
         <strong>{filename(path)}</strong>
         {path.includes("/") && <small>{path.slice(0, path.lastIndexOf("/"))}</small>}
