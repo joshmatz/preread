@@ -42,6 +42,7 @@ import type { Diff, Mode, Repository, StackNode } from "./types";
 import type { Collection, FilePreview, ReviewSection, ReviewSnapshot } from "./review-types";
 import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesViewed } from "./useFileState";
+import { useNote } from "./notes";
 import { Picker } from "./Picker";
 import { Popover } from "./Popover";
 import { fileKind, fileKindLabels, type FileKind } from "./file-kinds";
@@ -570,7 +571,6 @@ function FileCard({
   split,
   wrap,
   ignoreWhitespace,
-  scope,
   reviewed,
   defaultViewed,
   source,
@@ -580,7 +580,6 @@ function FileCard({
   split: boolean;
   wrap: boolean;
   ignoreWhitespace: boolean;
-  scope: string;
   reviewed: boolean;
   defaultViewed: boolean;
   source: ContextSource;
@@ -591,9 +590,8 @@ function FileCard({
     defaultViewed,
   );
   const bodyId = `${anchor(section, preview.file.path)}-body`;
-  const noteKey = `${scope}|${preview.file.path}`;
   const [notesOpen, setNotesOpen] = useState(false);
-  const [note, setNote] = useState(load<Record<string, string>>("notes", {})[noteKey] ?? "");
+  const [note, setNote] = useNote(`${source.path}|${preview.file.path}`);
   const valid = reviewable(preview);
   const kind = fileKind(preview.file.path, !!preview.diff.image);
   const FileIcon = kindIcons[kind];
@@ -671,13 +669,7 @@ function FileCard({
             <textarea
               value={note}
               placeholder="What needs to change? What should we discuss?"
-              onChange={(event) => {
-                setNote(event.target.value);
-                save("notes", {
-                  ...load<Record<string, string>>("notes", {}),
-                  [noteKey]: event.target.value,
-                });
-              }}
+              onChange={(event) => setNote(event.target.value)}
             />
           </label>
         </div>
@@ -1596,7 +1588,6 @@ export default function App() {
                       split={split}
                       wrap={wrap}
                       ignoreWhitespace={ignoreWhitespace}
-                      scope={scope}
                       reviewed={section.reviewed}
                       defaultViewed={defaultViewed(section.id)}
                       source={{ path, base, mode, version: snapshot!.comparison.version }}
