@@ -312,6 +312,7 @@ const gapRowsAbove = (element: HTMLElement, gap: number) => {
 };
 function DiffView({
   preview,
+  eager,
   split,
   wrap,
   ignoreWhitespace,
@@ -320,6 +321,7 @@ function DiffView({
   onContextChange,
 }: {
   preview: FilePreview;
+  eager: boolean;
   split: boolean;
   wrap: boolean;
   ignoreWhitespace: boolean;
@@ -367,9 +369,13 @@ function DiffView({
     return () => controller.abort();
   }, [source.version, preview.diff.hash]);
   const target = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(eager);
   useEffect(() => {
-    if (!target.current) return;
+    if (!target.current || visible) return;
+    if (eager) {
+      setVisible(true);
+      return;
+    }
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
@@ -381,7 +387,7 @@ function DiffView({
     );
     observer.observe(target.current);
     return () => observer.disconnect();
-  }, []);
+  }, [eager, visible]);
   useEffect(() => {
     const element = target.current;
     if (!element || !visible || !patch || preview.error) return;
@@ -567,6 +573,7 @@ function RenamedPath({ from, to }: { from: string; to: string }) {
 }
 function FileCard({
   preview,
+  eager,
   section,
   split,
   wrap,
@@ -576,6 +583,7 @@ function FileCard({
   source,
 }: {
   preview: FilePreview;
+  eager: boolean;
   section: string;
   split: boolean;
   wrap: boolean;
@@ -681,6 +689,7 @@ function FileCard({
           // Unkeyed: a remount would collapse the diff to a placeholder and shift the page.
           <DiffView
             preview={preview}
+            eager={eager && !collapsed}
             split={split}
             wrap={wrap}
             ignoreWhitespace={ignoreWhitespace}
@@ -800,6 +809,29 @@ export default function App() {
       withFileViews(rawSnapshot, (file, fallback) => fileViewed(path, file, fallback)),
     [rawSnapshot, path, fileStateVersion],
   );
+  const initialJump = useMemo(() => {
+    if (!snapshot || jumped.current) return null;
+    const file = params.get("file");
+    let id = location.hash.slice(1);
+    if (file) {
+      const section = snapshot.sections.find((entry) =>
+        entry.files.some((preview) => preview.file.path === file),
+      );
+      id = section ? anchor(section.id, file) : "";
+    }
+    if (!id) return null;
+    // Diffs above the target render before the jump, so they can't push it down afterward.
+    const eager = new Set<string>();
+    for (const section of snapshot.sections) {
+      if (anchor(section.id) === id) return { id, eager };
+      for (const preview of section.files) {
+        const fileId = anchor(section.id, preview.file.path);
+        eager.add(fileId);
+        if (fileId === id) return { id, eager };
+      }
+    }
+    return null;
+  }, [snapshot]);
   const defaultViewed = (section: string) =>
     rawSnapshot?.sections.find((entry) => entry.id === section)?.reviewed ?? false;
   const itemProgress = useCollectionProgress(
@@ -970,20 +1002,12 @@ export default function App() {
   }, [path, base, mode, review, collectionId, reviewId]);
   useEffect(() => {
     if (!snapshot || jumped.current) return;
-    const target = params.get("file");
-    const section = snapshot.sections.find((section) =>
-      section.files.some((file) => file.file.path === target),
-    );
-    if (!target && location.hash)
+    if (initialJump)
       requestAnimationFrame(() =>
-        document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: "start" }),
-      );
-    if (target && section)
-      requestAnimationFrame(() =>
-        document.getElementById(anchor(section.id, target))?.scrollIntoView({ block: "start" }),
+        document.getElementById(initialJump.id)?.scrollIntoView({ block: "start" }),
       );
     jumped.current = true;
-  }, [snapshot]);
+  }, [snapshot, initialJump]);
   const selectReview = (nextCollection: Collection, nextReview = nextCollection.reviews[0]) => {
     setCollectionId(nextCollection.id);
     setReviewId(nextReview.id);
@@ -1584,6 +1608,7 @@ export default function App() {
                     <FileCard
                       key={`${scope}:${section.id}:${preview.file.path}`}
                       preview={preview}
+                      eager={initialJump?.eager.has(anchor(section.id, preview.file.path)) ?? false}
                       section={section.id}
                       split={split}
                       wrap={wrap}
