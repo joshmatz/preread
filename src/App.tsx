@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
+  ArrowRight,
   BookOpen,
   Braces,
   Check,
@@ -44,6 +45,7 @@ import { useFileState, useFileStateVersion, fileViewed, setFilesViewed } from ".
 import { Picker } from "./Picker";
 import { Popover } from "./Popover";
 import { fileKind, fileKindLabels, type FileKind } from "./file-kinds";
+import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
@@ -530,11 +532,13 @@ function DiffView({
       status.classList.toggle("failed", current && !!contextStatus.error);
     }
   }, [contextStatus, patch]);
+  const note = noContentNote(preview.diff.patch);
   let message = "";
   if (preview.error) message = preview.error;
   else if (preview.diff.tooLarge)
     message =
       "This diff is too large to preview. Open the file locally or choose a closer comparison base.";
+  else if (note) message = note;
   else if (preview.diff.binary)
     message = "Binary file changed. Open the file locally to inspect it.";
   else if (preview.diff.empty)
@@ -547,6 +551,17 @@ function DiffView({
         <div className={`diff-renderer ${visible ? "" : "deferred"}`} ref={target} />
       )}
     </div>
+  );
+}
+function RenamedPath({ from, to }: { from: string; to: string }) {
+  const { before, after } = pathDiff(from, to);
+  const marked = (parts: PathPart[], Mark: "del" | "ins") =>
+    parts.map((part, index) => (part.changed ? <Mark key={index}>{part.text}</Mark> : part.text));
+  return (
+    <strong className="renamed-path">
+      <span className="old-path">{marked(before, "del")}</span> <ArrowRight size={12} />{" "}
+      {marked(after, "ins")}
+    </strong>
   );
 }
 function FileCard({
@@ -580,10 +595,10 @@ function FileCard({
   const noteKey = `${scope}|${preview.file.path}`;
   const [notesOpen, setNotesOpen] = useState(false);
   const [note, setNote] = useState(load<Record<string, string>>("notes", {})[noteKey] ?? "");
-  const valid =
-    !preview.error && !preview.diff.tooLarge && (!preview.diff.binary || !!preview.diff.image);
+  const valid = reviewable(preview);
   const kind = fileKind(preview.file.path, !!preview.diff.image);
   const FileIcon = kindIcons[kind];
+  const renamedFrom = preview.file.oldPath ? `, renamed from ${preview.file.oldPath}` : "";
   const contextKey = `${preview.diff.hash}:${source.version}`;
   const [expanded, setExpanded] = useState<{ key: string; model: ContextModel } | null>(null);
   const context = expanded?.key === contextKey ? expanded.model : null;
@@ -598,7 +613,7 @@ function FileCard({
       <header className="file-toolbar">
         <button
           className="file-collapse-button"
-          aria-label={`${collapsed ? "Expand" : "Collapse"} file ${preview.file.path}`}
+          aria-label={`${collapsed ? "Expand" : "Collapse"} file ${preview.file.path}${renamedFrom}`}
           aria-expanded={!collapsed}
           aria-controls={bodyId}
           onClick={() => setCollapsed(!collapsed)}
@@ -609,8 +624,11 @@ function FileCard({
             <title>{fileKindLabels[kind]}</title>
           </FileIcon>
           <span className="file-title">
-            <strong>{preview.file.path}</strong>
-            {preview.file.oldPath && <small>Renamed from {preview.file.oldPath}</small>}
+            {preview.file.oldPath ? (
+              <RenamedPath from={preview.file.oldPath} to={preview.file.path} />
+            ) : (
+              <strong>{preview.file.path}</strong>
+            )}
           </span>
         </button>
         <button
@@ -666,7 +684,7 @@ function FileCard({
         </div>
       )}
       <div id={bodyId} hidden={collapsed}>
-        {preview.diff.image ? (
+        {preview.diff.image && !noContentNote(preview.diff.patch) ? (
           <ImageDiff key={preview.diff.hash} preview={preview} split={split} source={source} />
         ) : (
           // Unkeyed: a remount would collapse the diff to a placeholder and shift the page.
@@ -696,15 +714,16 @@ function FileOutlineItem({
   onClick: () => void;
 }) {
   const { viewed: done } = useFileState(scope, preview.file.path, preview.diff.hash, reviewed);
-  const { status, path } = preview.file;
+  const { status, path, oldPath } = preview.file;
   const change = statusNames[status] ?? "Changed";
+  const from = oldPath ? ` from ${oldPath}` : "";
   const kind = fileKind(path, !!preview.diff.image);
   const KindIcon = kindIcons[kind];
   return (
     <button
       className={`file-item${done ? " file-item-viewed" : ""}`}
-      title={`${path} · ${fileKindLabels[kind]} · ${change}${done ? " · Viewed" : ""}`}
-      aria-label={`${path}, ${change.toLowerCase()}${done ? ", viewed" : ""}`}
+      title={`${path} · ${fileKindLabels[kind]} · ${change}${from}${done ? " · Viewed" : ""}`}
+      aria-label={`${path}, ${change.toLowerCase()}${from}${done ? ", viewed" : ""}`}
       onClick={onClick}
     >
       {done ? <Check size={14} /> : <KindIcon size={14} />}
@@ -1481,8 +1500,10 @@ export default function App() {
                       <span>{section.title}</span>
                     </button>
                     {section.files
-                      .filter((preview) =>
-                        preview.file.path.toLowerCase().includes(filter.toLowerCase()),
+                      .filter(({ file }) =>
+                        [file.path, file.oldPath].some((path) =>
+                          path?.toLowerCase().includes(filter.toLowerCase()),
+                        ),
                       )
                       .map((preview) => (
                         <FileOutlineItem

@@ -19,6 +19,7 @@ import type {
   ReviewSnapshot,
 } from "../src/review-types.ts";
 import type { Mode } from "../src/types.ts";
+import { reviewable } from "../src/change-notes.ts";
 
 const hash = (input: unknown) => createHash("sha256").update(JSON.stringify(input)).digest("hex");
 export function groupPreviews(
@@ -64,12 +65,7 @@ export function groupPreviews(
       canReview:
         previews.length > 0 &&
         !warnings.length &&
-        previews.every(
-          (preview) =>
-            !preview.error &&
-            !preview.diff.tooLarge &&
-            (!preview.diff.binary || !!preview.diff.image),
-        ),
+        previews.every(reviewable),
       warnings,
     };
   };

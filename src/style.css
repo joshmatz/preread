@@ -672,10 +672,24 @@ h2 {
   display: block;
   line-height: 1.55;
 }
-.file-title small {
-  display: block;
-  font-size: 10px;
-  margin-top: 3px;
+.renamed-path .old-path {
+  color: var(--secondary);
+}
+.renamed-path svg {
+  color: var(--accent);
+  vertical-align: -2px;
+}
+.renamed-path del,
+.renamed-path ins {
+  color: var(--text);
+  text-decoration: none;
+  border-radius: 2px;
+}
+.renamed-path del {
+  background: var(--del-word);
+}
+.renamed-path ins {
+  background: var(--add-word);
 }
 .viewed-button {
   font-size: 11px;
@@ -740,6 +754,9 @@ h2 {
   line-height: 1.7;
   color: var(--secondary);
   font-size: 12px;
+}
+.diff-body .empty-file {
+  padding: 9px 24px;
 }
 .image-diff {
   display: grid;

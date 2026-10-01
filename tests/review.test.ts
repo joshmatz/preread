@@ -170,6 +170,29 @@ test("image previews can complete a group and their receipts follow the image co
     first.fingerprint,
   );
 });
+test("a binary file moved without content changes can complete a group", () => {
+  const moved: FilePreview = {
+    file: {
+      path: "fonts/brand/Inter.woff2",
+      oldPath: "fonts/Inter.woff2",
+      status: "R",
+      additions: 0,
+      deletions: 0,
+      binary: true,
+    },
+    partial: false,
+    diff: {
+      patch:
+        "diff --git a/fonts/Inter.woff2 b/fonts/brand/Inter.woff2\nsimilarity index 100%\nrename from fonts/Inter.woff2\nrename to fonts/brand/Inter.woff2\n",
+      hash: "moved",
+      binary: true,
+      tooLarge: false,
+      empty: false,
+    },
+  };
+  const whole = [{ ...group, targets: [{ path: "fonts/brand/Inter.woff2" }] }];
+  assert.equal(groupPreviews([moved], whole, {}, scope)[0].canReview, true);
+});
 test("collection validation rejects traversal, malformed ranges, duplicate IDs and reserved groups", () => {
   assert.throws(() => validateCollection({ ...collection, id: "../outside" }));
   assert.throws(
