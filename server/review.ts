@@ -192,20 +192,18 @@ async function readReviewData(
   const info = await comparison(path, review.base, review.mode, source);
   const files: FilePreview[] = [];
   // When the combined read fails, each file falls back to the bounded per-file reader.
-  const patches =
-    info.files.length <= 500
-      ? await trackedPatches(path, info, review.mode).catch(() => null)
-      : null;
+  // Git output and retained patches are bounded by bytes, not the number of files.
+  const patches = await trackedPatches(path, info, review.mode).catch(() => null);
   let bytes = 0;
   for (let offset = 0; offset < info.files.length; offset += 4) {
     const batch = await Promise.all(
       info.files.slice(offset, offset + 4).map(async (file): Promise<FilePreview> => {
-        if (bytes > 24 * 1024 * 1024 || offset >= 500)
+        if (bytes > 24 * 1024 * 1024)
           return {
             file,
             partial: false,
             diff: { patch: "", hash: "", binary: file.binary, tooLarge: true, empty: false },
-            error: "This comparison is too large to preview completely. Choose a closer base.",
+            error: "This file was not loaded because the comparison reached its 24 MB preview limit.",
           };
         try {
           const patch = patches?.get(file.path);
