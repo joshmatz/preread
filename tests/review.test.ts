@@ -323,6 +323,35 @@ test("importing descriptions preserves user review receipts and concurrent write
   await setReceipt("fixture", "example", "first-change", null);
   assert.equal(Object.keys(await readReceipts("fixture")).length, 1);
 });
+test("large comparisons preview small tracked and untracked files beyond the first 500", async () => {
+  const repo = join(directory, "many files");
+  const run = (...args: string[]) =>
+    execFileSync("git", args, { cwd: repo, stdio: "pipe" });
+  execFileSync("git", ["init", "-b", "main", repo], { stdio: "pipe" });
+  run("config", "user.name", "Review Test");
+  run("config", "user.email", "review@example.test");
+  const paths = Array.from({ length: 505 }, (_, index) => `file-${String(index).padStart(3, "0")}.ts`);
+  await Promise.all(paths.map((path) => writeFile(join(repo, path), "old\n")));
+  run("add", ".");
+  run("commit", "-m", "Base");
+  await Promise.all(paths.map((path) => writeFile(join(repo, path), "new\n")));
+  await writeFile(join(repo, "z-large.txt"), "x".repeat(2 * 1024 * 1024 + 1));
+  await writeFile(join(repo, "zz-routes.ts"), "export const route = '/';\n");
+  const result = await snapshot({ ...collection.reviews[0], path: repo, mode: "working", groups: [] });
+  const files = result.sections.flatMap((section) => section.files);
+  assert.equal(files.length, 507);
+  const oversized = files.find((preview) => preview.file.path === "z-large.txt")!;
+  assert.equal(oversized.diff.tooLarge, true);
+  for (const preview of files.filter((preview) => preview !== oversized)) {
+    assert.equal(preview.error, undefined, preview.file.path);
+    assert.equal(preview.diff.tooLarge, false, preview.file.path);
+    assert.ok(preview.diff.patch.length > 0, preview.file.path);
+  }
+  assert.match(files.find((preview) => preview.file.path === "file-504.ts")!.diff.patch, /\+new/);
+  assert.match(files.find((preview) => preview.file.path === "zz-routes.ts")!.diff.patch, /\+export const route/);
+  assert.equal(result.sections[0].canReview, false);
+});
+
 test("real Git reviews persist completion, reject stale marks, and invalidate changed content without touching the repository", async () => {
   const repo = join(directory, "fixture repository");
   const run = (...args: string[]) =>
