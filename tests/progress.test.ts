@@ -199,3 +199,32 @@ test("viewing all files cannot complete unavailable groups, but resolves stale s
   assert.equal(reviewProgress(withFileViews(stale, () => true)).status, "reviewed");
   assert.equal(progressFromSource(progressSource(stale), () => true).changedGroups, 0);
 });
+
+
+test("a hidden changed test keeps a large group open until its final viewed mark", () => {
+  const scope = { id: "large", path: "/tmp/large", base: "", mode: "working" as const };
+  const files = Array.from({ length: 706 }, (_, index): FilePreview => {
+    const path = index === 705 ? "tests/updated.test.ts" : `src/file-${index}.ts`;
+    return { ...file, file: { ...file.file, path }, diff: { ...file.diff,
+      patch: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n` } };
+  });
+  const groups = [{ id: "all", title: "Large group", description: "",
+    targets: files.map((preview) => ({ path: preview.file.path })) }];
+  const initial = groupPreviews(files, groups, {}, scope)[0];
+  const viewed = new Set(initial.files.map((preview) => preview.viewHash));
+  const updated = [...files];
+  updated[705] = { ...updated[705], diff: { ...updated[705].diff,
+    patch: updated[705].diff.patch.replace("+new\n", "+updated\n") } };
+  const sections = groupPreviews(updated, groups, { "large/all": {
+    fingerprint: initial.fingerprint, reviewedAt: "2026-10-09T00:00:00Z" } }, scope);
+  const snapshot = { comparison: { ...comparison, files: updated.map((preview) => preview.file) }, sections };
+  const read: ViewedReader = (mark) => viewed.has(mark.viewHash);
+  assert.equal(sections[0].changedSinceReview, true);
+  assert.equal(sections[0].files.slice(0, 705).every((preview) => viewed.has(preview.viewHash)), true);
+  assert.equal(withFileViews(snapshot, read).sections[0].reviewed, false);
+  viewed.add(sections[0].files[705].viewHash);
+  const complete = withFileViews(snapshot, read);
+  assert.equal(complete.sections[0].reviewed, true);
+  assert.equal(complete.sections[0].changedSinceReview, false);
+  assert.equal(reviewProgress(complete).status, "reviewed");
+});

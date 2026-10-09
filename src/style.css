@@ -454,7 +454,27 @@ h1 {
 .index-group {
   margin-bottom: 12px;
 }
+.index-hidden {
+  display: block;
+  padding: 5px 6px 5px 13px;
+  color: var(--secondary);
+  font-size: 11px;
+}
+.index-group-head {
+  display: flex;
+  align-items: flex-start;
+}
+.index-group-toggle {
+  flex-shrink: 0;
+  width: 24px;
+  min-height: 24px;
+  padding: 4px;
+  color: var(--secondary);
+}
 .index-group-title {
+  flex: 1;
+  min-width: 0;
+  min-height: 24px;
   text-align: left;
   font-size: 11px;
   font-weight: 650;
@@ -1824,4 +1844,74 @@ fieldset {
 .comparison-form .primary {
   justify-self: end;
   padding: 6px 14px;
+}
+
+.viewed-baseline {
+  padding: 8px 12px;
+  margin: 0;
+  color: var(--secondary);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+}
+.changed-label[aria-pressed="true"] {
+  background: var(--subtle);
+}
+
+.large-diff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--secondary);
+  font-size: 12px;
+}
+.large-diff p { margin: 0; }
+.large-diff button {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  color: var(--text);
+  background: var(--subtle);
+}
+
+.review-visuals { margin: 12px 0; }
+.visuals-launch { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle); color: var(--secondary); font-size: 12px; cursor: pointer; }
+.visuals-launch:hover { color: var(--text); background: var(--hover); }
+.visuals-launch:focus-visible, .visual-gallery button:focus-visible, .visual-stage:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+dialog.visual-gallery { inset: 16px; width: calc(100vw - 32px); max-width: none; height: calc(100dvh - 32px); max-height: none; margin: auto; padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--canvas); color: var(--text); overflow: hidden; }
+.visual-gallery[open] { display: block; }
+.visual-gallery::backdrop { background: rgba(0,0,0,.65); }
+.visual-gallery-header { position: absolute; inset: 16px 16px auto; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; pointer-events: none; }
+.visual-gallery-title { min-width: 0; max-width: 520px; padding: 10px 12px; background: var(--raised); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.visual-position { color: var(--secondary); font-size: 12px; white-space: nowrap; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.visual-gallery-header h2 { font-size: 13px; line-height: 20px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.visual-gallery-actions, .visual-toolbar > div { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.visual-gallery-actions { pointer-events: auto; padding: 4px; background: var(--raised); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.visual-gallery button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 36px; min-height: 36px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle); color: var(--text); cursor: pointer; }
+.visual-gallery button:hover:not(:disabled) { background: var(--hover); }
+.visual-gallery button:disabled { opacity: .4; cursor: default; }
+.visual-stage { position: absolute; inset: 0; overflow: hidden; background: var(--subtle); touch-action: none; cursor: grab; }
+.visual-stage.dragging { cursor: grabbing; }
+.visual-stage > img { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; object-fit: contain; transform-origin: center; user-select: none; background: white; border-radius: 2px; }
+.visual-status, .visual-error { position: absolute; inset: 0; display: flex; gap: 12px; align-items: center; justify-content: center; flex-direction: column; padding: 24px; color: var(--secondary); font-size: 13px; text-align: center; cursor: default; }
+.visual-toolbar { position: absolute; bottom: 16px; right: 16px; z-index: 2; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: var(--shadow); }
+
+.visual-toolbar output { min-width: 50px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.visual-filmstrip { position: absolute; left: 16px; bottom: 72px; z-index: 2; display: flex; gap: 8px; padding: 8px; max-width: calc(100% - 32px); max-height: calc(100% - 144px); border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: var(--shadow); overflow: auto; }
+.visual-filmstrip button { flex: 0 0 136px; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; padding: 6px; }
+.visual-filmstrip button[aria-current="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.visual-filmstrip img, .mermaid-thumbnail { width: 122px; height: 56px; object-fit: contain; background: white; border-radius: 3px; }
+.mermaid-thumbnail { display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--hover); color: var(--secondary); font-size: 11px; }
+.visual-filmstrip button > span:last-child { font-size: 11px; line-height: 1.4; width: 100%; text-align: left; overflow-wrap: anywhere; max-height: 3em; overflow: hidden; }
+@media (max-width: 640px) {
+  dialog.visual-gallery { inset: 4px; width: calc(100vw - 8px); height: calc(100dvh - 8px); border-radius: 6px; }
+  .visual-gallery-header { inset: 8px 8px auto; gap: 8px; }
+  .visual-gallery-title { padding: 10px 8px; }
+  .visual-gallery-header h2 { font-size: 12px; }
+  .visual-toolbar { bottom: 8px; right: 8px; }
+
+  .visual-gallery button { min-width: 40px; min-height: 40px; }
+  .visual-filmstrip { left: 8px; bottom: 64px; max-width: calc(100% - 16px); }
 }

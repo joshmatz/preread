@@ -24,8 +24,6 @@ import {
   MessageSquare,
   Music,
   Palette,
-  Pencil,
-  Plus,
   RefreshCw,
   Search,
   Settings,
@@ -39,13 +37,18 @@ import {
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import type { Diff, Mode, Repository, StackNode } from "./types";
-import type { Collection, FilePreview, ReviewSection, ReviewSnapshot } from "./review-types";
+import type { Collection, FilePreview, ReviewSection, ReviewSnapshot, ViewedBaselineInfo, SinceViewed } from "./review-types";
 import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesViewed } from "./useFileState";
 import { useNote } from "./notes";
 import { Picker } from "./Picker";
+import { ReviewVisuals } from "./ReviewVisuals";
+import { OutlineGroup } from "./OutlineGroup";
 import { Popover } from "./Popover";
-import { fileKind, fileKindLabels, type FileKind } from "./file-kinds";
+import { fileKind, fileKindLabels, isTestFile, type FileKind } from "./file-kinds";
+import { displaySections } from "./review-display";
+import { diffSize } from "./diff-size";
+import { scrollToChange } from "./scroll-to-change";
 import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, markedFile, progressLabel, withFileViews } from "./progress";
@@ -319,7 +322,9 @@ function DiffView({
   source,
   context,
   onContextChange,
+  expandable = true,
 }: {
+  expandable?: boolean;
   preview: FilePreview;
   eager: boolean;
   split: boolean;
@@ -337,6 +342,10 @@ function DiffView({
   const focusGap = useRef<number | null>(null);
   const rowsAbove = useRef<{ gap: number; height: number } | null>(null);
   const patch = context ? contextPatch(context) : preview.diff.patch;
+  const size = useMemo(() => diffSize(preview.diff.patch), [preview.diff.patch]);
+  const [loadedHash, setLoadedHash] = useState<string | null>(null);
+  const deferLarge = size.deferred && loadedHash !== preview.diff.hash;
+  const focusLoaded = useRef(false);
   const reveal = async (gap: number, direction: "above" | "below" | "all") => {
     if (contextBusy) return;
     const { signal } = abort.current;
@@ -371,7 +380,7 @@ function DiffView({
   const target = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(eager);
   useEffect(() => {
-    if (!target.current || visible) return;
+    if (!target.current || visible || deferLarge) return;
     if (eager) {
       setVisible(true);
       return;
@@ -387,10 +396,10 @@ function DiffView({
     );
     observer.observe(target.current);
     return () => observer.disconnect();
-  }, [eager, visible]);
+  }, [eager, visible, deferLarge]);
   useEffect(() => {
     const element = target.current;
-    if (!element || !visible || !patch || preview.error) return;
+    if (!element || !visible || deferLarge || !patch || preview.error) return;
     const shown = showCarriageReturns(patch);
     const view = new Diff2HtmlUI(element, ignoreWhitespace ? whitespaceDiff(shown) : shown, {
       drawFileList: false,
@@ -429,7 +438,7 @@ function DiffView({
     highlightDiff(element);
     // A type change diffs as a deletion plus an addition, which share no context.
     const gaps =
-      preview.file.status === "T" ? [] : context ? contextGaps(context) : initialGaps(patch);
+      !expandable || preview.file.status === "T" ? [] : context ? contextGaps(context) : initialGaps(patch);
     // A "Show more below" that finds no more lines becomes "End of file" rather than vanishing.
     const offeredMore = !!initialGaps(preview.diff.patch).at(-1)?.below;
     for (const body of element.querySelectorAll(".d2h-diff-tbody")) {
@@ -495,10 +504,16 @@ function DiffView({
     return () => {
       element.innerHTML = "";
     };
-  }, [patch, split, visible, context, ignoreWhitespace]);
+  }, [patch, split, visible, context, ignoreWhitespace, expandable, deferLarge]);
+  useEffect(() => {
+    if (focusLoaded.current && !deferLarge && target.current) {
+      target.current.focus({ preventScroll: true });
+      focusLoaded.current = false;
+    }
+  }, [deferLarge]);
   useEffect(() => {
     const element = target.current;
-    if (!element || !visible || !split || !wrap) return;
+    if (!element || !visible || deferLarge || !split || !wrap) return;
     const sides = [...element.querySelectorAll(".d2h-file-side-diff")];
     if (sides.length !== 2) return;
     const [left, right] = sides.map((side) => [
@@ -528,7 +543,7 @@ function DiffView({
       observer.disconnect();
       for (const row of [...left, ...right]) row.style.height = "";
     };
-  }, [patch, split, visible, wrap, context, ignoreWhitespace]);
+  }, [patch, split, visible, wrap, context, ignoreWhitespace, deferLarge]);
   useEffect(() => {
     for (const controls of target.current?.querySelectorAll<HTMLElement>(".context-controls") ??
       []) {
@@ -547,15 +562,25 @@ function DiffView({
       "This diff is too large to preview. Open the file locally or choose a closer comparison base.";
   else if (note) message = note;
   else if (preview.diff.binary)
-    message = "Binary file changed. Open the file locally to inspect it.";
+    message = "Binary file changed. Open the file locally to inspect it, then mark it Viewed.";
   else if (preview.diff.empty)
     message = "No text changes. This file may be empty or have a mode change.";
   return (
     <div className="diff-body">
       {message ? (
         <p className="empty-file">{message}</p>
+      ) : deferLarge ? (
+        <div className="large-diff">
+          <p>Large diff · {size.lines.toLocaleString()} lines · {Math.ceil(size.bytes / 1024).toLocaleString()} KB</p>
+          <button onClick={() => {
+            focusLoaded.current = true;
+            setVisible(true);
+            setLoadedHash(preview.diff.hash);
+          }}>Load diff</button>
+        </div>
       ) : (
-        <div className={`diff-renderer ${visible ? "" : "deferred"}`} ref={target} />
+        <div className={`diff-renderer ${visible ? "" : "deferred"}`} ref={target}
+          tabIndex={-1} aria-label={`Diff for ${preview.file.path}`} />
       )}
     </div>
   );
@@ -571,6 +596,42 @@ function RenamedPath({ from, to }: { from: string; to: string }) {
     </strong>
   );
 }
+type ViewedSource = ContextSource & { collection?: string; review?: string };
+function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespace }: {
+  preview: FilePreview;
+  section: string;
+  source: ViewedSource;
+  split: boolean;
+  wrap: boolean;
+  ignoreWhitespace: boolean;
+}) {
+  const [result, setResult] = useState<SinceViewed | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const values = JSON.stringify({ ...source, group: section, file: preview.file.path,
+    hash: preview.contextHash ?? preview.diff.hash, viewHash: preview.viewHash ?? preview.diff.hash });
+  useEffect(() => {
+    const abort = new AbortController();
+    setResult(null);
+    setError("");
+    request<SinceViewed>("since-viewed", JSON.parse(values), abort.signal)
+      .then((result) => { if (!abort.signal.aborted) setResult(result); })
+      .catch((cause) => { if (!abort.signal.aborted) setError(cause.message); });
+    return () => abort.abort();
+  }, [values, retry]);
+  if (error) return <p className="warning" role="alert">{error}{" "}
+    <button onClick={() => setRetry((value) => value + 1)}>Retry comparison</button></p>;
+  if (!result) return <Loading>Comparing with the last viewed version…</Loading>;
+  if (!result.available) return <p className="empty-file">{result.message}</p>;
+  return <>
+    <p className="viewed-baseline">Since viewed on {new Date(result.reviewedAt!).toLocaleString()}
+      {preview.partial ? " · Whole file, including changes outside this group’s selected blocks" : " · Whole file"}</p>
+    {result.diff!.empty ? <p className="empty-file">No text changes since this file was viewed.</p> :
+      <DiffView preview={{ ...preview, partial: false, diff: result.diff! }} eager={true}
+        split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} source={source}
+        context={null} onContextChange={() => {}} expandable={false} />}
+  </>;
+}
 function FileCard({
   preview,
   eager,
@@ -581,6 +642,7 @@ function FileCard({
   reviewed,
   defaultViewed,
   source,
+  sinceViewed,
 }: {
   preview: FilePreview;
   eager: boolean;
@@ -590,13 +652,33 @@ function FileCard({
   ignoreWhitespace: boolean;
   reviewed: boolean;
   defaultViewed: boolean;
-  source: ContextSource;
+  source: ViewedSource;
+  sinceViewed: boolean;
 }) {
   const { viewed, collapsed, setViewed, setCollapsed } = useFileState(
     source.path,
     markedFile(preview),
     defaultViewed,
   );
+  const [viewSaving, setViewSaving] = useState(false);
+  const [viewSaveError, setViewSaveError] = useState("");
+  const viewKey = `${source.path}|${preview.viewHash ?? preview.diff.hash}`;
+  const currentViewKey = useRef(viewKey);
+  currentViewKey.current = viewKey;
+  useEffect(() => { setViewSaveError(""); }, [viewKey]);
+  const toggleViewed = async () => {
+    if (viewed) { setViewed(false); return; }
+    setViewSaving(true);
+    setViewSaveError("");
+    try {
+      await mutate<ViewedBaselineInfo>("viewed-file", { ...source, group: section,
+        file: preview.file.path, hash: preview.contextHash ?? preview.diff.hash,
+        viewHash: preview.viewHash ?? preview.diff.hash });
+      if (currentViewKey.current === viewKey) setViewed(true);
+    } catch (cause) {
+      if (currentViewKey.current === viewKey) setViewSaveError((cause as Error).message);
+    } finally { setViewSaving(false); }
+  };
   const bodyId = `${anchor(section, preview.file.path)}-body`;
   const [notesOpen, setNotesOpen] = useState(false);
   const [note, setNote] = useNote(`${source.path}|${preview.file.path}`);
@@ -638,6 +720,7 @@ function FileCard({
         </button>
         <button
           className={context ? "reset-context active" : "reset-context"}
+          hidden={sinceViewed}
           aria-label="Reset context"
           onClick={() => {
             setExpanded(null);
@@ -653,11 +736,12 @@ function FileCard({
         <button
           className={viewed ? "viewed-button active" : "viewed-button"}
           aria-pressed={viewed}
-          disabled={!valid}
-          onClick={() => setViewed(!viewed)}
+          disabled={!valid || viewSaving}
+          onClick={() => void toggleViewed()}
         >
           <Check size={14} />
-          {preview.partial ? "Blocks viewed" : "Viewed"}
+          {viewSaving ? <LoaderCircle size={14} className="spin" /> : null}
+          {viewSaving ? "Saving viewed version…" : preview.partial ? "Blocks viewed" : "Viewed"}
         </button>
         <button
           className="icon-button"
@@ -682,8 +766,12 @@ function FileCard({
           </label>
         </div>
       )}
+      {viewSaveError && <p className="warning" role="alert">{viewSaveError}</p>}
       <div id={bodyId} hidden={collapsed}>
-        {preview.diff.image && !noContentNote(preview.diff.patch) ? (
+        {sinceViewed ? (
+          <SinceViewedFile preview={preview} section={section} source={source}
+            split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} />
+        ) : preview.diff.image && !noContentNote(preview.diff.patch) ? (
           <ImageDiff key={preview.diff.hash} preview={preview} split={split} source={source} />
         ) : (
           // Unkeyed: a remount would collapse the diff to a placeholder and shift the page.
@@ -737,21 +825,6 @@ function FileOutlineItem({
     </button>
   );
 }
-const editorTitles = {
-  review: "Edit review details",
-  collection: "Edit collection details",
-  group: "Edit change group",
-  "new-group": "Add a change group",
-  save: "Save a named review",
-};
-interface Editor {
-  kind: keyof typeof editorTitles;
-  title: string;
-  description: string;
-  groupId?: string;
-  pullRequest?: string;
-  files: string[];
-}
 export default function App() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [collectionId, setCollectionId] = useState(params.get("collection") ?? "");
@@ -771,21 +844,20 @@ export default function App() {
   const [refresh, setRefresh] = useState(0);
   const [progressRefresh, setProgressRefresh] = useState(0);
   const [filter, setFilter] = useState("");
+  const [sinceViewedGroup, setSinceViewedGroup] = useState("");
   const [split, setSplit] = useState(load("split", false));
   const [wrap, setWrap] = useState(load("wrapLines", false));
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(load("ignoreWhitespace", false));
+  const [hideTestFiles, setHideTestFiles] = useState(load("hideTestFiles", false));
   const [theme, setTheme] = useTheme();
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
   const [pathDraft, setPathDraft] = useState(path);
-  const [editor, setEditor] = useState<Editor | null>(null);
-  const [saving, setSaving] = useState(false);
   const [marking, setMarking] = useState("");
-  const [saveError, setSaveError] = useState("");
   const [recents, setRecents] = useState<string[]>(load("recents", []));
   const folderDialog = useRef<HTMLDialogElement>(null);
-  const editDialog = useRef<HTMLDialogElement>(null);
   const jumped = useRef(false);
+  const stopJump = useRef<(() => void) | null>(null);
   const activeReview = useRef("");
   activeReview.current = `${collectionId}/${reviewId}`;
   const loadedPath = useRef("");
@@ -802,6 +874,7 @@ export default function App() {
       : "";
   const scope = `${path}|${base}|${mode}`;
   activeView.current = `${activeReview.current}|${scope}`;
+  useEffect(() => { setSinceViewedGroup(""); }, [collectionId, reviewId, scope]);
   const fileStateVersion = useFileStateVersion();
   const snapshot = useMemo(
     () =>
@@ -809,29 +882,36 @@ export default function App() {
       withFileViews(rawSnapshot, (file, fallback) => fileViewed(path, file, fallback)),
     [rawSnapshot, path, fileStateVersion],
   );
+  const displayedSections = useMemo(
+    () => displaySections(snapshot?.sections ?? [], hideTestFiles),
+    [snapshot, hideTestFiles],
+  );
+  const hiddenTestCount = hideTestFiles
+    ? snapshot?.comparison.files.filter((file) => isTestFile(file.path)).length ?? 0
+    : 0;
   const initialJump = useMemo(() => {
     if (!snapshot || jumped.current) return null;
     const file = params.get("file");
     let id = location.hash.slice(1);
     if (file) {
-      const section = snapshot.sections.find((entry) =>
-        entry.files.some((preview) => preview.file.path === file),
+      const entry = displayedSections.find(({ files }) =>
+        files.some((preview) => preview.file.path === file),
       );
-      id = section ? anchor(section.id, file) : "";
+      id = entry ? anchor(entry.section.id, file) : "";
     }
     if (!id) return null;
     // Diffs above the target render before the jump, so they can't push it down afterward.
     const eager = new Set<string>();
-    for (const section of snapshot.sections) {
+    for (const { section, files } of displayedSections) {
       if (anchor(section.id) === id) return { id, eager };
-      for (const preview of section.files) {
+      for (const preview of files) {
         const fileId = anchor(section.id, preview.file.path);
         eager.add(fileId);
         if (fileId === id) return { id, eager };
       }
     }
     return null;
-  }, [snapshot]);
+  }, [snapshot, displayedSections]);
   const defaultViewed = (section: string) =>
     rawSnapshot?.sections.find((entry) => entry.id === section)?.reviewed ?? false;
   const itemProgress = useCollectionProgress(
@@ -918,10 +998,6 @@ export default function App() {
     else folderDialog.current?.close();
   }, [open]);
   useEffect(() => {
-    if (editor) editDialog.current?.showModal();
-    else editDialog.current?.close();
-  }, [!!editor]);
-  useEffect(() => {
     if (!repositoryPath || (collectionId && !review)) return;
     const abort = new AbortController();
     if (loadedPath.current !== repositoryPath) setRepo(null);
@@ -1000,13 +1076,21 @@ export default function App() {
     if (params.get("file") && !jumped.current) next.set("file", params.get("file")!);
     history.replaceState(null, "", `?${next}${location.hash}`);
   }, [path, base, mode, review, collectionId, reviewId]);
+  const scrollTo = (id: string) => {
+    stopJump.current?.();
+    const target = document.getElementById(id);
+    stopJump.current = target ? scrollToChange(target) : null;
+  };
+  useEffect(
+    () => () => stopJump.current?.(),
+    [collectionId, reviewId, scope, tab],
+  );
   useEffect(() => {
     if (!snapshot || jumped.current) return;
-    if (initialJump)
-      requestAnimationFrame(() =>
-        document.getElementById(initialJump.id)?.scrollIntoView({ block: "start" }),
-      );
     jumped.current = true;
+    if (!initialJump) return;
+    const frame = requestAnimationFrame(() => scrollTo(initialJump.id));
+    return () => cancelAnimationFrame(frame);
   }, [snapshot, initialJump]);
   const selectReview = (nextCollection: Collection, nextReview = nextCollection.reviews[0]) => {
     setCollectionId(nextCollection.id);
@@ -1046,92 +1130,12 @@ export default function App() {
     save(`base:${path}`, nextBase);
   };
   const jump = (section: string, file = "") => {
-    document.getElementById(anchor(section, file))?.scrollIntoView({ block: "start" });
+    scrollTo(anchor(section, file));
     history.replaceState(
       null,
       "",
       `${location.pathname}${location.search}#${anchor(section, file)}`,
     );
-  };
-  const edit = (value: Editor) => {
-    setEditor(value);
-    setSaveError("");
-  };
-  const persist = async (next: Collection) => {
-    const result = await mutate<Collection>("collections", next, "PUT");
-    setCollections((previous) => [...previous.filter((entry) => entry.id !== result.id), result]);
-    return result;
-  };
-  const saveEditor = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!editor) return;
-    setSaving(true);
-    setSaveError("");
-    try {
-      if (editor.kind === "save") {
-        const id = `review-${crypto.randomUUID().slice(0, 8)}`;
-        const next = await persist({
-          id,
-          title: editor.title,
-          description: "",
-          reviews: [
-            {
-              id: "changes",
-              title: editor.title,
-              description: editor.description,
-              path: repo!.path,
-              base,
-              mode,
-              groups: [],
-              pullRequest: editor.pullRequest,
-            },
-          ],
-        });
-        selectReview(next);
-      } else if (collection) {
-        let next = { ...collection };
-        if (editor.kind === "collection")
-          next = { ...next, title: editor.title, description: editor.description };
-        else
-          next.reviews = collection.reviews.map((entry) => {
-            if (entry.id !== reviewId) return entry;
-            if (editor.kind === "review")
-              return {
-                ...entry,
-                title: editor.title,
-                description: editor.description,
-                pullRequest: editor.pullRequest,
-              };
-            if (editor.kind === "new-group")
-              return {
-                ...entry,
-                groups: [
-                  ...entry.groups,
-                  {
-                    id: `group-${crypto.randomUUID().slice(0, 8)}`,
-                    title: editor.title,
-                    description: editor.description,
-                    targets: editor.files.map((path) => ({ path })),
-                  },
-                ],
-              };
-            return {
-              ...entry,
-              groups: entry.groups.map((group) =>
-                group.id === editor.groupId
-                  ? { ...group, title: editor.title, description: editor.description }
-                  : group,
-              ),
-            };
-          });
-        await persist(next);
-      }
-      setEditor(null);
-    } catch (cause) {
-      setSaveError((cause as Error).message);
-    } finally {
-      setSaving(false);
-    }
   };
   const mark = async (section: ReviewSection) => {
     setMarking(section.id);
@@ -1227,22 +1231,6 @@ export default function App() {
               </button>
             </>
           )}
-          {!collection && repo && (
-            <button
-              className="quiet"
-              onClick={() =>
-                edit({
-                  kind: "save",
-                  title: short(repo.branch) || repo.name,
-                  description: "",
-                  files: [],
-                })
-              }
-            >
-              <Plus size={14} />
-              Save a named review
-            </button>
-          )}
         </nav>
         <button
           className="open-button"
@@ -1318,6 +1306,20 @@ export default function App() {
               <label className="setting-check">
                 <input
                   type="checkbox"
+                  checked={hideTestFiles}
+                  onChange={(event) => {
+                    setHideTestFiles(event.target.checked);
+                    save("hideTestFiles", event.target.checked);
+                  }}
+                />
+                <span>
+                  Hide test files
+                  <small>Tests still count toward review progress</small>
+                </span>
+              </label>
+              <label className="setting-check">
+                <input
+                  type="checkbox"
                   checked={wrap}
                   onChange={(event) => {
                     setWrap(event.target.checked);
@@ -1353,28 +1355,13 @@ export default function App() {
                 {review?.title ||
                   (repo ? short(repo.branch) || "Local changes" : "Open a local worktree")}
               </h1>
-              {review && (
-                <button
-                  className="icon-button"
-                  aria-label="Edit review details"
-                  onClick={() =>
-                    edit({
-                      kind: "review",
-                      title: review.title,
-                      description: review.description,
-                      pullRequest: review.pullRequest,
-                      files: [],
-                    })
-                  }
-                >
-                  <Pencil size={15} />
-                </button>
-              )}
               {repo?.dirty && <span className="pill">Local edits</span>}
             </div>
             {review?.description && (
               <Description key={`${collectionId}/${reviewId}`} text={review.description} />
             )}
+            {review && <ReviewVisuals key={`${collectionId}/${reviewId}`}
+              collection={collectionId} review={reviewId} visuals={review.visuals} />}
             {review?.pullRequest && (
               <PullRequest
                 url={review.pullRequest}
@@ -1500,17 +1487,25 @@ export default function App() {
                 )}
               </div>
               <nav aria-label="Changed files">
-                {snapshot.sections.map((section) => (
-                  <div className="index-group" key={section.id}>
-                    <button className="index-group-title" onClick={() => jump(section.id)}>
-                      {section.reviewed ? (
-                        <CheckCheck size={15} className="additions" />
-                      ) : (
-                        <span className="group-dot" />
-                      )}
-                      <span>{section.title}</span>
-                    </button>
-                    {section.files
+                {displayedSections.map(({ section, files }) => (
+                  <OutlineGroup
+                    key={`${collectionId}/${reviewId}|${scope}|${section.id}`}
+                    title={section.title}
+                    reviewed={section.reviewed}
+                    revision={section.fingerprint}
+                    hiddenUnreadCount={
+                      hideTestFiles
+                        ? section.files.filter(
+                            (preview) =>
+                              isTestFile(preview.file.path) &&
+                              !fileViewed(path, markedFile(preview), defaultViewed(section.id)),
+                          ).length
+                        : 0
+                    }
+                    filtering={!!filter}
+                    onJump={() => jump(section.id)}
+                  >
+                    {files
                       .filter(({ file }) =>
                         [file.path, file.oldPath].some((path) =>
                           path?.toLowerCase().includes(filter.toLowerCase()),
@@ -1525,18 +1520,12 @@ export default function App() {
                           onClick={() => jump(section.id, preview.file.path)}
                         />
                       ))}
-                  </div>
+                    {!files.length && section.files.length > 0 && (
+                      <small className="index-hidden">Test files hidden</small>
+                    )}
+                  </OutlineGroup>
                 ))}
               </nav>
-              {review && (
-                <button
-                  className="add-group"
-                  onClick={() => edit({ kind: "new-group", title: "", description: "", files: [] })}
-                >
-                  <Plus size={15} />
-                  Add change group
-                </button>
-              )}
             </aside>
             <div className={`review-feed${wrap ? " wrap-lines" : ""}`}>
               {!comparison?.files.length && (
@@ -1546,7 +1535,7 @@ export default function App() {
                   <p>Choose a different base or include local edits.</p>
                 </div>
               )}
-              {snapshot.sections.map((section, index) => (
+              {displayedSections.map(({ section, files }, index) => (
                 <section className="change-group" id={anchor(section.id)} key={section.id}>
                   <header className="group-header">
                     <div className="group-heading">
@@ -1557,23 +1546,6 @@ export default function App() {
                       </div>
                     </div>
                     <div className="group-actions">
-                      {review?.groups.some((group) => group.id === section.id) && (
-                        <button
-                          className="icon-button"
-                          aria-label={`Edit ${section.title}`}
-                          onClick={() =>
-                            edit({
-                              kind: "group",
-                              groupId: section.id,
-                              title: section.title,
-                              description: section.description,
-                              files: [],
-                            })
-                          }
-                        >
-                          <Pencil size={14} />
-                        </button>
-                      )}
                       {review && (
                         <button
                           className={`review-button ${section.reviewed ? "is-reviewed" : ""}`}
@@ -1594,17 +1566,25 @@ export default function App() {
                           {section.reviewed ? "All viewed" : "Mark all viewed"}
                         </button>
                       )}
-                      {section.changedSinceReview && (
-                        <span className="changed-label">Changed since review</span>
+                      {(section.changedSinceReview || sinceViewedGroup === section.id) && (
+                        <button className="changed-label"
+                          aria-pressed={sinceViewedGroup === section.id}
+                          onClick={() => setSinceViewedGroup((current) => current === section.id ? "" : section.id)}>
+                          {sinceViewedGroup === section.id ? "Show full review" : "Changed since review"}
+                        </button>
                       )}
                     </div>
                   </header>
+                  {review?.groups.some((group) => group.id === section.id) &&
+                    <ReviewVisuals key={`${collectionId}/${reviewId}/${section.id}`}
+                      collection={collectionId} review={reviewId} group={section.id}
+                      visuals={section.visuals} />}
                   {section.warnings.map((warning) => (
                     <p className="warning" key={warning}>
                       {warning}
                     </p>
                   ))}
-                  {section.files.map((preview) => (
+                  {files.map((preview) => (
                     <FileCard
                       key={`${scope}:${section.id}:${preview.file.path}`}
                       preview={preview}
@@ -1615,17 +1595,28 @@ export default function App() {
                       ignoreWhitespace={ignoreWhitespace}
                       reviewed={section.reviewed}
                       defaultViewed={defaultViewed(section.id)}
-                      source={{ path, base, mode, version: snapshot!.comparison.version }}
+                      source={{ path, base, mode, version: snapshot!.comparison.version,
+                        ...(review ? { collection: collectionId, review: reviewId } : {}) }}
+                      sinceViewed={sinceViewedGroup === section.id}
                     />
                   ))}
-                  {!section.files.length && (
-                    <p className="empty-file">No matching changes in this group.</p>
+                  {!files.length && (
+                    <p className="empty-file">
+                      {section.files.length > 0
+                        ? "Test files hidden. Turn off Hide test files in Display settings to see them."
+                        : "No matching changes in this group."}
+                    </p>
                   )}
                 </section>
               ))}
               <footer className="feed-end">
                 End of changes · {comparison?.files.length}{" "}
                 {comparison?.files.length === 1 ? "file" : "files"}
+                {hiddenTestCount > 0 && (
+                  <>
+                    {" "}· {hiddenTestCount} test {hiddenTestCount === 1 ? "file" : "files"} hidden
+                  </>
+                )}
               </footer>
             </div>
           </div>
@@ -1635,20 +1626,6 @@ export default function App() {
             <div className="section-heading">
               <div className="title-row">
                 <h1>{collection.title}</h1>
-                <button
-                  className="icon-button"
-                  aria-label="Edit collection details"
-                  onClick={() =>
-                    edit({
-                      kind: "collection",
-                      title: collection.title,
-                      description: collection.description,
-                      files: [],
-                    })
-                  }
-                >
-                  <Pencil size={15} />
-                </button>
               </div>
               {collection.description && (
                 <Description key={collection.id} text={collection.description} />
@@ -1815,108 +1792,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-          )}
-        </form>
-      </dialog>
-      <dialog
-        ref={editDialog}
-        onCancel={() => {
-          if (!saving) setEditor(null);
-        }}
-      >
-        <form onSubmit={saveEditor}>
-          {editor && (
-            <>
-              <div className="dialog-heading">
-                <h2>{editorTitles[editor.kind]}</h2>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="Close edit dialog"
-                  disabled={saving}
-                  onClick={() => setEditor(null)}
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              <label>
-                Name
-                <input
-                  autoFocus
-                  value={editor.title}
-                  onChange={(event) => setEditor({ ...editor, title: event.target.value })}
-                  required
-                  maxLength={200}
-                />
-              </label>
-              <label>
-                Description
-                <textarea
-                  value={editor.description}
-                  onChange={(event) => setEditor({ ...editor, description: event.target.value })}
-                  placeholder="What changes, why it matters, and what needs review."
-                  rows={4}
-                />
-              </label>
-              {(editor.kind === "review" || editor.kind === "save") && (
-                <label>
-                  Pull request URL (optional)
-                  <input
-                    type="url"
-                    value={editor.pullRequest ?? ""}
-                    onChange={(event) => setEditor({ ...editor, pullRequest: event.target.value })}
-                    placeholder="https://github.com/owner/repo/pull/123"
-                  />
-                </label>
-              )}
-              {editor.kind === "new-group" && (
-                <fieldset>
-                  <legend>Files in this group</legend>
-                  {comparison?.files.map((file) => (
-                    <label className="file-checkbox" key={file.path}>
-                      <input
-                        type="checkbox"
-                        checked={editor.files.includes(file.path)}
-                        onChange={(event) =>
-                          setEditor({
-                            ...editor,
-                            files: event.target.checked
-                              ? [...editor.files, file.path]
-                              : editor.files.filter((path) => path !== file.path),
-                          })
-                        }
-                      />
-                      <span>{file.path}</span>
-                    </label>
-                  ))}
-                  <p className="muted">
-                    For selected blocks within a file, ask your agent to assign line ranges.
-                  </p>
-                </fieldset>
-              )}
-              {saveError && (
-                <p className="error" role="alert">
-                  {saveError}
-                </p>
-              )}
-              <div className="dialog-actions">
-                <button
-                  className="secondary"
-                  type="button"
-                  disabled={saving}
-                  onClick={() => setEditor(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="primary"
-                  type="submit"
-                  disabled={saving || (editor.kind === "new-group" && !editor.files.length)}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </>
           )}
         </form>
       </dialog>

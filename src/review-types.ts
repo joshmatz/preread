@@ -9,11 +9,18 @@ export interface GroupTarget {
   path: string;
   ranges?: LineRange[];
 }
+export interface ReviewVisual {
+  id: string;
+  title: string;
+  path: string;
+  caption?: string;
+}
 export interface ChangeGroup {
   id: string;
   title: string;
   description: string;
   targets: GroupTarget[];
+  visuals?: ReviewVisual[];
 }
 export interface Review {
   id: string;
@@ -23,6 +30,7 @@ export interface Review {
   base: string;
   mode: Mode;
   groups: ChangeGroup[];
+  visuals?: ReviewVisual[];
   pullRequest?: string;
 }
 export interface Collection {
@@ -35,12 +43,24 @@ export interface ReviewReceipt {
   fingerprint: string;
   reviewedAt: string;
 }
+export interface ViewedBaselineInfo {
+  viewHash: string;
+  reviewedAt: string;
+  hasText: boolean;
+}
+export interface SinceViewed {
+  available: boolean;
+  reviewedAt?: string;
+  message?: string;
+  diff?: Diff;
+}
 export interface FilePreview {
   file: ChangedFile;
   diff: Diff;
   partial: boolean;
   contextHash?: string;
   viewHash?: string;
+  lastViewed?: ViewedBaselineInfo;
   error?: string;
 }
 export interface MarkedFile {
@@ -49,6 +69,7 @@ export interface MarkedFile {
   patchHash: string;
 }
 export interface ReviewSection {
+  visuals?: ReviewVisual[];
   id: string;
   title: string;
   description: string;

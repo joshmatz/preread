@@ -97,6 +97,8 @@ test("cached branch content still checks refs and reads current descriptions and
     initial.sections[0].fingerprint,
     true,
   );
+  // Saving a viewed version reads Git; cached snapshot refreshes should not.
+  await writeFile(trace, "");
   const current = await snapshot(review, "loading");
   const renamed = await snapshot(
     { ...review, groups: [{ ...review.groups[0], description: "A new explanation" }] },

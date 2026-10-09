@@ -9,6 +9,7 @@ import {
   MAX_PATCH,
 } from "./git.ts";
 import { readCollection, readReceipts, receiptKey, setReceipt } from "./collections.ts";
+import { saveViewedFiles, withViewedBaselines, diffSinceViewed } from "./viewed-baselines.ts";
 import { matchesRanges, parsePatch, patchFor, reviewContent } from "./patches.ts";
 import type {
   ChangeGroup,
@@ -60,6 +61,7 @@ export function groupPreviews(
       id: group.id,
       title: group.title,
       description: group.description,
+      ...(group.visuals?.length ? { visuals: group.visuals } : {}),
       // Viewed marks follow what was shown, so edits to other blocks of a file leave them alone.
       // Identical blocks of one file are numbered so each keeps its own mark.
       files: previews.map((preview) => {
@@ -256,6 +258,8 @@ async function readReviewData(
   }
   return { comparison: info, files };
 }
+const baselineReview = (review: Review, collectionId?: string): Review =>
+  ({ ...review, id: collectionId ? `${collectionId}/${review.id}` : review.id });
 export async function snapshot(review: Review, collectionId?: string): Promise<ReviewSnapshot> {
   const refs = await comparisonRefs(review.path, review.base, review.mode);
   const read = async () =>
@@ -289,7 +293,7 @@ export async function snapshot(review: Review, collectionId?: string): Promise<R
   const receipts = collectionId ? await readReceipts(collectionId) : {};
   return {
     comparison: data.comparison,
-    sections: groupPreviews(data.files, review.groups, receipts, review),
+    sections: await withViewedBaselines(baselineReview(review, collectionId), groupPreviews(data.files, review.groups, receipts, review)),
   };
 }
 export const adHocReview = (path: string, base: string, mode: Mode): Review => ({
@@ -319,12 +323,13 @@ export async function markGroup(
     throw new Error(
       "This group has unavailable or unmatched changes. Resolve those before marking it reviewed.",
     );
+  if (reviewed) await saveViewedFiles(baselineReview(review, collectionId), groupId, section.files, current.comparison);
   await setReceipt(collectionId, reviewId, groupId, reviewed ? fingerprint : null);
   const receipt = await readReceipts(collectionId);
   const saved = receipt[receiptKey(reviewId, groupId)];
   return {
     ...current,
-    sections: current.sections.map((section) =>
+    sections: await withViewedBaselines(baselineReview(review, collectionId), current.sections.map((section) =>
       section.id === groupId
         ? {
             ...section,
@@ -333,6 +338,24 @@ export async function markGroup(
             changedSinceReview: false,
           }
         : section,
-    ),
+    )),
   };
+}
+
+
+export async function viewedFile(review: Review, group: string, name: string,
+  expectedHash: string, expectedViewHash: string, save: boolean, collectionId?: string) {
+  const info = await comparison(review.path, review.base, review.mode);
+  const file = info.files.find((entry) => entry.path === name);
+  if (!file) throw new Error("This file is not part of the current comparison. Refresh the review.");
+  const diff = await fileDiff(review.path, review.base, review.mode, name, info);
+  if (diff.hash !== expectedHash) throw new Error("This file changed since the review loaded. Refresh the review.");
+  const section = groupPreviews([{ file, diff, partial: false }], review.groups, {}, review)
+    .find((entry) => entry.id === group);
+  const preview = section?.files.find((entry) => entry.file.path === name);
+  if (!preview || preview.viewHash !== expectedViewHash)
+    throw new Error("The selected blocks changed since the review loaded. Refresh the review.");
+  return save
+    ? (await saveViewedFiles(baselineReview(review, collectionId), group, [preview], info))[0]
+    : diffSinceViewed(baselineReview(review, collectionId), group, preview, info);
 }

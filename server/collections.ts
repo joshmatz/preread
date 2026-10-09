@@ -3,7 +3,8 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { Collection, ReviewReceipt } from "../src/review-types.ts";
+import { importVisuals, visualType } from "./visual-assets.ts";
+import type { Collection, ReviewReceipt, ReviewVisual } from "../src/review-types.ts";
 
 import { parsePullRequest } from "../src/pull-requests.ts";
 
@@ -49,13 +50,26 @@ const unique = (items: { id: string }[], label: string) => {
   if (new Set(items.map((item) => item.id)).size !== items.length)
     throw new Error(`Duplicate ${label} IDs.`);
 };
+const visuals = (input: unknown, location: string): ReviewVisual[] | undefined => {
+  if (input === undefined) return undefined;
+  const result = list(input, "visuals", 12).map((item) => {
+    const visual = fields(item, ["id", "title", "path", "caption"], location);
+    const path = text(visual.path, "visual path", 4000);
+    if (!isAbsolute(path)) throw new Error("Visual paths must be absolute local paths.");
+    visualType(path);
+    return { id: identifier(visual.id), title: title(visual.title), path,
+      ...(visual.caption !== undefined ? { caption: text(visual.caption, "visual caption", 2000) } : {}) };
+  });
+  unique(result, "visual");
+  return result;
+};
 export function validateCollection(input: unknown): Collection {
   const value = fields(input, ["id", "title", "description", "reviews"], "the collection");
   const reviews = list(value.reviews, "reviews", 100).map((inputReview, reviewIndex) => {
     const location = `reviews[${reviewIndex}]`;
     const review = fields(
       inputReview,
-      ["id", "title", "description", "path", "base", "mode", "groups", "pullRequest"],
+      ["id", "title", "description", "path", "base", "mode", "groups", "pullRequest", "visuals"],
       location,
     );
     const path = text(review.path, "worktree path");
@@ -67,7 +81,7 @@ export function validateCollection(input: unknown): Collection {
       throw new Error(`${location} needs a base branch or commit.`);
     const groups = list(review.groups ?? [], "groups", 100).map((inputGroup, groupIndex) => {
       const groupLocation = `${location}.groups[${groupIndex}]`;
-      const group = fields(inputGroup, ["id", "title", "description", "targets"], groupLocation);
+      const group = fields(inputGroup, ["id", "title", "description", "targets", "visuals"], groupLocation);
       const id = identifier(group.id);
       if (id === "other-changes") throw new Error("The group ID other-changes is reserved.");
       const targets = list(group.targets, "group targets", 2000).map((inputTarget, targetIndex) => {
@@ -106,6 +120,7 @@ export function validateCollection(input: unknown): Collection {
         title: title(group.title),
         description: text(group.description ?? "", "group description"),
         targets,
+        ...(group.visuals !== undefined ? { visuals: visuals(group.visuals, groupLocation) } : {}),
       };
     });
     unique(groups, "group");
@@ -117,6 +132,7 @@ export function validateCollection(input: unknown): Collection {
       base,
       mode: review.mode as Collection["reviews"][number]["mode"],
       groups,
+      ...(review.visuals !== undefined ? { visuals: visuals(review.visuals, location) } : {}),
       ...(review.pullRequest
         ? { pullRequest: parsePullRequest(text(review.pullRequest, "pull request URL", 2000)).url }
         : {}),
@@ -156,6 +172,11 @@ async function atomicWrite(path: string, value: unknown) {
 }
 export async function putCollection(input: unknown) {
   const collection = validateCollection(input);
+  for (const review of collection.reviews) {
+    if (review.visuals) review.visuals = await importVisuals(review.visuals, dataDirectory());
+    for (const group of review.groups)
+      if (group.visuals) group.visuals = await importVisuals(group.visuals, dataDirectory());
+  }
   await mkdir(join(dataDirectory(), "collections"), { recursive: true, mode: 0o700 });
   await atomicWrite(fileFor(collection.id), collection);
   return collection;

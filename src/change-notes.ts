@@ -46,6 +46,6 @@ export function noContentNote(patch: string) {
     : "No content changes.";
 }
 
-// Git counts a binary file as binary even when a rename leaves its content untouched.
+// Binary files can be inspected locally and acknowledged without a text preview.
 export const reviewable = ({ error, diff }: FilePreview) =>
-  !error && !diff.tooLarge && (!diff.binary || !!diff.image || !!noContentNote(diff.patch));
+  !error && !diff.tooLarge;

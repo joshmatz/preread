@@ -109,6 +109,10 @@ Write the manifest outside every reviewed repository, for example in a temporary
 - Give each hunk to one group. Anything unassigned appears under Other changes, which is a fine home for incidental edits.
 - `pullRequest` is optional. Preread reads its status through the user's signed-in `gh` CLI.
 
+## Add visual context
+
+When a diagram or screenshot helps explain a decision, attach it to the review or the relevant group with a `visuals` array: `{ "id": "request-flow", "title": "Request flow", "path": "/absolute/path/diagram.svg", "caption": "Optional explanation." }`. Use stable IDs and descriptive titles. PNG, JPEG, WebP, GIF and SVG up to 10 MB and Mermaid `.mmd` or `.mermaid` source files up to 64 KB are supported, with 12 visuals per scope. Preread copies them into its own local data directory; keep source files outside reviewed repositories when they are review-only artifacts. Reimport the source manifest after revising an image. A compact Visuals button opens a full-screen gallery with zoom, drag and Fit controls; images and Mermaid diagrams stay unloaded until opened. Author titles, groups and attachments through manifests, not the reading UI. Opening a visual is not a Viewed mark for the code.
+
 ## Import and check
 
 ```sh
@@ -124,7 +128,7 @@ curl -s "http://127.0.0.1:4780/api/review?collection=<collection-id>&review=<rev
 
 Fix every warning (a target that left the comparison, a range that matches no change, an overlap with an earlier group) and import again. Ranges drift when lines move, so check again after new commits.
 
-A group with `canReview: false` and no warnings holds a binary file that can't be previewed as an image, a diff over the size limit, or a file that failed to load, so it can't be marked reviewed. Tell the person which files to open locally.
+A group with `canReview: false` and no warnings holds a diff over the server size limit or a file that failed to load, so it cannot be marked reviewed. Binary files such as fonts can be marked Viewed after local inspection. Text diffs with at least 500 displayed lines or 100 KB of patch text require an explicit Load diff click; this does not block Viewed marks.
 
 ## Keep the page current
 

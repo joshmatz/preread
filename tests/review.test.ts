@@ -164,7 +164,7 @@ test("image previews can complete a group and their receipts follow the image co
   const image = { old: { size: 10 }, new: { size: 12 } };
   const first = groupPreviews([binary("1111111..2222222", image)], whole, {}, scope)[0];
   assert.equal(first.canReview, true);
-  assert.equal(groupPreviews([binary("1111111..2222222")], whole, {}, scope)[0].canReview, false);
+  assert.equal(groupPreviews([binary("1111111..2222222")], whole, {}, scope)[0].canReview, true);
   const replaced = groupPreviews([binary("1111111..3333333", image)], whole, {}, scope)[0];
   assert.notEqual(replaced.fingerprint, first.fingerprint);
   assert.notEqual(replaced.files[0].viewHash, first.files[0].viewHash);

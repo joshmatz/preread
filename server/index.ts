@@ -6,10 +6,11 @@ import { createServer as createViteServer } from "vite";
 import { repository, comparison, fileDiff, fileContext, fileImage, stackFor } from "./git.ts";
 import { listCollections, putCollection } from "./collections.ts";
 import { bump, live } from "./live.ts";
-import { snapshot, adHocReview, resolveReview, markGroup } from "./review.ts";
+import { snapshot, adHocReview, resolveReview, markGroup, viewedFile } from "./review.ts";
 import { reviewProgress, progressSource } from "../src/progress.ts";
 import type { Mode } from "../src/types.ts";
 
+import { readVisual } from "./review-visuals.ts";
 import { readPullRequest } from "./pullRequests.ts";
 
 const app = express();
@@ -116,6 +117,28 @@ app.post("/api/reviewed", async (req, res) => {
   )
     throw new Error("Invalid review status request.");
   res.json(await markGroup(collection, review, group, fingerprint, reviewed));
+});
+const viewedScope = async (values: Record<string, unknown>) => {
+  const collection = query(values.collection);
+  return collection ? resolveReview(collection, query(values.review))
+    : adHocReview(query(values.path), query(values.base), query(values.mode) as Mode);
+};
+app.post("/api/viewed-file", async (req, res) => {
+  const values = req.body ?? {};
+  if (![values.group, values.file, values.hash, values.viewHash].every((value) => typeof value === "string"))
+    throw new Error("Invalid viewed-file request.");
+  res.json(await viewedFile(await viewedScope(values), values.group, values.file, values.hash, values.viewHash, true, query(values.collection)));
+});
+app.get("/api/since-viewed", async (req, res) => {
+  const values = req.query;
+  res.json(await viewedFile(await viewedScope(values), query(values.group), query(values.file),
+    query(values.hash), query(values.viewHash), false, query(values.collection)));
+});
+app.get("/api/visuals", async (req, res) => {
+  const { content, type } = await readVisual(query(req.query.collection), query(req.query.review),
+    query(req.query.group), query(req.query.id));
+  res.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+    .type(type).send(content);
 });
 app.get("/api/stack", async (req, res) => res.json(await stackFor(query(req.query.path))));
 app.use("/api", (_req, res) => res.status(404).json({ error: "Unknown local review endpoint." }));

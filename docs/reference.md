@@ -34,7 +34,7 @@ Preread used to be called Worktree review. If `~/.worktree-review` exists and `~
 - A repository needs at least one commit.
 - A review previews up to 500 files and about 24 MB of patch text, and a single file's diff up to 2 MB. Anything over those limits stays listed with a notice.
 - Changed PNG, JPEG, GIF, WebP, AVIF, BMP, and ICO files preview as images up to 20 MB per version. SVG files show as text diffs.
-- Other binary files, larger images, and diffs over the limits can't be marked Viewed, so the group that contains one, and its review, stay incomplete.
+- Binary files such as fonts can be marked Viewed after local inspection. Failed or unavailable oversized previews remain blocked, so their groups stay incomplete.
 - Repositories and worktrees nested inside a worktree are left out of its untracked files. Review them on their own.
 - Line totals don't count the contents of untracked files.
 - The Commits tab shows the latest 100 commits.

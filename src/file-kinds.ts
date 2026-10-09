@@ -145,9 +145,13 @@ const extensions: Record<string, FileKind> = {
   zip: "archive",
 };
 const testDirectory = /(^|\/)(__tests__|__mocks__|__snapshots__|tests?|spec|e2e)\//i;
-const testName = /[._-](test|spec)\.|^test_.*\.py$|^conftest\.py$|Tests?\.(java|kt|cs|swift)$|\.snap$/;
+const testName = /[._-](test|spec|inttest)\.|^test_.*\.py$|^conftest\.py$|Tests?\.(java|kt|cs|swift)$|\.snap$/;
 const configName =
   /^\.|\.config\.[^.]+$|^[jt]sconfig(\..+)?\.json$|^(docker|container)file(\..+)?$|^requirements.*\.txt$/;
+
+export function isTestFile(path: string): boolean {
+  return testDirectory.test(path) || testName.test(path.split("/").at(-1)!);
+}
 
 export function fileKind(path: string, image = false): FileKind {
   const base = path.split("/").at(-1)!;
@@ -155,7 +159,7 @@ export function fileKind(path: string, image = false): FileKind {
   const extension = name.includes(".") ? name.split(".").at(-1)! : "";
   if (image) return "image";
   if (lockfiles.has(name)) return "lockfile";
-  if (testDirectory.test(path) || testName.test(base)) return "test";
+  if (isTestFile(path)) return "test";
   // A file named constructor or toString must not resolve to Object.prototype.
   if (Object.hasOwn(names, name)) return names[name];
   if (configName.test(name)) return "config";

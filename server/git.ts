@@ -394,7 +394,7 @@ export const fileDiff = async (
         else {
           const text = content.toString("utf8");
           const lines = text ? text.replace(/\n$/, "").split("\n") : [];
-          patch = `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n`;
+          patch = `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n${text && !text.endsWith("\n") ? "\\ No newline at end of file\n" : ""}`;
         }
       }
     }
@@ -595,6 +595,29 @@ const readImage = async (
   });
 };
 // Anything that can't be previewed returns undefined and keeps the binary-file notice.
+// Read the version represented by a preview, including rename-only and mode-only
+// changes whose patch has no text hunks. Working files use the same containment
+// and symlink checks as image previews; Git versions use pinned blob names.
+export async function viewedFileText(input: string, base: string, mode: Mode,
+  file: ChangedFile, info: Comparison, expectedHash: string): Promise<string | undefined> {
+  if (file.binary || file.status === "T") return undefined;
+  const root = await rootFor(input);
+  let content: Buffer | null;
+  if (file.status === "D") content = Buffer.alloc(0);
+  else {
+    const object = imageObject(info, mode, file, "new");
+    if (!object && (await lstat(resolve(root, file.path))).isSymbolicLink()) return undefined;
+    const size = object ? Number(await git(root, ["cat-file", "-s", object]))
+      : (await workingImage(root, file.path)).size;
+    if (size > MAX_PATCH) return undefined;
+    content = await readImage(root, info, mode, file, "new");
+  }
+  if (!content || content.includes(0)) return undefined;
+  const after = await fileDiff(root, base, mode, file.path, info);
+  if (after.hash !== expectedHash)
+    throw new Error("This file changed while reading its viewed version. Refresh and review it again.");
+  return content.toString("utf8");
+}
 export async function imagePreview(
   root: string,
   info: Comparison,

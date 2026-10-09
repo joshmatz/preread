@@ -79,7 +79,7 @@ test("changed images preview each version that exists and can complete a group",
       ["linked.png", true, undefined],
     ],
   );
-  assert.equal(sections[1].canReview, false);
+  assert.equal(sections[1].canReview, true, "non-image binaries can be inspected locally and acknowledged");
 });
 test("the image endpoint reads each version from Git with its content type", async () => {
   assert.deepEqual(await read("branch", "logo.png", "old"), { content: png(1), type: "image/png" });

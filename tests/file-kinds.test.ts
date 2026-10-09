@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fileKind } from "../src/file-kinds.ts";
+import { fileKind, isTestFile } from "../src/file-kinds.ts";
 
 test("file kinds follow names, folders, and extensions", () => {
   const cases: [string, string][] = [
@@ -10,6 +10,8 @@ test("file kinds follow names, folders, and extensions", () => {
     ["bin/preread", "code"],
     ["test/backoff.test.ts", "test"],
     ["src/RetryBadge.spec.tsx", "test"],
+    ["src/staff-mcp/index.inttest.ts", "test"],
+    ["src/RetryBadge.ui.test.tsx", "test"],
     ["pkg/client/client_test.go", "test"],
     ["app/tests/test_models.py", "test"],
     ["Tests/AppTests/LoginTests.swift", "test"],
@@ -47,4 +49,11 @@ test("the server's image flag wins, and prototype names stay code", () => {
   assert.equal(fileKind("docs/screenshot", true), "image");
   for (const path of ["src/constructor", "src/toString", "src/__proto__", "lib/file.constructor"])
     assert.equal(fileKind(path), "code");
+});
+
+test("test filtering includes fixtures even when another file kind takes priority", () => {
+  assert.equal(isTestFile("test/fixtures/before.png"), true);
+  assert.equal(isTestFile("tests/fixture/pnpm-lock.yaml"), true);
+  assert.equal(isTestFile("src/latest.ts"), false);
+  assert.equal(isTestFile("docs/specs/api.md"), false);
 });
