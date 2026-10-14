@@ -69,6 +69,8 @@ import {
   type ContextModel,
 } from "./diff-context";
 import { highlightDiff } from "./highlight";
+import { orderUnifiedChanges } from "./diff-order";
+import { refineWordHighlights } from "./diff-highlights";
 import "./style.css";
 
 const params = new URLSearchParams(location.search);
@@ -424,6 +426,8 @@ function DiffView({
       stickyFileHeaders: false,
     });
     view.draw();
+    refineWordHighlights(element);
+    orderUnifiedChanges(element);
     // Merge before syntax highlighting introduces its own nested spans.
     for (const change of element.querySelectorAll(
       ".d2h-code-line-ctn > ins, .d2h-code-line-ctn > del",
