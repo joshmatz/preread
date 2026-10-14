@@ -9,11 +9,17 @@ export interface GroupTarget {
   path: string;
   ranges?: LineRange[];
 }
+export interface CollectionImage {
+  file: string;
+  caption?: string;
+  link?: string;
+}
 export interface ChangeGroup {
   id: string;
   title: string;
   description: string;
   targets: GroupTarget[];
+  images?: CollectionImage[];
 }
 export interface Review {
   id: string;
@@ -24,12 +30,14 @@ export interface Review {
   mode: Mode;
   groups: ChangeGroup[];
   pullRequest?: string;
+  images?: CollectionImage[];
 }
 export interface Collection {
   id: string;
   title: string;
   description: string;
   reviews: Review[];
+  images?: CollectionImage[];
 }
 export interface ReviewReceipt {
   fingerprint: string;

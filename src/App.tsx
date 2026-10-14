@@ -51,6 +51,7 @@ import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, markedFile, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
 import { ImageDiff } from "./ImageDiff";
+import { DescriptionImages } from "./DescriptionImages";
 import { BrandMark } from "./BrandMark";
 import { usePullRequests } from "./usePullRequests";
 import {
@@ -1375,6 +1376,7 @@ export default function App() {
             {review?.description && (
               <Description key={`${collectionId}/${reviewId}`} text={review.description} />
             )}
+            <DescriptionImages images={review?.images} />
             {review?.pullRequest && (
               <PullRequest
                 url={review.pullRequest}
@@ -1554,6 +1556,9 @@ export default function App() {
                       <div>
                         <h2>{section.title}</h2>
                         {section.description && <p>{section.description}</p>}
+                        <DescriptionImages
+                          images={review?.groups.find((group) => group.id === section.id)?.images}
+                        />
                       </div>
                     </div>
                     <div className="group-actions">
@@ -1653,6 +1658,7 @@ export default function App() {
               {collection.description && (
                 <Description key={collection.id} text={collection.description} />
               )}
+              <DescriptionImages images={collection.images} />
             </div>
             <div
               className={`collection-progress ${collectionStatus.complete ? "complete" : ""}`}

@@ -550,7 +550,7 @@ const imageTypes = new Map([
   [".bmp", "image/bmp"],
   [".ico", "image/x-icon"],
 ]);
-const imageType = (name: string) => imageTypes.get(extname(name).toLowerCase());
+export const imageType = (name: string) => imageTypes.get(extname(name).toLowerCase());
 // A type change swaps in a symlink or submodule on one side, which has no image to show.
 const imageSides = (file: ChangedFile) =>
   file.status === "T"

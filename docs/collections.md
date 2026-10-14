@@ -30,6 +30,12 @@ Open any review directly at `http://127.0.0.1:4780/?collection=<collection-id>&r
       "base": "main",
       "mode": "branch",
       "pullRequest": "https://github.com/owner/repo/pull/142",
+      "images": [
+        {
+          "path": "/tmp/courier-shots/delivery-log.png",
+          "caption": "The delivery log after three failed attempts, rendered from the worktree with sample data."
+        }
+      ],
       "groups": [
         {
           "id": "backoff-policy",
@@ -63,10 +69,13 @@ Open any review directly at `http://127.0.0.1:4780/?collection=<collection-id>&r
 | `pullRequest` | Optional GitHub pull request URL. |
 | `targets[].path` | Exact, repository-relative file path. |
 | `targets[].ranges` | Optional. One-based diff line numbers on the `new` side, or `old` for deleted lines. A range selects every complete hunk with a changed line inside it; hunks are never split. |
+| `images` | Optional, on the collection, a review, or a group. Up to 20 images shown under its description. Each needs `path`, the absolute path of a PNG, JPEG, GIF, WebP, AVIF, BMP, or ICO file up to 20 MB, and can have a `caption` and a `link`, an http or https URL where the reader can open the source, such as a Figma frame. |
 
 ## How imports are checked
 
 Import rejects unknown fields, empty groups, and paths that aren't repository-relative, so a typo fails instead of importing a group that shows nothing. It replaces a collection's configuration and keeps its review receipts. A receipt covers a group's title, description, targets, and diff, and its review's path, base, and mode; when any of them changes, the group shows Changed since review and needs another read.
+
+Import copies each image into Preread's data directory under a name taken from its content, so you can delete the original afterward. `pnpm collection show` prints a saved image with `file` in place of `path`; keep those entries as they are when you import again. Images aren't part of a receipt, so adding one doesn't reopen a reviewed group. The [`preread-images` skill](../skills/preread-images/SKILL.md) teaches an agent to capture them.
 
 Every changed hunk shows up somewhere: in the group that claims it, or under Other changes. A target that no longer matches the diff gets a warning, and so does a hunk claimed by two groups.
 

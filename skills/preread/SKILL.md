@@ -54,7 +54,7 @@ If the pull stops on local changes, show them to the user rather than discarding
 
 A collection is a reading list, not a Git stack. Put related work in one collection, in the order it reads best.
 
-- Read an existing collection before changing it: `pnpm collection list`, then `pnpm collection show <id>`. Import replaces the whole collection, so carry over every review you aren't changing. Keep collection, review, and group IDs stable, because review receipts are keyed by them. A receipt also covers the group's title, description, and targets and the review's path, base, and mode, so change those only when the reader should look again.
+- Read an existing collection before changing it: `pnpm collection list`, then `pnpm collection show <id>`. Import replaces the whole collection, so carry over every review you aren't changing, and keep saved images (`file` entries) as they are. Keep collection, review, and group IDs stable, because review receipts are keyed by them. A receipt also covers the group's title, description, and targets and the review's path, base, and mode, so change those only when the reader should look again.
 - Choose each base from the real ancestry, not from folder names or collection order. Check it with `git log --oneline --graph <base>..HEAD` and `git merge-base <base> HEAD` inside the worktree. Use the direct parent branch to show one layer of a stack, or the default branch to show everything since it.
 - Preread never fetches. Make sure the base ref exists locally and contains the commits you expect.
 - Pick the mode for what the person should read:
@@ -108,6 +108,7 @@ Write the manifest outside every reviewed repository, for example in a temporary
 - A range uses one-based diff line numbers on the `new` side, or `old` for deleted lines. It selects every complete hunk that has a changed line inside the range; hunks are never split.
 - Give each hunk to one group. Anything unassigned appears under Other changes, which is a fine home for incidental edits.
 - `pullRequest` is optional. Preread reads its status through the user's signed-in `gh` CLI.
+- `images` is optional, on the collection, a review, or a group. Add images only when the person asks to see what a change looks like; the [`preread-images` skill](../preread-images/SKILL.md) covers capturing and attaching them.
 
 ## Import and check
 

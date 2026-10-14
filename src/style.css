@@ -593,7 +593,7 @@ h2 {
   font-size: 15px;
   line-height: 1.4;
 }
-.group-heading p {
+.group-heading > div > p {
   margin-top: 3px;
   font-size: 12px;
   line-height: 1.6;
@@ -814,6 +814,113 @@ h2 {
   line-height: 1.6;
   color: var(--secondary);
   font-size: 12px;
+}
+.description-images {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 10px;
+}
+.description-image {
+  margin: 0;
+  max-width: min(100%, 360px);
+}
+.description-image > button {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--subtle);
+  cursor: zoom-in;
+}
+.description-image > button:not(:disabled):hover {
+  background: var(--subtle);
+  border-color: var(--accent);
+}
+.description-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  background: repeating-conic-gradient(var(--hover) 0 25%, var(--canvas) 0 50%) 0 0 / 16px 16px;
+}
+.description-image figcaption {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--secondary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.image-missing {
+  display: block;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--secondary);
+}
+dialog.image-viewer {
+  width: min(1200px, calc(100vw - 30px));
+  padding: 0;
+}
+dialog.image-viewer[open] {
+  display: flex;
+  flex-direction: column;
+}
+.image-viewer > div {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 18px 24px 22px;
+}
+.image-viewer .dialog-heading {
+  flex: none;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.image-viewer .dialog-heading p {
+  min-width: 0;
+  max-height: 25dvh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  padding-top: 6px;
+  line-height: 1.6;
+}
+.image-viewer img {
+  display: block;
+  min-height: 0;
+  max-width: 100%;
+  align-self: center;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: repeating-conic-gradient(var(--hover) 0 25%, var(--canvas) 0 50%) 0 0 / 16px 16px;
+}
+.image-viewer-links {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.image-viewer-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+  font-weight: 550;
+}
+.image-viewer-links a:hover {
+  text-decoration: underline;
 }
 .feed-end {
   text-align: center;

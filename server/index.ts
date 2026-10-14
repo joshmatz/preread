@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import { createServer as createViteServer } from "vite";
 import { repository, comparison, fileDiff, fileContext, fileImage, stackFor } from "./git.ts";
-import { listCollections, putCollection } from "./collections.ts";
+import { listCollections, putCollection, readImage } from "./collections.ts";
 import { bump, live } from "./live.ts";
 import { snapshot, adHocReview, resolveReview, markGroup } from "./review.ts";
 import { reviewProgress, progressSource } from "../src/progress.ts";
@@ -84,6 +84,17 @@ app.get("/api/image", async (req, res) => {
   );
   // Opened in a tab of its own, the file still can't run script with this origin's access.
   res.set("Content-Security-Policy", "default-src 'none'; sandbox").type(type).send(content);
+});
+app.get("/api/collection-image", async (req, res) => {
+  const { content, type } = await readImage(query(req.query.file));
+  // Saved images are named by their content, so a cached copy never goes stale.
+  res
+    .set({
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "Cache-Control": "private, max-age=31536000, immutable",
+    })
+    .type(type)
+    .send(content);
 });
 app.get("/api/collections", async (_req, res) => res.json(await listCollections()));
 app.put("/api/collections", async (req, res) => res.json(await putCollection(req.body)));

@@ -4,12 +4,15 @@ import {
   putCollection,
   readCollection,
   dataDirectory,
+  saveImages,
 } from "../server/collections.ts";
 import { origin, requestRefresh } from "../server/live.ts";
 const [command, argument] = process.argv.slice(2);
 try {
   if (command === "import" && argument) {
-    const collection = await putCollection(JSON.parse(await readFile(argument, "utf8")));
+    const collection = await putCollection(
+      await saveImages(JSON.parse(await readFile(argument, "utf8"))),
+    );
     console.log(
       `Saved ${collection.title} (${collection.reviews.length} reviews).\n${origin}/?collection=${collection.id}&review=${collection.reviews[0].id}`,
     );

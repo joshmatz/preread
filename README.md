@@ -47,6 +47,7 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 - **Change groups that say what to check.** Each one pairs files, or single hunks, with a title and a short description. Anything unassigned lands in Other changes, so nothing hides.
 - **Progress that follows the code.** A Viewed mark is tied to the diff you read. When that diff changes, the mark clears and its group reopens.
 - **Updates on your agent's cue.** After a change, your agent runs `pnpm refresh`, and the page you have open re-reads in place and keeps your scroll position and your marks.
+- **Pictures of the result.** Attach screenshots, design frames, or diagrams to a collection, review, or group, so you can see what a change looks like before you read its code.
 - **Any stage of the work.** Branch commits, branch plus local edits, uncommitted changes, or staged changes.
 - **The pull request, once you open one.** Link a review to its GitHub pull request to see its state, checks, and review decision, and whether your local head and base still match it.
 - **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, expandable context, before-and-after images, and private notes on any file.
@@ -84,7 +85,7 @@ The [`preread` skill](skills/preread/SKILL.md) teaches an agent the whole handof
 Install it for all your projects with the [skills CLI](https://github.com/vercel-labs/skills):
 
 ```sh
-npx skills add joshmatz/preread -g
+npx skills add joshmatz/preread --skill preread -g
 ```
 
 Or link it into your agent's skills directory by hand, so it updates with your checkout. For Claude Code, from your Preread checkout:
@@ -92,6 +93,8 @@ Or link it into your agent's skills directory by hand, so it updates with your c
 ```sh
 mkdir -p ~/.claude/skills && ln -s "$PWD/skills/preread" ~/.claude/skills/preread
 ```
+
+The optional [`preread-images` skill](skills/preread-images/SKILL.md) shows you what a change looks like when you ask: it renders the changed component from the worktree, or exports a Figma frame or a diagram, and attaches the image to the review. Install it the same way, with `--skill preread-images` or a link to `skills/preread-images`.
 
 If you cloned Preread yourself, tell your agent where it lives, for example in your global agent instructions:
 
@@ -114,10 +117,10 @@ Rather write collections yourself? The [collections guide](docs/collections.md) 
 Preread runs where the code is. It only reads your repositories: it never checks out, stages, commits, fetches, or pushes, and it never sends your code anywhere. Apart from Git filling in a partial clone, described below, its only network calls are optional pull request status reads through the GitHub CLI.
 
 - **Read-only Git.** Git runs from argument arrays, never through a shell. Hooks, fsmonitor, external diff tools, and textconv filters are off. Comparisons against the working tree read a private copy of the index, so Preread never writes `.git/index`.
-- **Only files in the comparison.** The server reads file contents only for paths in the current comparison. An untracked symlink shows its target path and is never followed. Image previews are sent with a fixed image type under a sandboxing Content Security Policy, and SVG is never rendered, so a preview can't run script.
+- **Only files in the comparison.** The server reads file contents only for paths in the current comparison, plus images that an import copied into its data directory. An untracked symlink shows its target path and is never followed. Image previews are sent with a fixed image type under a sandboxing Content Security Policy, and SVG is never rendered, so a preview can't run script.
 - **Loopback only.** The server binds to 127.0.0.1. Its API accepts only `127.0.0.1` and `localhost` hosts and rejects requests that come from any other origin, including other local ports, so websites can't read your code through it, even with DNS rebinding. Open pages poll a same-origin refresh counter, which carries no repository content.
 - **No third-party requests from the page.** All assets are bundled. There are no fonts, CDNs, or analytics.
-- **Data outside your repositories.** Collections and receipts live in `~/.preread` by default, in files only your user can read.
+- **Data outside your repositories.** Collections, their images, and receipts live in `~/.preread` by default, in files only your user can read.
 
 Git still applies a repository's own clean filters when it reads working-tree files, and in a partial clone it may download missing file contents from the remote to build a diff. As with any Git client, open only repositories whose `.git/config` you trust.
 
