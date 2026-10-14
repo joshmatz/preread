@@ -33,6 +33,7 @@ export interface Commit {
   date: string;
 }
 export interface Comparison {
+  path?: string;
   base: string;
   baseSha: string;
   mergeBase: string;

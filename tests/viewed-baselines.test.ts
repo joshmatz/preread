@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, writeFile, realpath, rm, rename, symlink } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { snapshot, viewedFile, markGroup } from "../server/review.ts";
+import { reviewProgress } from "../src/progress.ts";
 import { putCollection, readReceipts, setReceipt } from "../server/collections.ts";
 import type { Review, FilePreview, SinceViewed, ViewedBaselineInfo } from "../src/review-types.ts";
 
@@ -29,8 +30,8 @@ before(async () => {
   git("init", "-b", "main");
   git("config", "user.name", "Baseline Test");
   git("config", "user.email", "baseline@example.test");
-  for (const name of ["code.ts", "staged.ts", "bulk.ts", "partial.ts", "old.txt"])
-    await writeFile(join(repo, name), name === "partial.ts" ? "base first\n" + "context\n".repeat(40) + "base last\n" : "base\n");
+  for (const name of ["code.ts", "staged.ts", "bulk.ts", "partial.ts", "shared-partial.ts", "old.txt"])
+    await writeFile(join(repo, name), (name === "partial.ts" || name === "shared-partial.ts") ? "base first\n" + "context\n".repeat(40) + "base last\n" : "base\n");
   git("add", "."); git("commit", "-m", "Base");
 });
 after(async () => { delete process.env.PREREAD_DATA_DIR; await rm(directory, { recursive: true, force: true }); });
@@ -192,4 +193,44 @@ test("a TTF can complete a group and new font bytes invalidate its viewed mark",
   assert.equal(next.sections[0].changedSinceReview, true);
   assert.notEqual(next.sections[0].files[0].viewHash, first.sections[0].files[0].viewHash);
   assert.equal((await delta(scope, "font")).available, false);
+});
+
+
+test("individual Viewed state survives fresh snapshots and explicit unmarking overrides a group receipt", async () => {
+  await writeFile(join(repo, "shared.ts"), "shared viewed content\n");
+  const scope = review("shared", "shared.ts");
+  await putCollection({ id: "shared", title: "Shared", description: "", reviews: [scope] });
+  const first = await preview(scope, "shared");
+  assert.equal(first.viewed, false);
+  await call(scope, first, true, "shared");
+  assert.equal((await preview(scope, "shared")).viewed, true);
+  assert.equal((await preview({ ...scope, id: "other-review" })).viewed, true,
+    "the same worktree and content share a mark across review scopes");
+  let current = await snapshot(scope, "shared");
+  const before = reviewProgress(current).reviewedGroups;
+  assert.ok(before >= 1);
+  await markGroup("shared", "shared", "code", current.sections[0].fingerprint, true);
+  current = await snapshot(scope, "shared");
+  const file = current.sections[0].files[0];
+  await viewedFile(scope, "code", file.file.path, file.contextHash ?? file.diff.hash, file.viewHash!, true, "shared", false);
+  const unmarked = await snapshot(scope, "shared");
+  assert.equal(unmarked.sections[0].files[0].viewed, false);
+  assert.equal(reviewProgress(unmarked).reviewedGroups, before - 1);
+  assert.equal((await delta(scope, "shared")).available, true, "unmarking retains the since-viewed baseline");
+  await call(scope, await preview(scope, "shared"), true, "shared");
+  await writeFile(join(repo, "shared.ts"), "shared changed content\n");
+  assert.equal((await preview(scope, "shared")).viewed, false,
+    "changed content reopens in every browser");
+});
+
+test("a partial Viewed mark survives changes outside its selected blocks", async () => {
+  await writeFile(join(repo, "shared-partial.ts"), "first\n" + "context\n".repeat(40) + "last\n");
+  const scope = review("shared-partial", "shared-partial.ts");
+  scope.groups[0].targets[0].ranges = [{ side: "new", start: 1, end: 1 }];
+  const first = await preview(scope);
+  await call(scope, first, true);
+  await writeFile(join(repo, "shared-partial.ts"), "first\n" + "context\n".repeat(40) + "edited last\n");
+  const next = await snapshot(scope);
+  assert.equal(next.sections[0].files[0].viewed, true);
+  assert.equal(next.sections.find((section) => section.id === "other-changes")!.files.find((file) => file.file.path === "shared-partial.ts")!.viewed, false);
 });

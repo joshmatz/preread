@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { saveFileViews, withSharedFileViews } from "./file-views.ts";
 import {
   comparison,
   comparisonSource,
@@ -293,7 +294,7 @@ export async function snapshot(review: Review, collectionId?: string): Promise<R
   const receipts = collectionId ? await readReceipts(collectionId) : {};
   return {
     comparison: data.comparison,
-    sections: await withViewedBaselines(baselineReview(review, collectionId), groupPreviews(data.files, review.groups, receipts, review)),
+    sections: await withSharedFileViews(refs.path, await withViewedBaselines(baselineReview(review, collectionId), groupPreviews(data.files, review.groups, receipts, review))),
   };
 }
 export const adHocReview = (path: string, base: string, mode: Mode): Review => ({
@@ -324,12 +325,13 @@ export async function markGroup(
       "This group has unavailable or unmatched changes. Resolve those before marking it reviewed.",
     );
   if (reviewed) await saveViewedFiles(baselineReview(review, collectionId), groupId, section.files, current.comparison);
+  await saveFileViews(current.comparison.path ?? review.path, section.files.map((preview) => ({ path: preview.file.path, viewHash: preview.viewHash ?? preview.diff.hash, viewed: reviewed })));
   await setReceipt(collectionId, reviewId, groupId, reviewed ? fingerprint : null);
   const receipt = await readReceipts(collectionId);
   const saved = receipt[receiptKey(reviewId, groupId)];
   return {
     ...current,
-    sections: await withViewedBaselines(baselineReview(review, collectionId), current.sections.map((section) =>
+    sections: await withSharedFileViews(current.comparison.path ?? review.path, await withViewedBaselines(baselineReview(review, collectionId), current.sections.map((section) =>
       section.id === groupId
         ? {
             ...section,
@@ -338,13 +340,13 @@ export async function markGroup(
             changedSinceReview: false,
           }
         : section,
-    )),
+    ))),
   };
 }
 
 
 export async function viewedFile(review: Review, group: string, name: string,
-  expectedHash: string, expectedViewHash: string, save: boolean, collectionId?: string) {
+  expectedHash: string, expectedViewHash: string, save: boolean, collectionId?: string, viewed = true) {
   const info = await comparison(review.path, review.base, review.mode);
   const file = info.files.find((entry) => entry.path === name);
   if (!file) throw new Error("This file is not part of the current comparison. Refresh the review.");
@@ -355,7 +357,8 @@ export async function viewedFile(review: Review, group: string, name: string,
   const preview = section?.files.find((entry) => entry.file.path === name);
   if (!preview || preview.viewHash !== expectedViewHash)
     throw new Error("The selected blocks changed since the review loaded. Refresh the review.");
-  return save
-    ? (await saveViewedFiles(baselineReview(review, collectionId), group, [preview], info))[0]
-    : diffSinceViewed(baselineReview(review, collectionId), group, preview, info);
+  if (!save) return diffSinceViewed(baselineReview(review, collectionId), group, preview, info);
+  const baseline = viewed ? (await saveViewedFiles(baselineReview(review, collectionId), group, [preview], info))[0] : undefined;
+  await saveFileViews(info.path, [{ path: name, viewHash: expectedViewHash, viewed }]);
+  return { ...baseline, viewed };
 }

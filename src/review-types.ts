@@ -61,12 +61,14 @@ export interface FilePreview {
   contextHash?: string;
   viewHash?: string;
   lastViewed?: ViewedBaselineInfo;
+  viewed?: boolean;
   error?: string;
 }
 export interface MarkedFile {
   path: string;
   viewHash: string;
   patchHash: string;
+  viewed?: boolean;
 }
 export interface ReviewSection {
   visuals?: ReviewVisual[];

@@ -1,63 +1,40 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { currentKey, fileViewed, migrateMarks, setFilesViewed } from "../src/useFileState.ts";
+import { currentKey, fileViewed, migrateMarks, setFilesCollapsed } from "../src/useFileState.ts";
 import { memoryStorage } from "./memory-storage.ts";
 
 const hash = "0123456789abcdef".repeat(4);
 
-test("earlier Viewed keys drop the review's base and mode but keep its worktree", () => {
-  assert.equal(
-    currentKey(`file-viewed:/repo|origin/develop|all|src/a.ts|${hash}`),
-    `file-viewed:/repo|src/a.ts|${hash}`,
-  );
-  assert.equal(
-    currentKey(`file-collapsed:/repo|staged|branch|src/a.ts|${hash}`),
-    `file-collapsed:/repo|src/a.ts|${hash}`,
-  );
-  assert.equal(
-    currentKey("file-viewed:~/repo||working|odd|name.md|"),
-    "file-viewed:~/repo|odd|name.md|",
-  );
-});
-test("current keys and other storage are left alone", () => {
-  assert.equal(currentKey(`file-viewed:/repo|src/a.ts|${hash}`), undefined);
-  assert.equal(currentKey(`file-viewed:/repo|odd|name.md|${hash}`), undefined);
-  assert.equal(currentKey(`file-viewed:/a|b|repo|main|branch|src/a.ts|${hash}`), undefined);
-  assert.equal(currentKey("notes"), undefined);
-});
-test("old keys move to worktree keys, and viewed wins when old reviews disagree", () => {
-  const { storage, items } = memoryStorage({
-    [`file-viewed:/repo|main|branch|src/a.ts|${hash}`]: "false",
-    [`file-viewed:/repo|origin/main|all|src/a.ts|${hash}`]: "true",
-    [`file-viewed:/other|main|branch|src/a.ts|${hash}`]: "false",
-    [`file-collapsed:/repo|main|branch|src/a.ts|${hash}`]: "false",
-    [`file-collapsed:/repo|src/a.ts|${hash}`]: "true",
-    [`file-viewed:/a|b|repo|main|branch|src/a.ts|${hash}`]: "true",
-    theme: "dark",
-  });
+test("only collapse preferences migrate from older comparison keys", () => {
+  const viewedKey = `file-viewed:/repo|main|branch|src/a.ts|${hash}`;
+  const collapsedKey = `file-collapsed:/repo|main|branch|src/a.ts|${hash}`;
+  const current = `file-collapsed:/repo|src/a.ts|${hash}`;
+  assert.equal(currentKey(viewedKey), undefined);
+  assert.equal(currentKey(collapsedKey), current);
+  assert.equal(currentKey(current), undefined);
+  const { storage, items } = memoryStorage({ [viewedKey]: "true", [collapsedKey]: "false", theme: "dark" });
   migrateMarks(storage);
-  assert.deepEqual(Object.fromEntries(items), {
-    [`file-viewed:/repo|src/a.ts|${hash}`]: "true",
-    [`file-viewed:/other|src/a.ts|${hash}`]: "false",
-    [`file-collapsed:/repo|src/a.ts|${hash}`]: "true",
-    [`file-viewed:/a|b|repo|main|branch|src/a.ts|${hash}`]: "true",
-    theme: "dark",
-  });
+  assert.deepEqual(Object.fromEntries(items), { [viewedKey]: "true", [current]: "false", theme: "dark" });
 });
-test("a mark stays with its worktree", () => {
+
+test("server Viewed state wins over browser marks and group receipt fallbacks", () => {
   const file = { path: "src/a.ts", viewHash: hash, patchHash: hash };
-  setFilesViewed("/repo", [file], true);
-  assert.equal(fileViewed("/repo", file), true);
-  assert.equal(fileViewed("/other", file), false);
+  setFilesCollapsed("/repo", [file], true);
+  assert.equal(fileViewed({ ...file, viewed: false }, true), false);
+  assert.equal(fileViewed({ ...file, viewed: true }), true);
+  assert.equal(fileViewed(file), false);
+  assert.equal(fileViewed(file, true), true);
 });
-test("a mark saved under a patch hash moves to its view hash and outlasts edits elsewhere", () => {
-  const file = { path: "src/b.ts", viewHash: "view", patchHash: "patch" };
-  setFilesViewed("/repo", [{ ...file, viewHash: "patch" }], true);
-  assert.equal(fileViewed("/repo", file), true);
-  assert.equal(fileViewed("/repo", { ...file, patchHash: "edited elsewhere" }), true);
-  assert.equal(fileViewed("/repo", { ...file, viewHash: "edited", patchHash: "edited" }), false);
-  assert.equal(fileViewed("/other", file), false);
-  setFilesViewed("/repo", [file], false);
-  assert.equal(fileViewed("/repo", file, true), false);
-  assert.equal(fileViewed("/repo", { ...file, path: "src/c.ts" }, true), true);
+
+test("bulk UI updates write collapse preferences without persisting Viewed marks", () => {
+  const { storage, items } = memoryStorage();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: storage } });
+  try {
+    setFilesCollapsed("/fresh-repo", [{ path: "a.ts", viewHash: hash, patchHash: hash }], true);
+    assert.deepEqual(Object.fromEntries(items), { [`file-collapsed:/fresh-repo|a.ts|${hash}`]: "true" });
+  } finally {
+    if (original) Object.defineProperty(globalThis, "window", original);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
 });

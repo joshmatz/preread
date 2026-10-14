@@ -72,7 +72,13 @@ Every changed hunk shows up somewhere: in the group that claims it, or under Oth
 
 Editing a comparison in the UI opens an ad hoc view and leaves the saved review alone.
 
+## Search
+
+The outline can search file names, changed content, or both. Content search includes available old, new and context lines, even in collapsed large diffs, and runs outside the browser’s main thread. Line-numbered excerpts expand the file, jump to the matching line and highlight it. Search honors Hide test files; binary and oversized unavailable previews do not provide searchable text.
+
 ## Changes since Viewed
+
+Viewed marks are stored in Preread’s data directory and shared by browsers using the same server. Marks follow the worktree, file path and selected content, so changing the content reopens it. Marking or unmarking a file updates open pages automatically. Earlier browser-local Viewed marks are ignored; collapse and display preferences remain browser-local.
 
 Click **Changed since review** on a group to compare each file with its most recent Viewed version. **Show full review** returns to the original comparison. Viewed and Mark all viewed save the represented file content in Preread’s local data directory without modifying the repository. Selected-block groups show a labeled whole-file comparison, including edits outside their selected blocks.
 
@@ -80,7 +86,7 @@ Older marks saved only hashes, so they cannot reconstruct a previous file versio
 
 ## Large diffs and binary files
 
-Text diffs with at least 500 displayed lines or 100 KB of patch text show **Load diff** instead of rendering automatically. Clicking loads that file’s full available diff; unchanged refreshes keep it open, and changed content requires another click. The same limit applies to comparisons since Viewed. The server’s separate 2 MB patch limit still applies.
+Text diffs with at least 500 displayed lines or 100 KB of patch text start collapsed, with a line count beside the file name. Click the file heading to expand or collapse one continuous diff. Large expanded diffs render the nearby sections and retain space for offscreen content, so every changed line remains reachable by scrolling. Search results expand the file and reveal their matching line. Expansion preferences follow the selected content; changed content starts collapsed again. Comparisons since Viewed use the same continuous reader. The server’s separate 2 MB patch limit still applies.
 
 Binary files such as fonts can be marked **Viewed** or included in **Mark all viewed** after local inspection. Their content fingerprints still invalidate the mark when the bytes change. Failed or unavailable oversized previews remain blocked.
 

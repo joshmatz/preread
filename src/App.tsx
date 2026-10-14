@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArrowRight,
@@ -37,9 +37,9 @@ import {
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import type { Diff, Mode, Repository, StackNode } from "./types";
-import type { Collection, FilePreview, ReviewSection, ReviewSnapshot, ViewedBaselineInfo, SinceViewed } from "./review-types";
+import type { Collection, FilePreview, ReviewSection, ReviewSnapshot, SinceViewed } from "./review-types";
 import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
-import { useFileState, useFileStateVersion, fileViewed, setFilesViewed } from "./useFileState";
+import { useFileState, useFileStateVersion, fileViewed, setFilesCollapsed } from "./useFileState";
 import { useNote } from "./notes";
 import { Picker } from "./Picker";
 import { ReviewVisuals } from "./ReviewVisuals";
@@ -47,6 +47,9 @@ import { OutlineGroup } from "./OutlineGroup";
 import { Popover } from "./Popover";
 import { fileKind, fileKindLabels, isTestFile, type FileKind } from "./file-kinds";
 import { displaySections } from "./review-display";
+import { diffChunks } from "./diff-chunks";
+import { useReviewSearch } from "./useReviewSearch";
+import type { SearchScope, SearchMatch } from "./review-search";
 import { diffSize } from "./diff-size";
 import { scrollToChange } from "./scroll-to-change";
 import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
@@ -323,8 +326,14 @@ function DiffView({
   context,
   onContextChange,
   expandable = true,
+  searchMatch,
+  onSearchReady,
+  chunkIndex,
 }: {
+  chunkIndex?: number;
   expandable?: boolean;
+  searchMatch?: { match: SearchMatch; version: number };
+  onSearchReady?: (row: HTMLElement) => void;
   preview: FilePreview;
   eager: boolean;
   split: boolean;
@@ -340,12 +349,12 @@ function DiffView({
   const contextBusy = !!contextStatus && !contextStatus.error;
   const abort = useRef(new AbortController());
   const focusGap = useRef<number | null>(null);
+  const handledMatch = useRef<number | null>(null);
   const rowsAbove = useRef<{ gap: number; height: number } | null>(null);
-  const patch = context ? contextPatch(context) : preview.diff.patch;
+  const completePatch = context ? contextPatch(context) : preview.diff.patch;
   const size = useMemo(() => diffSize(preview.diff.patch), [preview.diff.patch]);
-  const [loadedHash, setLoadedHash] = useState<string | null>(null);
-  const deferLarge = size.deferred && loadedHash !== preview.diff.hash;
-  const focusLoaded = useRef(false);
+  const chunks = useMemo(() => chunkIndex === undefined ? diffChunks(completePatch) : [completePatch], [completePatch, chunkIndex]);
+  const patch = completePatch;
   const reveal = async (gap: number, direction: "above" | "below" | "all") => {
     if (contextBusy) return;
     const { signal } = abort.current;
@@ -377,34 +386,37 @@ function DiffView({
     setContextStatus(null);
     return () => controller.abort();
   }, [source.version, preview.diff.hash]);
+  useEffect(() => {
+    if (!searchMatch) return;
+    setVisible(true);
+  }, [searchMatch, preview.diff.hash]);
   const target = useRef<HTMLDivElement>(null);
+  const [retainedHeight, setRetainedHeight] = useState(() => chunkIndex === undefined ? 180 : Math.max(180, (size.lines + 1) * 22.2));
   const [visible, setVisible] = useState(eager);
   useEffect(() => {
-    if (!target.current || visible || deferLarge) return;
-    if (eager) {
-      setVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "1000px" },
-    );
+    if (!target.current) return;
+    const observer = new IntersectionObserver((entries) => {
+      setVisible(entries.some((entry) => entry.isIntersecting));
+    }, { rootMargin: "300px" });
     observer.observe(target.current);
     return () => observer.disconnect();
-  }, [eager, visible, deferLarge]);
+  }, [chunks.length]);
+  useEffect(() => {
+    if (!visible || !target.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.height > 0) setRetainedHeight(entry.contentRect.height);
+    });
+    observer.observe(target.current);
+    return () => observer.disconnect();
+  }, [visible, chunks.length]);
   useEffect(() => {
     const element = target.current;
-    if (!element || !visible || deferLarge || !patch || preview.error) return;
+    if (!element || !visible || !patch || preview.error) return;
     const shown = showCarriageReturns(patch);
     const view = new Diff2HtmlUI(element, ignoreWhitespace ? whitespaceDiff(shown) : shown, {
       drawFileList: false,
       outputFormat: split ? "side-by-side" : "line-by-line",
-      matching: "lines",
+      matching: chunkIndex !== undefined || size.deferred ? "none" : "lines",
       highlight: false,
       synchronisedScroll: true,
       renderNothingWhenEmpty: false,
@@ -501,19 +513,31 @@ function DiffView({
       });
       focusGap.current = null;
     }
+    if (searchMatch && (chunkIndex ?? 0) === searchMatch.match.chunk) {
+      const match = searchMatch.match;
+      const sides = [...element.querySelectorAll<HTMLElement>(".d2h-file-side-diff")];
+      const cells = split
+        ? sides.filter((_, index) => index % 2 === (match.side === "old" ? 0 : 1))
+          .flatMap((side) => [...side.querySelectorAll<HTMLElement>(".d2h-code-side-linenumber")])
+        : [...element.querySelectorAll<HTMLElement>(match.side === "old" ? ".line-num1" : ".line-num2")];
+      const row = cells.find((cell) => Number(cell.textContent) === match.line)?.closest("tr");
+      if (row) {
+        row.classList.add("search-hit");
+        row.style.scrollMarginTop = "84px";
+        if (handledMatch.current !== searchMatch.version) {
+          handledMatch.current = searchMatch.version;
+          onSearchReady?.(row);
+        }
+      }
+    }
+    setRetainedHeight(Math.max(180, element.getBoundingClientRect().height));
     return () => {
       element.innerHTML = "";
     };
-  }, [patch, split, visible, context, ignoreWhitespace, expandable, deferLarge]);
-  useEffect(() => {
-    if (focusLoaded.current && !deferLarge && target.current) {
-      target.current.focus({ preventScroll: true });
-      focusLoaded.current = false;
-    }
-  }, [deferLarge]);
+  }, [patch, split, visible, context, ignoreWhitespace, expandable, chunkIndex, searchMatch, onSearchReady]);
   useEffect(() => {
     const element = target.current;
-    if (!element || !visible || deferLarge || !split || !wrap) return;
+    if (!element || !visible || !split || !wrap) return;
     const sides = [...element.querySelectorAll(".d2h-file-side-diff")];
     if (sides.length !== 2) return;
     const [left, right] = sides.map((side) => [
@@ -543,7 +567,7 @@ function DiffView({
       observer.disconnect();
       for (const row of [...left, ...right]) row.style.height = "";
     };
-  }, [patch, split, visible, wrap, context, ignoreWhitespace, deferLarge]);
+  }, [patch, split, visible, wrap, context, ignoreWhitespace]);
   useEffect(() => {
     for (const controls of target.current?.querySelectorAll<HTMLElement>(".context-controls") ??
       []) {
@@ -569,18 +593,18 @@ function DiffView({
     <div className="diff-body">
       {message ? (
         <p className="empty-file">{message}</p>
-      ) : deferLarge ? (
-        <div className="large-diff">
-          <p>Large diff · {size.lines.toLocaleString()} lines · {Math.ceil(size.bytes / 1024).toLocaleString()} KB</p>
-          <button onClick={() => {
-            focusLoaded.current = true;
-            setVisible(true);
-            setLoadedHash(preview.diff.hash);
-          }}>Load diff</button>
-        </div>
+      ) : chunks.length > 1 ? (
+        chunks.map((chunk, index) => <DiffView key={`${preview.diff.hash}:${index}`}
+          preview={{ ...preview, diff: { ...preview.diff, patch: chunk } }}
+          chunkIndex={index} eager={eager && index === 0} split={split} wrap={wrap}
+          ignoreWhitespace={ignoreWhitespace} source={source} context={null}
+          onContextChange={onContextChange} expandable={false}
+          searchMatch={searchMatch?.match.chunk === index ? searchMatch : undefined}
+          onSearchReady={onSearchReady} />)
       ) : (
         <div className={`diff-renderer ${visible ? "" : "deferred"}`} ref={target}
-          tabIndex={-1} aria-label={`Diff for ${preview.file.path}`} />
+          style={!visible ? { height: retainedHeight } : undefined}
+          tabIndex={-1} aria-label={`Diff for ${preview.file.path}${chunkIndex === undefined ? "" : `, section ${chunkIndex + 1}`}`} />
       )}
     </div>
   );
@@ -643,6 +667,9 @@ function FileCard({
   defaultViewed,
   source,
   sinceViewed,
+  onViewedSaved,
+  searchMatch,
+  onSearchReady,
 }: {
   preview: FilePreview;
   eager: boolean;
@@ -654,11 +681,16 @@ function FileCard({
   defaultViewed: boolean;
   source: ViewedSource;
   sinceViewed: boolean;
+  onViewedSaved: (viewed: boolean) => void;
+  searchMatch?: { match: SearchMatch; version: number };
+  onSearchReady: (row: HTMLElement) => void;
 }) {
-  const { viewed, collapsed, setViewed, setCollapsed } = useFileState(
+  const size = useMemo(() => diffSize(preview.diff.patch), [preview.diff.patch]);
+  const { viewed, collapsed, setCollapsed } = useFileState(
     source.path,
     markedFile(preview),
     defaultViewed,
+    size.deferred,
   );
   const [viewSaving, setViewSaving] = useState(false);
   const [viewSaveError, setViewSaveError] = useState("");
@@ -667,14 +699,16 @@ function FileCard({
   currentViewKey.current = viewKey;
   useEffect(() => { setViewSaveError(""); }, [viewKey]);
   const toggleViewed = async () => {
-    if (viewed) { setViewed(false); return; }
     setViewSaving(true);
     setViewSaveError("");
     try {
-      await mutate<ViewedBaselineInfo>("viewed-file", { ...source, group: section,
+      await mutate<{ viewed: boolean }>("viewed-file", { ...source, group: section,
         file: preview.file.path, hash: preview.contextHash ?? preview.diff.hash,
-        viewHash: preview.viewHash ?? preview.diff.hash });
-      if (currentViewKey.current === viewKey) setViewed(true);
+        viewHash: preview.viewHash ?? preview.diff.hash, viewed: !viewed });
+      if (currentViewKey.current === viewKey) {
+        setCollapsed(!viewed);
+        onViewedSaved(!viewed);
+      }
     } catch (cause) {
       if (currentViewKey.current === viewKey) setViewSaveError((cause as Error).message);
     } finally { setViewSaving(false); }
@@ -689,6 +723,7 @@ function FileCard({
   const contextKey = `${preview.diff.hash}:${source.version}`;
   const [expanded, setExpanded] = useState<{ key: string; model: ContextModel } | null>(null);
   const context = expanded?.key === contextKey ? expanded.model : null;
+  useEffect(() => { if (searchMatch) setExpanded(null); }, [searchMatch]);
   const card = useRef<HTMLElement>(null);
   const collapseButton = useRef<HTMLButtonElement>(null);
   return (
@@ -733,6 +768,7 @@ function FileCard({
           <span>Reset context</span>
         </button>
         {preview.partial && <span className="pill">Selected blocks</span>}
+        {size.deferred && <span className="pill">Large diff · {size.lines.toLocaleString()} lines</span>}
         <button
           className={viewed ? "viewed-button active" : "viewed-button"}
           aria-pressed={viewed}
@@ -777,6 +813,8 @@ function FileCard({
           // Unkeyed: a remount would collapse the diff to a placeholder and shift the page.
           <DiffView
             preview={preview}
+            searchMatch={searchMatch}
+            onSearchReady={onSearchReady}
             eager={eager && !collapsed}
             split={split}
             wrap={wrap}
@@ -801,7 +839,8 @@ function FileOutlineItem({
   reviewed: boolean;
   onClick: () => void;
 }) {
-  const { viewed: done } = useFileState(worktree, markedFile(preview), reviewed);
+  const large = useMemo(() => diffSize(preview.diff.patch).deferred, [preview.diff.patch]);
+  const { viewed: done } = useFileState(worktree, markedFile(preview), reviewed, large);
   const { status, path, oldPath } = preview.file;
   const change = statusNames[status] ?? "Changed";
   const from = oldPath ? ` from ${oldPath}` : "";
@@ -825,6 +864,58 @@ function FileOutlineItem({
     </button>
   );
 }
+function ReviewOutline({ sections, worktree, hideTestFiles, reviewedCount, totalGroups, defaultViewed, onJump, onMatch }: {
+  sections: ReturnType<typeof displaySections>; worktree: string; hideTestFiles: boolean;
+  reviewedCount: number; totalGroups?: number; defaultViewed: (section: string) => boolean;
+  onJump: (section: string, file?: string) => void;
+  onMatch: (section: string, preview: FilePreview, match: SearchMatch) => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const [scope, setScope] = useState<SearchScope>("files");
+  const documents = useMemo(() => sections.flatMap(({ section, files }) => files.map((preview) => ({
+    key: `${section.id}:${preview.file.path}`, path: preview.file.path, oldPath: preview.file.oldPath,
+    patch: preview.diff.patch, unavailable: preview.diff.tooLarge,
+  }))), [sections]);
+  const { results, pending, error } = useReviewSearch(documents, filter, scope);
+  const matching = new Map(results.map((result) => [result.key, result]));
+  const searching = !!filter.trim();
+  const missing = documents.filter((document) => document.unavailable).length;
+  return <aside className="files-sidebar">
+    <div className="outline-head"><label className="search-field"><Search size={14} />
+      <input aria-label="Filter review outline" placeholder={scope === "files" ? "Find a file…" : "Search changed content…"}
+        value={filter} onChange={(event) => setFilter(event.target.value)} />
+    </label>{totalGroups !== undefined && <small>{reviewedCount}/{totalGroups} reviewed</small>}</div>
+    <label className="search-scope">Search in <select aria-label="Search in" value={scope}
+      onChange={(event) => setScope(event.target.value as SearchScope)}>
+      <option value="files">File names</option><option value="contents">Changed content</option><option value="all">Names and content</option>
+    </select></label>
+    {searching && <p className="search-status" role="status">{error ?? (pending ? "Searching…" : `${results.length} matching files`)}</p>}
+    {scope !== "files" && missing > 0 && <p className="search-status">{missing} oversized files have no searchable preview.</p>}
+    <nav aria-label="Changed files" aria-busy={pending && searching}>
+      {sections.map(({ section, files }) => {
+        const visible = searching ? files.filter((preview) => matching.has(`${section.id}:${preview.file.path}`)) : files;
+        if (searching && !visible.length) return null;
+        return <OutlineGroup key={section.id} title={section.title} reviewed={section.reviewed} revision={section.fingerprint}
+          hiddenUnreadCount={hideTestFiles ? section.files.filter((preview) => isTestFile(preview.file.path) && !fileViewed(markedFile(preview), defaultViewed(section.id))).length : 0}
+          filtering={searching} onJump={() => onJump(section.id)}>
+          {visible.map((preview) => {
+            const result = matching.get(`${section.id}:${preview.file.path}`);
+            return <React.Fragment key={preview.file.path}><FileOutlineItem preview={preview} worktree={worktree}
+              reviewed={defaultViewed(section.id)} onClick={() => onJump(section.id, preview.file.path)} />
+              {searching && result?.matches.map((match, index) => <button className="search-match" key={index}
+                onClick={() => onMatch(section.id, preview, match)}>
+                <small>{match.side === "old" ? "Before" : "After"} · line {match.line}{result.count > 3 && index === 2 ? ` · ${result.count - 3} more matches` : ""}</small>
+                <code>{match.text}</code>
+              </button>)}
+            </React.Fragment>;
+          })}
+          {!files.length && section.files.length > 0 && <small className="index-hidden">Test files hidden</small>}
+        </OutlineGroup>;
+      })}
+    </nav>
+  </aside>;
+}
+
 export default function App() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [collectionId, setCollectionId] = useState(params.get("collection") ?? "");
@@ -843,7 +934,7 @@ export default function App() {
   const [repoBusy, setRepoBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [progressRefresh, setProgressRefresh] = useState(0);
-  const [filter, setFilter] = useState("");
+  const [searchTarget, setSearchTarget] = useState<{ section: string; path: string; match: SearchMatch; version: number } | null>(null);
   const [sinceViewedGroup, setSinceViewedGroup] = useState("");
   const [split, setSplit] = useState(load("split", false));
   const [wrap, setWrap] = useState(load("wrapLines", false));
@@ -858,6 +949,10 @@ export default function App() {
   const folderDialog = useRef<HTMLDialogElement>(null);
   const jumped = useRef(false);
   const stopJump = useRef<(() => void) | null>(null);
+  const onSearchReady = useCallback((row: HTMLElement) => {
+    stopJump.current?.();
+    stopJump.current = scrollToChange(row);
+  }, []);
   const activeReview = useRef("");
   activeReview.current = `${collectionId}/${reviewId}`;
   const loadedPath = useRef("");
@@ -879,7 +974,7 @@ export default function App() {
   const snapshot = useMemo(
     () =>
       rawSnapshot &&
-      withFileViews(rawSnapshot, (file, fallback) => fileViewed(path, file, fallback)),
+      withFileViews(rawSnapshot, (file, fallback) => fileViewed(file, fallback)),
     [rawSnapshot, path, fileStateVersion],
   );
   const displayedSections = useMemo(
@@ -900,14 +995,12 @@ export default function App() {
       id = entry ? anchor(entry.section.id, file) : "";
     }
     if (!id) return null;
-    // Diffs above the target render before the jump, so they can't push it down afterward.
     const eager = new Set<string>();
     for (const { section, files } of displayedSections) {
       if (anchor(section.id) === id) return { id, eager };
       for (const preview of files) {
         const fileId = anchor(section.id, preview.file.path);
-        eager.add(fileId);
-        if (fileId === id) return { id, eager };
+        if (fileId === id) { eager.add(fileId); return { id, eager }; }
       }
     }
     return null;
@@ -1103,7 +1196,6 @@ export default function App() {
       setBusy(true);
     }
     setTab("changes");
-    setFilter("");
     setError("");
     window.scrollTo(0, 0);
     history.replaceState(null, "", location.pathname + location.search);
@@ -1149,7 +1241,7 @@ export default function App() {
         fingerprint: section.fingerprint,
         reviewed: !section.reviewed,
       });
-      setFilesViewed(path, section.files.map(markedFile), !section.reviewed);
+      setFilesCollapsed(path, section.files.map(markedFile), !section.reviewed);
       if (activeReview.current === selection) setSnapshot(result);
     } catch (cause) {
       setError((cause as Error).message);
@@ -1469,64 +1561,15 @@ export default function App() {
         {(busy || repoBusy) && !snapshot && !error && <Loading>Reading local changes…</Loading>}
         {tab === "changes" && snapshot && (
           <div className="changes-layout">
-            <aside className="files-sidebar">
-              <div className="outline-head">
-                <label className="search-field">
-                  <Search size={14} />
-                  <input
-                    aria-label="Filter review outline"
-                    placeholder="Find a file…"
-                    value={filter}
-                    onChange={(event) => setFilter(event.target.value)}
-                  />
-                </label>
-                {review && (
-                  <small>
-                    {reviewedCount}/{snapshot.sections.length} reviewed
-                  </small>
-                )}
-              </div>
-              <nav aria-label="Changed files">
-                {displayedSections.map(({ section, files }) => (
-                  <OutlineGroup
-                    key={`${collectionId}/${reviewId}|${scope}|${section.id}`}
-                    title={section.title}
-                    reviewed={section.reviewed}
-                    revision={section.fingerprint}
-                    hiddenUnreadCount={
-                      hideTestFiles
-                        ? section.files.filter(
-                            (preview) =>
-                              isTestFile(preview.file.path) &&
-                              !fileViewed(path, markedFile(preview), defaultViewed(section.id)),
-                          ).length
-                        : 0
-                    }
-                    filtering={!!filter}
-                    onJump={() => jump(section.id)}
-                  >
-                    {files
-                      .filter(({ file }) =>
-                        [file.path, file.oldPath].some((path) =>
-                          path?.toLowerCase().includes(filter.toLowerCase()),
-                        ),
-                      )
-                      .map((preview) => (
-                        <FileOutlineItem
-                          key={preview.file.path}
-                          preview={preview}
-                          worktree={path}
-                          reviewed={defaultViewed(section.id)}
-                          onClick={() => jump(section.id, preview.file.path)}
-                        />
-                      ))}
-                    {!files.length && section.files.length > 0 && (
-                      <small className="index-hidden">Test files hidden</small>
-                    )}
-                  </OutlineGroup>
-                ))}
-              </nav>
-            </aside>
+            <ReviewOutline key={`${collectionId}/${reviewId}|${scope}`} sections={displayedSections}
+              worktree={path} hideTestFiles={hideTestFiles} reviewedCount={reviewedCount}
+              totalGroups={review ? snapshot.sections.length : undefined} defaultViewed={defaultViewed}
+              onJump={jump} onMatch={(section, preview, match) => {
+                setSinceViewedGroup("");
+                setFilesCollapsed(path, [markedFile(preview)], false);
+                setSearchTarget({ section, path: preview.file.path, match, version: Date.now() });
+                jump(section, preview.file.path);
+              }} />
             <div className={`review-feed${wrap ? " wrap-lines" : ""}`}>
               {!comparison?.files.length && (
                 <div className="empty-state">
@@ -1597,6 +1640,19 @@ export default function App() {
                       defaultViewed={defaultViewed(section.id)}
                       source={{ path, base, mode, version: snapshot!.comparison.version,
                         ...(review ? { collection: collectionId, review: reviewId } : {}) }}
+                      onViewedSaved={(viewed) => {
+                        const savedPath = snapshot!.comparison.path ?? path;
+                        const savedHash = preview.viewHash;
+                        setSnapshot((current) => !current || (current.comparison.path ?? path) !== savedPath ? current : {
+                          ...current,
+                          sections: current.sections.map((group) => ({
+                            ...group,
+                            files: group.files.map((file) => file.file.path === preview.file.path && file.viewHash === savedHash ? { ...file, viewed } : file),
+                          })),
+                        });
+                      }}
+                      onSearchReady={onSearchReady}
+                      searchMatch={searchTarget?.section === section.id && searchTarget.path === preview.file.path ? searchTarget : undefined}
                       sinceViewed={sinceViewedGroup === section.id}
                     />
                   ))}

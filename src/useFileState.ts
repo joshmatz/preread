@@ -40,7 +40,7 @@ const write = (key: string, value: boolean) => {
 };
 // Earlier keys put the review's base and mode between the worktree and the file.
 const legacyKey =
-  /^(file-(?:viewed|collapsed):[/~][^|]*)\|[^|]*\|(?:branch|all|working|staged)\|(.+\|(?:[0-9a-f]{64})?)$/s;
+  /^(file-collapsed:[/~][^|]*)\|[^|]*\|(?:branch|all|working|staged)\|(.+\|(?:[0-9a-f]{64})?)$/s;
 export const currentKey = (key: string) => {
   const match = legacyKey.exec(key);
   return match ? `${match[1]}|${match[2]}` : undefined;
@@ -62,7 +62,7 @@ try {
   migrateMarks(window.localStorage);
 } catch {}
 
-type Kind = "viewed" | "collapsed";
+type Kind = "collapsed";
 // Leaves out the review's base and mode, so a mark survives the review moving to a new base.
 const key = (kind: Kind, worktree: string, file: MarkedFile, hash = file.viewHash) =>
   `file-${kind}:${worktree}|${file.path}|${hash}`;
@@ -76,26 +76,24 @@ const mark = (kind: Kind, worktree: string, file: MarkedFile, fallback: boolean)
   write(key(kind, worktree, file), saved);
   return saved;
 };
-export const fileViewed = (worktree: string, file: MarkedFile, fallback = false) =>
-  mark("viewed", worktree, file, fallback);
+export const fileViewed = (file: MarkedFile, fallback = false) =>
+  file.viewed ?? fallback;
 export const useFileStateVersion = () => useSyncExternalStore(subscribe, () => version);
-export function setFilesViewed(worktree: string, files: MarkedFile[], value: boolean) {
+export function setFilesCollapsed(worktree: string, files: MarkedFile[], value: boolean) {
   for (const file of files) {
-    write(key("viewed", worktree, file), value);
     write(key("collapsed", worktree, file), value);
   }
   emit();
 }
-export function useFileState(worktree: string, file: MarkedFile, fallback = false) {
+export function useFileState(worktree: string, file: MarkedFile, fallback = false, initiallyCollapsed = false) {
   const snapshot = useSyncExternalStore(subscribe, () => {
-    const viewed = mark("viewed", worktree, file, fallback);
-    const collapsed = mark("collapsed", worktree, file, viewed);
+    const viewed = fileViewed(file, fallback);
+    const collapsed = mark("collapsed", worktree, file, viewed || initiallyCollapsed);
     return Number(viewed) + Number(collapsed) * 2;
   });
   return {
     viewed: Boolean(snapshot & 1),
     collapsed: Boolean(snapshot & 2),
-    setViewed: (value: boolean) => setFilesViewed(worktree, [file], value),
     setCollapsed: (value: boolean) => {
       write(key("collapsed", worktree, file), value);
       emit();

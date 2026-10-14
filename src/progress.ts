@@ -11,6 +11,7 @@ export const markedFile = (preview: FilePreview): MarkedFile => ({
   path: preview.file.path,
   viewHash: preview.viewHash ?? preview.diff.hash,
   patchHash: preview.diff.hash,
+  ...(preview.viewed !== undefined ? { viewed: preview.viewed } : {}),
 });
 export function progressSource(snapshot: ReviewSnapshot): ProgressSource {
   return {
@@ -32,7 +33,7 @@ export function sectionViewed(section: ProgressSource["sections"][number], viewe
     section.files.length > 0 &&
     (viewed
       ? section.files.every((file) => viewed(file, section.reviewed))
-      : section.reviewed)
+      : section.files.every((file) => file.viewed ?? section.reviewed))
   );
 }
 

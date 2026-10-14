@@ -128,7 +128,7 @@ curl -s "http://127.0.0.1:4780/api/review?collection=<collection-id>&review=<rev
 
 Fix every warning (a target that left the comparison, a range that matches no change, an overlap with an earlier group) and import again. Ranges drift when lines move, so check again after new commits.
 
-A group with `canReview: false` and no warnings holds a diff over the server size limit or a file that failed to load, so it cannot be marked reviewed. Binary files such as fonts can be marked Viewed after local inspection. Text diffs with at least 500 displayed lines or 100 KB of patch text require an explicit Load diff click; this does not block Viewed marks.
+A group with `canReview: false` and no warnings holds a diff over the server size limit or a file that failed to load, so it cannot be marked reviewed. Binary files such as fonts can be marked Viewed after local inspection. Text diffs with at least 500 displayed lines or 100 KB of patch text start collapsed; expand their file heading to read the continuous diff. This does not block Viewed marks.
 
 ## Keep the page current
 
@@ -150,7 +150,13 @@ Give the person the link to the first review they should read:
 http://127.0.0.1:4780/?collection=<collection-id>&review=<review-id>
 ```
 
-If your client has an in-app browser, such as the Codex or Claude desktop app's, also open the link there so the review sits beside the conversation. Opening it is the whole step: the API check above already covered what it shows, so don't screenshot or read the page. Don't launch a standalone browser unless the person asks.
+Before opening the link, check the in-app browser's existing tabs for Preread at the configured host and port; treat `localhost` and `127.0.0.1` as the same local server.
+
+- If any Preread tab is already open, give the link without opening, focusing, or navigating a tab. Import and `pnpm refresh` update open reviews in place; preserve the person's current review, group, scroll position, and active tab.
+- If the person explicitly asks to show a particular review, reuse an existing Preread tab and navigate it to that review instead of creating another tab.
+- Open a new in-app browser tab only when no Preread tab is open. If you cannot inspect the existing tabs, give the link without opening one.
+
+The API check above already covered what the review shows, so don't screenshot or read the page just to hand it over. Don't launch a standalone browser unless the person asks.
 
 - Never mark anything reviewed for them. Don't call `/api/reviewed`, and don't write files in Preread's data directory; use the CLI for collections.
 - Reviewed is a reading checkpoint, not permission to commit, push, or open a pull request. Ask for those separately.

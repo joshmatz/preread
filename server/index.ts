@@ -116,7 +116,9 @@ app.post("/api/reviewed", async (req, res) => {
     typeof reviewed !== "boolean"
   )
     throw new Error("Invalid review status request.");
-  res.json(await markGroup(collection, review, group, fingerprint, reviewed));
+  const result = await markGroup(collection, review, group, fingerprint, reviewed);
+  bump(false);
+  res.json(result);
 });
 const viewedScope = async (values: Record<string, unknown>) => {
   const collection = query(values.collection);
@@ -127,7 +129,11 @@ app.post("/api/viewed-file", async (req, res) => {
   const values = req.body ?? {};
   if (![values.group, values.file, values.hash, values.viewHash].every((value) => typeof value === "string"))
     throw new Error("Invalid viewed-file request.");
-  res.json(await viewedFile(await viewedScope(values), values.group, values.file, values.hash, values.viewHash, true, query(values.collection)));
+  const viewed = values.viewed ?? true;
+  if (typeof viewed !== "boolean") throw new Error("Invalid viewed-file request.");
+  const result = await viewedFile(await viewedScope(values), values.group, values.file, values.hash, values.viewHash, true, query(values.collection), viewed);
+  bump(false);
+  res.json(result);
 });
 app.get("/api/since-viewed", async (req, res) => {
   const values = req.query;

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { Collection, ProgressDetails, ReviewProgress, ReviewSnapshot } from "./review-types";
-import { fileViewed, useFileStateVersion } from "./useFileState";
 import { progressFromSource, progressSource, reviewProgress } from "./progress";
 
 export function useCollectionProgress(
@@ -9,7 +8,6 @@ export function useCollectionProgress(
   selectedId: string,
   snapshot: ReviewSnapshot | null,
 ) {
-  useFileStateVersion();
   const [results, setResults] = useState<{
     collection: string;
     items: Record<string, ProgressDetails>;
@@ -75,9 +73,7 @@ export function useCollectionProgress(
       const entry = results.items[review.id];
       if (entry) {
         items[review.id] = entry.source
-          ? progressFromSource(entry.source, (file, fallback) =>
-              fileViewed(review.path, file, fallback),
-            )
+          ? progressFromSource(entry.source)
           : entry;
       }
     }

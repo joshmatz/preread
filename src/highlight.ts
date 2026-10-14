@@ -18,7 +18,10 @@ function splitLines(html: string) {
 }
 
 const highlight = (lines: string[], language: string) =>
-  splitLines(hljs.highlight(lines.join("\n"), { language, ignoreIllegals: true }).value);
+  splitLines(hljs.highlight(lines.join("\n"), {
+    language: lines.some((line) => line.length > 10000) ? "plaintext" : language,
+    ignoreIllegals: true,
+  }).value);
 
 // A hunk can start inside a /** */ block, where its prose would otherwise parse as code.
 function opensInComment(lines: string[], language: string) {
