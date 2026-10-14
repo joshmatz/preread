@@ -68,7 +68,6 @@ async function readGitHub(url: string) {
   );
   return JSON.parse(stdout) as GitHubStatus;
 }
-// Cache and coalesce remote reads independently of local diff/progress requests.
 export function createPullRequestReader(read = readGitHub, now = Date.now) {
   const cache = new Map<string, { result: PullRequestResult; expires: number }>();
   const pending = new Map<string, Promise<PullRequestResult>>();

@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Copy,
   FileCode2,
+  FileImage,
   FolderGit2,
   GitBranch,
   GitCommitHorizontal,
@@ -25,19 +26,14 @@ import {
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import type { Diff, Mode, Repository, StackNode } from "./types";
-import type {
-  Collection,
-  FilePreview,
-  Review,
-  ReviewSection,
-  ReviewSnapshot,
-} from "./review-types";
-import { whitespaceDiff } from "./whitespace-diff";
+import type { Collection, FilePreview, ReviewSection, ReviewSnapshot } from "./review-types";
+import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesViewed } from "./useFileState";
 import { Picker } from "./Picker";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
+import { ImageDiff } from "./ImageDiff";
 import { usePullRequests } from "./usePullRequests";
 import {
   createContextModel,
@@ -196,7 +192,8 @@ function DiffView({
   useEffect(() => {
     const element = target.current;
     if (!element || !visible || !patch || preview.error) return;
-    const view = new Diff2HtmlUI(element, ignoreWhitespace ? whitespaceDiff(patch) : patch, {
+    const shown = showCarriageReturns(patch);
+    const view = new Diff2HtmlUI(element, ignoreWhitespace ? whitespaceDiff(shown) : shown, {
       drawFileList: false,
       outputFormat: split ? "side-by-side" : "line-by-line",
       matching: "lines",
@@ -400,7 +397,9 @@ function FileCard({
   const noteKey = `${scope}|${preview.file.path}`;
   const [notesOpen, setNotesOpen] = useState(false);
   const [note, setNote] = useState(load<Record<string, string>>("notes", {})[noteKey] ?? "");
-  const valid = !preview.error && !preview.diff.tooLarge && !preview.diff.binary;
+  const valid =
+    !preview.error && !preview.diff.tooLarge && (!preview.diff.binary || !!preview.diff.image);
+  const FileIcon = preview.diff.image ? FileImage : FileCode2;
   return (
     <article
       className={`file-card ${reviewed ? "reviewed-file" : ""} ${collapsed ? "collapsed-file" : ""}`}
@@ -415,7 +414,7 @@ function FileCard({
           onClick={() => setCollapsed(!collapsed)}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-          <FileCode2 className="file-type-icon" size={16} />
+          <FileIcon className="file-type-icon" size={16} />
           <span className="file-title">
             <strong>{preview.file.path}</strong>
             {preview.file.oldPath && <small>Renamed from {preview.file.oldPath}</small>}
@@ -461,14 +460,18 @@ function FileCard({
         </div>
       )}
       <div id={bodyId} hidden={collapsed}>
-        <DiffView
-          key={`${preview.diff.hash}:${source.version}`}
-          preview={preview}
-          split={split}
-          wrap={wrap}
-          ignoreWhitespace={ignoreWhitespace}
-          source={source}
-        />
+        {preview.diff.image ? (
+          <ImageDiff key={preview.diff.hash} preview={preview} split={split} source={source} />
+        ) : (
+          <DiffView
+            key={`${preview.diff.hash}:${source.version}`}
+            preview={preview}
+            split={split}
+            wrap={wrap}
+            ignoreWhitespace={ignoreWhitespace}
+            source={source}
+          />
+        )}
       </div>
     </article>
   );
@@ -492,7 +495,13 @@ function FileOutlineItem({
       aria-label={`${preview.file.path}${done ? ", viewed" : ""}`}
       onClick={onClick}
     >
-      {done ? <Check size={14} /> : <FileCode2 size={14} />}
+      {done ? (
+        <Check size={14} />
+      ) : preview.diff.image ? (
+        <FileImage size={14} />
+      ) : (
+        <FileCode2 size={14} />
+      )}
       <span>
         <strong>{filename(preview.file.path)}</strong>
         <small>
@@ -550,6 +559,10 @@ export default function App() {
   const jumped = useRef(false);
   const activeReview = useRef("");
   activeReview.current = `${collectionId}/${reviewId}`;
+  const loadedPath = useRef("");
+  const activeView = useRef("");
+  const loadedView = useRef("");
+  const serverInstance = useRef("");
   const collection = collections.find((entry) => entry.id === collectionId);
   const review = collection?.reviews.find((entry) => entry.id === reviewId);
   const { entries: pullRequests, refreshPullRequest } = usePullRequests(collection, refresh);
@@ -560,6 +573,7 @@ export default function App() {
       ? JSON.stringify({ path, base, mode })
       : "";
   const scope = `${path}|${base}|${mode}`;
+  activeView.current = `${activeReview.current}|${scope}`;
   const fileStateVersion = useFileStateVersion();
   const snapshot = useMemo(
     () =>
@@ -592,6 +606,19 @@ export default function App() {
   );
 
   useEffect(() => {
+    const events = new EventSource("/api/events");
+    events.addEventListener("hello", (event) => {
+      const { instance } = JSON.parse((event as MessageEvent).data);
+      if (serverInstance.current && serverInstance.current !== instance) location.reload();
+      serverInstance.current = instance;
+    });
+    events.addEventListener("refresh", (event) => {
+      if (JSON.parse((event as MessageEvent).data).page) location.reload();
+      else setRefresh((value) => value + 1);
+    });
+    return () => events.close();
+  }, []);
+  useEffect(() => {
     request<Collection[]>("collections")
       .then((result) => {
         setCollections(result);
@@ -612,13 +639,14 @@ export default function App() {
     setBase(review.base);
     setBaseDraft(review.base);
     setMode(review.mode);
+    setSnapshot(null);
   }, [review?.id, review?.path, review?.base, review?.mode, collectionId]);
   useEffect(() => {
-    if (path || collectionId) return;
+    if (params.get("path") || collectionId) return;
     request<{ defaultPath: string }>("bootstrap")
       .then(({ defaultPath }) => {
-        if (defaultPath) setPath(defaultPath);
-        else setOpen(true);
+        if (defaultPath && defaultPath !== path) openPath(defaultPath);
+        else if (!path) setOpen(true);
       })
       .catch((cause) => setError(cause.message));
   }, []);
@@ -633,15 +661,16 @@ export default function App() {
   useEffect(() => {
     if (!repositoryPath || (collectionId && !review)) return;
     const abort = new AbortController();
-    setRepo(null);
+    if (loadedPath.current !== repositoryPath) setRepo(null);
     setRepoBusy(true);
     request<Repository>("repository", { path: repositoryPath }, abort.signal)
       .then((result) => {
         if (abort.signal.aborted) return;
+        loadedPath.current = repositoryPath;
         setRepo(result);
         setRepoBusy(false);
         if (!base && !review) {
-          const chosen = load<string>(`base:${result.path}`, result.defaultBase);
+          const chosen = load<string>(`base:${result.path}`, "") || result.defaultBase;
           setBase(chosen);
           setBaseDraft(chosen);
         }
@@ -669,12 +698,17 @@ export default function App() {
     const abort = new AbortController();
     setBusy(true);
     setError("");
-    setSnapshot(null);
-    setStack(null);
+    // A refresh of the same comparison keeps the reader's place until the new snapshot arrives.
+    if (loadedView.current !== activeView.current) {
+      setSnapshot(null);
+      setStack(null);
+    }
     const { definition: _definition, ...values } = JSON.parse(reviewRequest);
     request<ReviewSnapshot>("review", values, abort.signal)
       .then((result) => {
         if (abort.signal.aborted) return;
+        // The saved review may have moved path, base, or mode while this request ran.
+        loadedView.current = activeView.current;
         setSnapshot(result);
         setBusy(false);
       })
@@ -1045,13 +1079,15 @@ export default function App() {
                 className="comparison-bar"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  if (baseDraft.trim() === base) setRefresh((value) => value + 1);
+                  const next = baseDraft.trim() || base;
+                  setBaseDraft(next);
+                  if (next === base) setRefresh((value) => value + 1);
                   else {
                     setCollectionId("");
                     setReviewId("");
-                    setBase(baseDraft.trim());
+                    setBase(next);
                   }
-                  save(`base:${path}`, baseDraft.trim());
+                  save(`base:${path}`, next);
                 }}
               >
                 <label className="base-control">

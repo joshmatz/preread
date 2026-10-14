@@ -9,9 +9,11 @@ import {
   validateCollection,
   putCollection,
   readCollection,
+  listCollections,
   setReceipt,
   readReceipts,
 } from "../server/collections.ts";
+import { reviewContent } from "../server/patches.ts";
 import type { Collection, FilePreview, ChangeGroup } from "../src/review-types.ts";
 
 const patch =
@@ -102,6 +104,12 @@ test("review receipts survive changes in an unrelated block of the same file", (
     false,
   );
 });
+test("receipts cover text after a carriage return or line separator", () => {
+  for (const separator of ["\r", "\u2028", "\u2029"]) {
+    const edited = (value: string) => `${patch}+safe${separator}index ${value}\n`;
+    assert.notEqual(reviewContent(edited("1")), reviewContent(edited("2")));
+  }
+});
 test("overlapping and missing assignments stay visible and cannot be silently marked reviewed", () => {
   const result = groupPreviews(
     [preview],
@@ -139,6 +147,29 @@ test("metadata-only changes remain in the review and unavailable previews block 
     false,
   );
 });
+test("image previews can complete a group and their receipts follow the image content", () => {
+  const binary = (index: string, image?: FilePreview["diff"]["image"]): FilePreview => ({
+    file: { path: "logo.png", status: "M", additions: 0, deletions: 0, binary: true },
+    partial: false,
+    diff: {
+      patch: `diff --git a/logo.png b/logo.png\nindex ${index} 100644\nBinary files a/logo.png and b/logo.png differ\n`,
+      hash: index,
+      binary: true,
+      tooLarge: false,
+      empty: false,
+      image,
+    },
+  });
+  const whole = [{ ...group, targets: [{ path: "logo.png" }] }];
+  const image = { old: { size: 10 }, new: { size: 12 } };
+  const first = groupPreviews([binary("1111111..2222222", image)], whole, {}, scope)[0];
+  assert.equal(first.canReview, true);
+  assert.equal(groupPreviews([binary("1111111..2222222")], whole, {}, scope)[0].canReview, false);
+  assert.notEqual(
+    groupPreviews([binary("1111111..3333333", image)], whole, {}, scope)[0].fingerprint,
+    first.fingerprint,
+  );
+});
 test("collection validation rejects traversal, malformed ranges, duplicate IDs and reserved groups", () => {
   assert.throws(() => validateCollection({ ...collection, id: "../outside" }));
   assert.throws(
@@ -150,7 +181,10 @@ test("collection validation rejects traversal, malformed ranges, duplicate IDs a
     /Duplicate/,
   );
   for (const targets of [
+    [],
     [{ path: "../secret" }],
+    [{ path: "./example.ts" }],
+    [{ path: "example.ts", range: [{ side: "new", start: 1, end: 1 }] }],
     [{ path: "example.ts", ranges: [] }],
     [{ path: "example.ts", ranges: [{ side: "new", start: 8, end: 2 }] }],
   ]) {
@@ -169,6 +203,22 @@ test("collection validation rejects traversal, malformed ranges, duplicate IDs a
       }),
     /reserved/,
   );
+  assert.throws(
+    () => validateCollection({ ...collection, reviews: [{ ...collection.reviews[0], group: [] }] }),
+    /Unknown field “group” in reviews\[0\]/,
+  );
+  assert.throws(
+    () => validateCollection({ ...collection, reviews: [{ ...collection.reviews[0], base: " " }] }),
+    /needs a base/,
+  );
+});
+test("an unreadable collection file does not hide the other collections", async () => {
+  await putCollection(collection);
+  const broken = join(directory, "metadata", "collections", "broken.json");
+  await writeFile(broken, "{");
+  const ids = (await listCollections()).map((entry) => entry.id);
+  await rm(broken);
+  assert.equal(ids.includes("fixture"), true);
 });
 test("importing descriptions preserves user review receipts and concurrent writes preserve both groups", async () => {
   await putCollection(collection);

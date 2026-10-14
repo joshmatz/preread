@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { comparison, fileDiff, fileContext } from "../server/git.ts";
-import { parsePatch, patchFor } from "../server/patches.ts";
+import { parsePatch } from "../server/patches.ts";
 import { groupPreviews } from "../server/review.ts";
 import {
   createContextModel,

@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { comparison, comparisonSource, comparisonRefs, fileDiff, trackedPatches } from "./git.ts";
+import {
+  comparison,
+  comparisonSource,
+  comparisonRefs,
+  fileDiff,
+  imagePreview,
+  trackedPatches,
+  MAX_PATCH,
+} from "./git.ts";
 import { readCollection, readReceipts, receiptKey, setReceipt } from "./collections.ts";
 import { matchesRanges, parsePatch, patchFor, reviewContent } from "./patches.ts";
 import type {
@@ -36,7 +44,8 @@ export function groupPreviews(
         preview.file.path,
         preview.file.oldPath,
         preview.file.status,
-        reviewContent(preview.diff.patch),
+        // reviewContent drops index lines, which are all that identify a binary file's content.
+        preview.diff.binary ? preview.diff.patch : reviewContent(preview.diff.patch),
         preview.diff.binary,
         preview.diff.tooLarge,
         preview.error,
@@ -56,7 +65,10 @@ export function groupPreviews(
         previews.length > 0 &&
         !warnings.length &&
         previews.every(
-          (preview) => !preview.error && !preview.diff.tooLarge && !preview.diff.binary,
+          (preview) =>
+            !preview.error &&
+            !preview.diff.tooLarge &&
+            (!preview.diff.binary || !!preview.diff.image),
         ),
       warnings,
     };
@@ -172,8 +184,7 @@ async function readReviewData(
   const path = source.path;
   const info = await comparison(path, review.base, review.mode, source);
   const files: FilePreview[] = [];
-  // A single Git read replaces a separate process (and root lookup) for every file.
-  // Very large patches fall back to the existing bounded per-file reader.
+  // When the combined read fails, each file falls back to the bounded per-file reader.
   const patches =
     info.files.length <= 500
       ? await trackedPatches(path, info, review.mode).catch(() => null)
@@ -192,7 +203,7 @@ async function readReviewData(
         try {
           const patch = patches?.get(file.path);
           if (!file.untracked && patch !== undefined) {
-            const tooLarge = Buffer.byteLength(patch) > 2 * 1024 * 1024;
+            const tooLarge = Buffer.byteLength(patch) > MAX_PATCH;
             return {
               file,
               partial: false,
@@ -220,6 +231,13 @@ async function readReviewData(
         }
       }),
     );
+    await Promise.all(
+      batch.map(async (preview) => {
+        if (!preview.diff.binary || preview.error) return;
+        const image = await imagePreview(path, info, review.mode, preview.file);
+        if (image) preview.diff.image = image;
+      }),
+    );
     files.push(...batch);
     bytes += batch.reduce((total, preview) => total + Buffer.byteLength(preview.diff.patch), 0);
   }
@@ -239,7 +257,7 @@ export async function snapshot(review: Review, collectionId?: string): Promise<R
     readReviewData(review, await comparisonSource(review.path, review.base, review.mode, refs));
   let data: ReviewData;
   if (review.mode === "branch") {
-    // Validate refs on every request. Only immutable Git content is shared, never review receipts.
+    // Only immutable Git content is shared, never review receipts.
     const key = JSON.stringify([refs.path, review.base, refs.head, refs.baseSha]);
     let entry = branchCache.get(key);
     if (entry) {

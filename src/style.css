@@ -80,7 +80,6 @@ body {
 }
 button,
 input,
-select,
 textarea {
   font: inherit;
   color: inherit;
@@ -103,7 +102,6 @@ button:disabled {
   cursor: default;
 }
 input,
-select,
 textarea {
   border: 1px solid var(--border);
   background: var(--canvas);
@@ -123,8 +121,7 @@ textarea {
   outline-offset: 3px;
 }
 button,
-input,
-select {
+input {
   transition:
     background-color 120ms,
     border-color 120ms;
@@ -223,12 +220,6 @@ small,
   gap: 5px;
   color: var(--secondary);
 }
-.theme-picker select {
-  background: transparent;
-  border: 0;
-  padding: 5px 20px 5px 3px;
-  font-size: 12px;
-}
 .collection-bar {
   min-height: 45px;
   display: flex;
@@ -238,16 +229,6 @@ small,
   border-bottom: 1px solid var(--border);
   background: var(--subtle);
   color: var(--secondary);
-}
-.collection-bar select {
-  border: 0;
-  background: transparent;
-  padding: 5px 22px 5px 3px;
-  max-width: 360px;
-  color: var(--text);
-}
-.collection-bar select:first-of-type {
-  font-weight: 600;
 }
 .collection-bar .quiet {
   margin-left: auto;
@@ -334,9 +315,6 @@ h1 {
   gap: 9px;
   align-items: center;
   margin: 18px 0 12px;
-}
-.comparison-bar select {
-  font-size: 12px;
 }
 .base-control {
   display: flex;
@@ -757,6 +735,63 @@ h2 {
   color: var(--secondary);
   font-size: 12px;
 }
+.image-diff {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+.image-diff.split {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.image-version {
+  margin: 0;
+  min-width: 0;
+}
+.image-version figcaption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.image-version figcaption strong {
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--green);
+  background: var(--add-bg);
+}
+.image-version.old figcaption strong {
+  color: var(--red);
+  background: var(--del-bg);
+}
+.image-frame {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--subtle);
+  cursor: zoom-in;
+}
+.image-frame img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: repeating-conic-gradient(var(--hover) 0 25%, var(--canvas) 0 50%) 0 0 / 16px 16px;
+}
+.image-error {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  line-height: 1.6;
+  color: var(--secondary);
+  font-size: 12px;
+}
 .feed-end {
   text-align: center;
   color: var(--secondary);
@@ -998,7 +1033,6 @@ fieldset {
   --d2h-dark-change-ins-color: var(--add-bg);
   --d2h-dark-change-del-color: var(--del-bg);
 }
-/* Diff2html's code span is itself .hljs; a descendant selector leaves its background opaque. */
 .d2h-wrapper {
   margin: 0;
   text-align: left;
@@ -1031,6 +1065,7 @@ fieldset {
 .d2h-code-line-ctn {
   vertical-align: middle;
 }
+/* Diff2html's code span is itself .hljs; a descendant selector leaves its background opaque. */
 .d2h-code-line-ctn.hljs,
 .d2h-code-line-ctn .hljs {
   background: transparent !important;
@@ -1179,9 +1214,6 @@ fieldset {
   .group-actions {
     max-width: none;
   }
-  .collection-bar select {
-    max-width: 300px;
-  }
   .changes-layout {
     grid-template-columns: 210px minmax(0, 1fr);
   }
@@ -1211,9 +1243,6 @@ fieldset {
   .theme-picker {
     gap: 0;
   }
-  .theme-picker select {
-    padding-right: 8px;
-  }
   .collection-bar {
     padding: 6px 12px;
     flex-wrap: wrap;
@@ -1223,11 +1252,6 @@ fieldset {
   .collection-bar .slash,
   .collection-bar .quiet {
     display: none;
-  }
-  .collection-bar select {
-    max-width: 100%;
-    width: 100%;
-    font-size: 11px;
   }
   .review-header {
     padding: 16px 15px 0;
@@ -1261,9 +1285,6 @@ fieldset {
   .base-control input {
     flex: 1;
     width: auto;
-  }
-  .comparison-bar select {
-    flex: 1;
   }
   .review-tabs {
     gap: 15px;
@@ -1320,6 +1341,12 @@ fieldset {
   }
   .file-card {
     border-radius: 6px;
+  }
+  .image-diff {
+    padding: 12px;
+  }
+  .image-diff.split {
+    grid-template-columns: minmax(0, 1fr);
   }
   .section-content {
     padding: 20px 15px;

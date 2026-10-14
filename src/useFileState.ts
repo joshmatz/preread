@@ -59,7 +59,6 @@ export function useFileState(scope: string, path: string, hash: string, fallback
   const collapseKey = `file-collapsed:${identity}`;
   const snapshot = useSyncExternalStore(subscribe, () => {
     const viewed = read(viewKey, fallback);
-    // Existing Viewed marks collapse by default until explicitly expanded.
     const collapsed = read(collapseKey, viewed);
     return Number(viewed) + Number(collapsed) * 2;
   });

@@ -4,6 +4,10 @@ import { LineType, type DiffLine } from "diff2html/lib/types";
 
 const withoutSpaces = (value: string) => value.replace(/[\t\r\f\v ]/g, "");
 
+// diff2html breaks lines at a bare CR, which Git keeps inside the line, so the rest of that
+// line could vanish, pass as unchanged context, or start a fake file.
+export const showCarriageReturns = (patch: string) => patch.replace(/\r(?!\n)/g, "\u240d");
+
 // Only the renderer receives these lines. Group membership, hashes and review
 // receipts continue to use the original patch, including its whitespace.
 export function whitespaceDiff(patch: string) {

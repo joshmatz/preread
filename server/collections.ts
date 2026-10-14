@@ -18,6 +18,13 @@ const object = (value: unknown): Record<string, unknown> => {
     throw new Error("Expected an object.");
   return value as Record<string, unknown>;
 };
+// A misspelled optional field would otherwise import as a review with no groups or ranges.
+const fields = (value: unknown, allowed: string[], location: string) => {
+  const result = object(value);
+  const unknown = Object.keys(result).find((key) => !allowed.includes(key));
+  if (unknown) throw new Error(`Unknown field “${unknown}” in ${location}.`);
+  return result;
+};
 const text = (value: unknown, label: string, max = 10000): string => {
   if (typeof value !== "string" || value.length > max || value.includes("\0"))
     throw new Error(`Invalid ${label}.`);
@@ -37,27 +44,37 @@ const unique = (items: { id: string }[], label: string) => {
     throw new Error(`Duplicate ${label} IDs.`);
 };
 export function validateCollection(input: unknown): Collection {
-  const value = object(input);
-  const reviews = list(value.reviews, "reviews", 100).map((inputReview) => {
-    const review = object(inputReview);
+  const value = fields(input, ["id", "title", "description", "reviews"], "the collection");
+  const reviews = list(value.reviews, "reviews", 100).map((inputReview, reviewIndex) => {
+    const location = `reviews[${reviewIndex}]`;
+    const review = fields(
+      inputReview,
+      ["id", "title", "description", "path", "base", "mode", "groups", "pullRequest"],
+      location,
+    );
     const path = text(review.path, "worktree path");
     if (!isAbsolute(path)) throw new Error("Worktree paths must be absolute.");
     if (!["branch", "all", "working", "staged"].includes(String(review.mode)))
       throw new Error("Invalid review mode.");
-    const groups = list(review.groups ?? [], "groups", 100).map((inputGroup) => {
-      const group = object(inputGroup);
+    const base = text(review.base, "base", 300);
+    if (!base.trim() && (review.mode === "branch" || review.mode === "all"))
+      throw new Error(`${location} needs a base branch or commit.`);
+    const groups = list(review.groups ?? [], "groups", 100).map((inputGroup, groupIndex) => {
+      const groupLocation = `${location}.groups[${groupIndex}]`;
+      const group = fields(inputGroup, ["id", "title", "description", "targets"], groupLocation);
       const id = identifier(group.id);
       if (id === "other-changes") throw new Error("The group ID other-changes is reserved.");
-      const targets = list(group.targets, "group targets", 2000).map((inputTarget) => {
-        const target = object(inputTarget);
+      const targets = list(group.targets, "group targets", 2000).map((inputTarget, targetIndex) => {
+        const targetLocation = `${groupLocation}.targets[${targetIndex}]`;
+        const target = fields(inputTarget, ["path", "ranges"], targetLocation);
         const name = text(target.path, "file path");
-        if (!name || isAbsolute(name) || name.split("/").includes(".."))
-          throw new Error("Group files must be repository-relative paths.");
+        if (isAbsolute(name) || name.split("/").some((part) => ["", ".", ".."].includes(part)))
+          throw new Error("Group files must be repository-relative paths, such as src/app.ts.");
         const ranges =
           target.ranges === undefined
             ? undefined
             : list(target.ranges, "line ranges", 500).map((inputRange) => {
-                const range = object(inputRange);
+                const range = fields(inputRange, ["side", "start", "end"], targetLocation);
                 if (
                   !["old", "new"].includes(String(range.side)) ||
                   !Number.isSafeInteger(range.start) ||
@@ -77,6 +94,7 @@ export function validateCollection(input: unknown): Collection {
         if (ranges && !ranges.length) throw new Error("Omit ranges to include a whole file.");
         return { path: name, ...(ranges ? { ranges } : {}) };
       });
+      if (!targets.length) throw new Error(`${groupLocation} needs at least one target.`);
       return {
         id,
         title: title(group.title),
@@ -90,7 +108,7 @@ export function validateCollection(input: unknown): Collection {
       title: title(review.title),
       description: text(review.description ?? "", "review description"),
       path,
-      base: text(review.base, "base", 300),
+      base,
       mode: review.mode as Collection["reviews"][number]["mode"],
       groups,
       ...(review.pullRequest
@@ -117,12 +135,13 @@ export async function listCollections() {
       throw error;
     },
   );
-  return Promise.all(
-    names
-      .filter((name) => /^[a-z0-9][a-z0-9-]{0,79}\.json$/.test(name))
-      .sort()
-      .map((name) => readCollection(name.slice(0, -5))),
-  );
+  const files = names.filter((name) => /^[a-z0-9][a-z0-9-]{0,79}\.json$/.test(name)).sort();
+  const results = await Promise.allSettled(files.map((name) => readCollection(name.slice(0, -5))));
+  return results.flatMap((result, index) => {
+    if (result.status === "fulfilled") return [result.value];
+    console.warn(`Skipped collection ${files[index]}: ${(result.reason as Error).message}`);
+    return [];
+  });
 }
 async function atomicWrite(path: string, value: unknown) {
   const temp = `${path}.${randomUUID()}.tmp`;
