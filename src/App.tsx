@@ -56,6 +56,7 @@ import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-not
 import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, markedFile, progressLabel, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
+import { LineCounts } from "./LineCounts";
 import { ImageDiff } from "./ImageDiff";
 import { BrandMark } from "./BrandMark";
 import { usePullRequests } from "./usePullRequests";
@@ -1028,10 +1029,6 @@ export default function App() {
     setProgressRefresh((value) => value + 1);
   };
   const comparison = snapshot?.comparison;
-  const totals = comparison?.files.reduce(
-    (sum, file) => ({ plus: sum.plus + file.additions, minus: sum.minus + file.deletions }),
-    { plus: 0, minus: 0 },
-  );
 
   // Polling, not an event stream: a stream per tab would use up the browser's six connections
   // per host and hang the app.
@@ -1522,19 +1519,7 @@ export default function App() {
                     <span>{comparisonSummary(mode, base)}</span>
                     <ChevronDown size={13} />
                   </Popover>
-                  {totals && (
-                    <div
-                      className="totals"
-                      title={
-                        comparison?.files.some((file) => file.untracked)
-                          ? "Untracked files aren’t counted"
-                          : undefined
-                      }
-                    >
-                      <span className="additions">+{totals.plus}</span>
-                      <span className="deletions">−{totals.minus}</span>
-                    </div>
-                  )}
+                  {comparison && <LineCounts files={comparison.files} />}
                 </div>
               </div>
             )}

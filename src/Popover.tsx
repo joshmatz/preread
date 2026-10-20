@@ -7,6 +7,7 @@ export function Popover({
   width,
   className,
   title,
+  hover = false,
   panel,
   children,
 }: {
@@ -14,6 +15,7 @@ export function Popover({
   width: number;
   className: string;
   title?: string;
+  hover?: boolean;
   panel: (close: () => void) => ReactNode;
   children: ReactNode;
 }) {
@@ -61,6 +63,54 @@ export function Popover({
     };
   }, [width]);
   useEffect(() => {
+    if (!hover) return;
+    const panel = element.current!;
+    const button = trigger.current!;
+    const targets: HTMLElement[] = [button, panel];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let hovered = false;
+    const enter = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse") return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        // Showing this panel would close any other open popover.
+        if (document.querySelector(":popover-open")) return;
+        hovered = true;
+        panel.showPopover();
+      }, 300);
+    };
+    const leave = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse") return;
+      clearTimeout(timer);
+      if (hovered) timer = setTimeout(() => panel.hidePopover(), 200);
+    };
+    // A click on a panel that hover opened keeps it open instead of toggling it closed.
+    const pin = (event: MouseEvent) => {
+      clearTimeout(timer);
+      if (!hovered) return;
+      hovered = false;
+      event.preventDefault();
+    };
+    const closed = (event: Event) => {
+      if ((event as ToggleEvent).newState === "closed") hovered = false;
+    };
+    for (const target of targets) {
+      target.addEventListener("pointerenter", enter);
+      target.addEventListener("pointerleave", leave);
+    }
+    button.addEventListener("click", pin);
+    panel.addEventListener("toggle", closed);
+    return () => {
+      clearTimeout(timer);
+      for (const target of targets) {
+        target.removeEventListener("pointerenter", enter);
+        target.removeEventListener("pointerleave", leave);
+      }
+      button.removeEventListener("click", pin);
+      panel.removeEventListener("toggle", closed);
+    };
+  }, [hover]);
+  useEffect(() => {
     if (!open) return;
     addEventListener("resize", place);
     addEventListener("scroll", place, true);
@@ -75,7 +125,7 @@ export function Popover({
         ref={trigger}
         type="button"
         className={className}
-        title={title}
+        title={hover ? undefined : title}
         aria-label={title}
         aria-haspopup="dialog"
         aria-expanded={open}
