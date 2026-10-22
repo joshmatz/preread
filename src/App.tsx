@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   Archive,
   ArrowRight,
@@ -673,6 +674,7 @@ function FileCard({
   source,
   sinceViewed,
   onViewedSaved,
+  onViewedAdvance,
   searchMatch,
   onSearchReady,
 }: {
@@ -687,6 +689,7 @@ function FileCard({
   source: ViewedSource;
   sinceViewed: boolean;
   onViewedSaved: (viewed: boolean) => void;
+  onViewedAdvance: (current: HTMLElement) => void;
   searchMatch?: { match: SearchMatch; version: number };
   onSearchReady: (row: HTMLElement) => void;
 }) {
@@ -704,6 +707,7 @@ function FileCard({
   currentViewKey.current = viewKey;
   useEffect(() => { setViewSaveError(""); }, [viewKey]);
   const toggleViewed = async () => {
+    const advance = !viewed && !!card.current && card.current.getBoundingClientRect().top < 0;
     setViewSaving(true);
     setViewSaveError("");
     try {
@@ -711,8 +715,11 @@ function FileCard({
         file: preview.file.path, hash: preview.contextHash ?? preview.diff.hash,
         viewHash: preview.viewHash ?? preview.diff.hash, viewed: !viewed });
       if (currentViewKey.current === viewKey) {
-        setCollapsed(!viewed);
-        onViewedSaved(!viewed);
+        flushSync(() => {
+          setCollapsed(!viewed);
+          onViewedSaved(!viewed);
+        });
+        if (advance && card.current) onViewedAdvance(card.current);
       }
     } catch (cause) {
       if (currentViewKey.current === viewKey) setViewSaveError((cause as Error).message);
@@ -1230,6 +1237,13 @@ export default function App() {
       `${location.pathname}${location.search}#${anchor(section, file)}`,
     );
   };
+  const advanceViewed = (current: HTMLElement) => {
+    const files = Array.from(document.querySelectorAll<HTMLElement>(".review-feed .file-card"));
+    const target = files[files.indexOf(current) + 1] ?? current;
+    target.querySelector<HTMLButtonElement>(".file-collapse-button")?.focus({ preventScroll: true });
+    scrollTo(target.id);
+    history.replaceState(null, "", `${location.pathname}${location.search}#${target.id}`);
+  };
   const mark = async (section: ReviewSection) => {
     setMarking(section.id);
     setError("");
@@ -1640,6 +1654,7 @@ export default function App() {
                           })),
                         });
                       }}
+                      onViewedAdvance={advanceViewed}
                       onSearchReady={onSearchReady}
                       searchMatch={searchTarget?.section === section.id && searchTarget.path === preview.file.path ? searchTarget : undefined}
                       sinceViewed={sinceViewedGroup === section.id}
