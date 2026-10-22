@@ -21,6 +21,7 @@ import {
   resolveRef,
   parseStatuses,
   trackedPatches,
+  MAX_PATCH,
 } from "../server/git.ts";
 
 let directory: string;
@@ -111,6 +112,40 @@ test("untracked text and binary files produce appropriate previews", async () =>
   assert.equal(binary.binary, true);
   assert.match(binary.patch, /^index 0000000\.\.[a-f0-9]{64}$/m);
 });
+test("untracked files contribute line counts in working and combined comparisons", async () => {
+  for (const mode of ["working", "all"] as const) {
+    const result = await comparison(child, "main", mode);
+    const text = result.files.find((file) => file.path === "new notes.md");
+    assert.equal(text?.additions, 2);
+    assert.equal(text.deletions, 0);
+    const binary = result.files.find((file) => file.path === "new.bin");
+    assert.equal(binary?.binary, true);
+    assert.equal(binary.additions, 0);
+  }
+});
+test("untracked counts handle empty, unterminated, oversized, binary and symlink files", async () => {
+  const fixtures = [
+    { name: "empty.txt", content: "", additions: 0 },
+    { name: "unterminated.txt", content: "first\nlast", additions: 2 },
+    { name: "oversized.txt", content: "line\n".repeat(MAX_PATCH), additions: MAX_PATCH },
+    { name: "late-nul.bin", content: "line\n".repeat(20_000) + "\0", additions: 0 },
+  ];
+  const link = "line-count-link";
+  try {
+    for (const fixture of fixtures) await writeFile(join(child, fixture.name), fixture.content);
+    await symlink(join(child, "oversized.txt"), join(child, link));
+    const result = await comparison(child, "main", "working");
+    for (const fixture of fixtures) {
+      const file = result.files.find((file) => file.path === fixture.name);
+      assert.equal(file?.additions, fixture.additions, fixture.name);
+      assert.equal(file.binary, fixture.name.endsWith(".bin"), fixture.name);
+    }
+    assert.equal(result.files.find((file) => file.path === link)?.additions, 1);
+  } finally {
+    for (const name of [...fixtures.map((fixture) => fixture.name), link])
+      await rm(join(child, name), { force: true });
+  }
+});
 test("renames remain one file with both original and new paths", async () => {
   const result = await fileDiff(child, "main", "branch", "renamed.txt");
   assert.match(result.patch, /rename from rename me.txt/);
@@ -142,6 +177,8 @@ test("rejects arbitrary filesystem reads and option-like refs", async () => {
 test("does not follow an untracked symlink outside the repository", async () => {
   await writeFile(join(directory, "outside.txt"), "Outside content");
   await symlink(join(directory, "outside.txt"), join(child, "outside-link"));
+  const result = await comparison(child, "main", "working");
+  assert.equal(result.files.find((file) => file.path === "outside-link")?.additions, 1);
   const diff = await fileDiff(child, "main", "working", "outside-link");
   await rm(join(child, "outside-link"));
   assert.match(diff.patch, /new file mode 120000/);

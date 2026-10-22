@@ -11,6 +11,7 @@ import {
   copyFile,
   utimes,
   rm,
+  open,
 } from "node:fs/promises";
 import { basename, resolve, isAbsolute, relative, sep, join, extname } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -281,6 +282,26 @@ const addStats = (files: ChangedFile[], text: string) => {
       });
   }
 };
+const untrackedStats = async (path: string, name: string) => {
+  const absolute = resolve(path, name);
+  const info = await lstat(absolute);
+  if (info.isSymbolicLink()) return { additions: 1, binary: false };
+  if (!info.isFile()) throw new Error("This file is not a regular file. Review it locally.");
+  const contained = relative(path, await realpath(absolute));
+  if (contained.startsWith(`..${sep}`) || isAbsolute(contained))
+    throw new Error("This file resolves outside the repository. Review it locally.");
+  let additions = 0;
+  let lastByte: number | undefined;
+  // Count even files too large to preview without retaining their contents in memory.
+  const stream = (await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW)).createReadStream();
+  for await (const chunk of stream) {
+    if (chunk.includes(0)) return { additions: 0, binary: true };
+    for (const byte of chunk) if (byte === 10) additions += 1;
+    lastByte = chunk.at(-1);
+  }
+  if (lastByte !== undefined && lastByte !== 10) additions += 1;
+  return { additions, binary: false };
+};
 export const comparison = async (
   input: string,
   base: string,
@@ -314,12 +335,17 @@ export const comparison = async (
   const warnings: string[] = [];
   // Nested repositories and worktrees are listed as "dir/"; review them on their own.
   for (const name of untracked.split("\0").filter((name) => name && !name.endsWith("/"))) {
+    let stats = { additions: 0, binary: false };
+    try {
+      stats = await untrackedStats(path, name);
+    } catch (error) {
+      warnings.push(`Line counts unavailable for “${name}”: ${error instanceof Error ? error.message : String(error)}`);
+    }
     files.push({
       path: name,
       status: "?",
-      additions: 0,
+      ...stats,
       deletions: 0,
-      binary: false,
       untracked: true,
     });
   }

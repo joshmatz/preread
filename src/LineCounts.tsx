@@ -32,7 +32,7 @@ export function LineCounts({ files }: { files: ChangedFile[] }) {
           <p>
             The header counts Runtime: code outside tests and evals. Misc is docs, config, and data,
             like .md and .json.
-            {files.some((file) => file.untracked) && " Untracked files aren’t counted."}
+            {files.some((file) => file.untracked) && " New, untracked text files count as additions."}
           </p>
         </div>
       )}
