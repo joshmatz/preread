@@ -6,6 +6,7 @@ import {
   progressLabel,
   progressSource,
   progressFromSource,
+  unviewedGroups,
   withFileViews,
   type ViewedReader,
 } from "../src/progress.ts";
@@ -227,4 +228,18 @@ test("a hidden changed test keeps a large group open until its final viewed mark
   assert.equal(complete.sections[0].reviewed, true);
   assert.equal(complete.sections[0].changedSinceReview, false);
   assert.equal(reviewProgress(complete).status, "reviewed");
+});
+
+test("groups left to mark are the reviewable ones with any file not yet viewed", () => {
+  const source = progressSource(makeSnapshot({ "example/first": receipt("first") }));
+  assert.equal(source.sections[0].fingerprint, initial[0].fingerprint);
+  assert.deepEqual(unviewedGroups(source).map((section) => section.id), ["other-changes"]);
+  const reopened = {
+    ...source,
+    sections: source.sections.map((section) =>
+      section.id === "first" ? { ...section, files: section.files.map((mark) => ({ ...mark, viewed: false })) } : section),
+  };
+  assert.deepEqual(unviewedGroups(reopened).map((section) => section.id), ["first", "other-changes"]);
+  const blocked = { ...source, sections: source.sections.map((section) => ({ ...section, canReview: false })) };
+  assert.deepEqual(unviewedGroups(blocked), []);
 });

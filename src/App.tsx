@@ -38,7 +38,7 @@ import {
 import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import type { Diff, Mode, Repository, StackNode } from "./types";
-import type { Collection, FilePreview, ReviewSection, ReviewSnapshot, SinceViewed } from "./review-types";
+import type { Collection, FilePreview, ProgressSource, Review, ReviewSection, ReviewSnapshot, SinceViewed } from "./review-types";
 import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesCollapsed } from "./useFileState";
 import { useNote } from "./notes";
@@ -60,7 +60,7 @@ import { diffSize } from "./diff-size";
 import { scrollToChange } from "./scroll-to-change";
 import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
 import { useCollectionProgress } from "./useCollectionProgress";
-import { collectionProgress, markedFile, progressLabel, withFileViews } from "./progress";
+import { collectionProgress, markedFile, progressLabel, progressSource, unviewedGroups, withFileViews } from "./progress";
 import { PullRequest } from "./PullRequest";
 import { LineCounts } from "./LineCounts";
 import { ImageDiff } from "./ImageDiff";
@@ -973,6 +973,22 @@ function ReviewOutline({ sections, worktree, hideTestFiles, reviewedCount, total
   </aside>;
 }
 
+function MarkAllButton({ count, scope, busy, disabled, onClick }: {
+  count: number; scope: "review" | "collection"; busy: boolean; disabled: boolean; onClick: () => void;
+}) {
+  return (
+    <button className="review-button mark-all" disabled={disabled} onClick={onClick}
+      title={`Mark the ${count} ${count === 1 ? "group" : "groups"} left in this ${scope} viewed`}>
+      {busy ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}
+      Mark {scope} viewed
+    </button>
+  );
+}
+
+function MarkErrors({ messages }: { messages: string[] }) {
+  return messages.map((message) => <p className="warning mark-error" role="alert" key={message}>{message}</p>);
+}
+
 export default function App() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [collectionId, setCollectionId] = useState(params.get("collection") ?? "");
@@ -1002,6 +1018,8 @@ export default function App() {
   const [open, setOpen] = useState(false);
   const [pathDraft, setPathDraft] = useState(path);
   const [marking, setMarking] = useState("");
+  // Separate from `error`, which every refresh clears; a bulk mark's own saves trigger refreshes.
+  const [markErrors, setMarkErrors] = useState<string[]>([]);
   const [recents, setRecents] = useState<string[]>(load("recents", []));
   const folderDialog = useRef<HTMLDialogElement>(null);
   const jumped = useRef(false);
@@ -1027,6 +1045,7 @@ export default function App() {
   const scope = `${path}|${base}|${mode}`;
   activeView.current = `${activeReview.current}|${scope}`;
   useEffect(() => { setSinceViewedGroup(""); }, [collectionId, reviewId, scope]);
+  useEffect(() => { setMarkErrors([]); }, [collectionId, reviewId, tab]);
   const fileStateVersion = useFileStateVersion();
   const snapshot = useMemo(
     () =>
@@ -1064,7 +1083,7 @@ export default function App() {
   }, [snapshot, displayedSections]);
   const defaultViewed = (section: string) =>
     rawSnapshot?.sections.find((entry) => entry.id === section)?.reviewed ?? false;
-  const itemProgress = useCollectionProgress(
+  const { items: itemProgress, sources: progressSources, record: recordProgress } = useCollectionProgress(
     collection,
     refresh + progressRefresh,
     reviewId,
@@ -1076,6 +1095,13 @@ export default function App() {
   let collectionSummary = `${collectionStatus.reviewedItems} of ${collectionStatus.totalItems} items reviewed`;
   if (collectionStatus.complete) collectionSummary = "All changes reviewed";
   if (collectionStatus.checkingItems) collectionSummary = "Checking review status…";
+  const reviewLeft = review && snapshot ? unviewedGroups(progressSource(snapshot)) : [];
+  const collectionLeft = collection && !collectionStatus.checkingItems
+    ? collection.reviews.flatMap((entry) => {
+        const groups = progressSources[entry.id] ? unviewedGroups(progressSources[entry.id]) : [];
+        return groups.length ? [{ review: entry, groups }] : [];
+      })
+    : [];
   const showCollection = () => {
     setTab("collection");
     setProgressRefresh((value) => value + 1);
@@ -1297,8 +1323,7 @@ export default function App() {
       const result = await mutate<ReviewSnapshot>("reviewed", {
         collection: collectionId,
         review: reviewId,
-        group: section.id,
-        fingerprint: section.fingerprint,
+        groups: [{ group: section.id, fingerprint: section.fingerprint }],
         reviewed: !section.reviewed,
       });
       setFilesCollapsed(path, section.files.map(markedFile), !section.reviewed);
@@ -1308,6 +1333,32 @@ export default function App() {
     } finally {
       setMarking("");
     }
+  };
+  // Group IDs can't contain "@", so these keys never light up a group's spinner.
+  const markAll = async (key: string, targets: Array<{ review: Review; groups: ProgressSource["sections"] }>) => {
+    setMarking(key);
+    setMarkErrors([]);
+    const selection = collectionId;
+    const startedOn = activeReview.current;
+    const errors: string[] = [];
+    for (const target of targets) {
+      try {
+        const result = await mutate<ReviewSnapshot>("reviewed", {
+          collection: selection,
+          review: target.review.id,
+          groups: target.groups.map((group) => ({ group: group.id, fingerprint: group.fingerprint })),
+          reviewed: true,
+        });
+        setFilesCollapsed(target.review.path, target.groups.flatMap((group) => group.files), true);
+        recordProgress(selection, target.review.id, result);
+        if (activeReview.current === `${selection}/${target.review.id}`) setSnapshot(result);
+      } catch (cause) {
+        const message = (cause as Error).message;
+        errors.push(key === "@collection" ? `“${target.review.title}”: ${message}` : message);
+      }
+    }
+    if (activeReview.current === startedOn) setMarkErrors(errors);
+    setMarking("");
   };
   const reviewedCount = snapshot?.sections.filter((section) => section.reviewed).length ?? 0;
 
@@ -1415,7 +1466,10 @@ export default function App() {
           className="icon-button"
           aria-label="Refresh local changes"
           title="Refresh local changes"
-          onClick={() => setRefresh((value) => value + 1)}
+          onClick={() => {
+            setMarkErrors([]);
+            setRefresh((value) => value + 1);
+          }}
         >
           <RefreshCw size={17} className={busy ? "spin" : ""} />
         </button>
@@ -1508,7 +1562,12 @@ export default function App() {
                   (repo ? short(repo.branch) || "Local changes" : "Open a local worktree")}
               </h1>
               {repo?.dirty && <span className="pill">Local edits</span>}
+              {review && (reviewLeft.length > 0 || marking === `@review:${review.id}`) && (
+                <MarkAllButton count={reviewLeft.length} scope="review" busy={marking === `@review:${review.id}`}
+                  disabled={!!marking} onClick={() => markAll(`@review:${review.id}`, [{ review, groups: reviewLeft }])} />
+              )}
             </div>
+            <MarkErrors messages={markErrors} />
             {review?.description && (
               <Description key={`${collectionId}/${reviewId}`} text={review.description} />
             )}
@@ -1732,7 +1791,13 @@ export default function App() {
             <div className="section-heading">
               <div className="title-row">
                 <h1>{collection.title}</h1>
+                {(collectionLeft.length > 0 || marking === "@collection") && (
+                  <MarkAllButton count={collectionLeft.reduce((sum, target) => sum + target.groups.length, 0)}
+                    scope="collection" busy={marking === "@collection"} disabled={!!marking}
+                    onClick={() => markAll("@collection", collectionLeft)} />
+                )}
               </div>
+              <MarkErrors messages={markErrors} />
               {collection.description && (
                 <Description key={collection.id} text={collection.description} />
               )}

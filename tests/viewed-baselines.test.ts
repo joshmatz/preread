@@ -4,7 +4,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, realpath, rm, rename, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapshot, viewedFile, markGroup } from "../server/review.ts";
+import { snapshot, viewedFile, markGroups } from "../server/review.ts";
+import { saveViewedFiles } from "../server/viewed-baselines.ts";
 import { reviewProgress } from "../src/progress.ts";
 import { putCollection, readReceipts, setReceipt } from "../server/collections.ts";
 import type { Review, FilePreview, SinceViewed, ViewedBaselineInfo } from "../src/review-types.ts";
@@ -30,7 +31,7 @@ before(async () => {
   git("init", "-b", "main");
   git("config", "user.name", "Baseline Test");
   git("config", "user.email", "baseline@example.test");
-  for (const name of ["code.ts", "staged.ts", "bulk.ts", "partial.ts", "shared-partial.ts", "old.txt"])
+  for (const name of ["code.ts", "staged.ts", "bulk.ts", "batch-a.ts", "batch-b.ts", "partial.ts", "shared-partial.ts", "old.txt"])
     await writeFile(join(repo, name), (name === "partial.ts" || name === "shared-partial.ts") ? "base first\n" + "context\n".repeat(40) + "base last\n" : "base\n");
   git("add", "."); git("commit", "-m", "Base");
 });
@@ -93,7 +94,7 @@ test("bulk Viewed clicks save baselines and old hash-only receipts are explicit"
   await writeFile(join(repo, "bulk.ts"), "bulk viewed\n");
   await putCollection({ id: "bulk", title: "Bulk", description: "", reviews: [scope] });
   const current = await snapshot(scope, "bulk");
-  await markGroup("bulk", "bulk", "code", current.sections[0].fingerprint, true);
+  await markGroups("bulk", "bulk", [{ group: "code", fingerprint: current.sections[0].fingerprint }], true);
   await writeFile(join(repo, "bulk.ts"), "bulk updated\n");
   assert.match((await delta(scope, "bulk")).diff!.patch, /-bulk viewed\n\+bulk updated/);
   assert.equal((await delta({ ...scope, mode: "all" }, "bulk")).available, false,
@@ -184,7 +185,7 @@ test("a TTF can complete a group and new font bytes invalidate its viewed mark",
   await putCollection({ id: "font", title: "Font", description: "", reviews: [scope] });
   const first = await snapshot(scope, "font");
   assert.equal(first.sections[0].canReview, true);
-  const marked = await markGroup("font", "font", "code", first.sections[0].fingerprint, true);
+  const marked = await markGroups("font", "font", [{ group: "code", fingerprint: first.sections[0].fingerprint }], true);
   assert.equal(marked.sections[0].reviewed, true);
   assert.equal(marked.sections[0].files[0].lastViewed!.hasText, false);
   await writeFile(join(repo, "font.ttf"), Buffer.from([0, 1, 0, 0, 2]));
@@ -209,7 +210,7 @@ test("individual Viewed state survives fresh snapshots and explicit unmarking ov
   let current = await snapshot(scope, "shared");
   const before = reviewProgress(current).reviewedGroups;
   assert.ok(before >= 1);
-  await markGroup("shared", "shared", "code", current.sections[0].fingerprint, true);
+  await markGroups("shared", "shared", [{ group: "code", fingerprint: current.sections[0].fingerprint }], true);
   current = await snapshot(scope, "shared");
   const file = current.sections[0].files[0];
   await viewedFile(scope, "code", file.file.path, file.contextHash ?? file.diff.hash, file.viewHash!, true, "shared", false);
@@ -233,4 +234,21 @@ test("a partial Viewed mark survives changes outside its selected blocks", async
   const next = await snapshot(scope);
   assert.equal(next.sections[0].files[0].viewed, true);
   assert.equal(next.sections.find((section) => section.id === "other-changes")!.files.find((file) => file.file.path === "shared-partial.ts")!.viewed, false);
+});
+
+test("a bulk save that finds one changed file saves no group's baseline", async () => {
+  const scope: Review = { ...review("batch", "batch-a.ts"), groups: [
+    { id: "a", title: "A", description: "", targets: [{ path: "batch-a.ts" }] },
+    { id: "b", title: "B", description: "", targets: [{ path: "batch-b.ts" }] },
+  ] };
+  await writeFile(join(repo, "batch-a.ts"), "a viewed\n");
+  await writeFile(join(repo, "batch-b.ts"), "b viewed\n");
+  const current = await snapshot(scope);
+  const [a, b] = current.sections;
+  await writeFile(join(repo, "batch-b.ts"), "b changed after loading\n");
+  await assert.rejects(
+    saveViewedFiles(scope, [{ group: "a", preview: a.files[0] }, { group: "b", preview: b.files[0] }], current.comparison),
+    /changed/,
+  );
+  assert.equal((await snapshot(scope)).sections[0].files[0].lastViewed, undefined);
 });

@@ -762,6 +762,13 @@ h2 {
   background: var(--add-bg);
   border-color: var(--add-gutter);
 }
+.mark-all {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.warning.mark-error {
+  margin: 8px 0 0;
+}
 .changed-label {
   font-size: 10px;
   color: var(--warning-text);

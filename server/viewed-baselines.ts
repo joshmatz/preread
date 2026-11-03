@@ -30,30 +30,30 @@ async function textAtView(review: Review, preview: FilePreview, comparison: Comp
     preview.contextHash ?? preview.diff.hash);
 }
 let writes: Promise<unknown> = Promise.resolve();
-export function saveViewedFiles(review: Review, group: string, previews: FilePreview[], comparison: Comparison) {
+export function saveViewedFiles(review: Review, entries: Array<{ group: string; preview: FilePreview }>,
+  comparison: Comparison) {
   const operation = writes.then(async () => {
     const baselines: Baseline[] = [];
     const reviewedAt = new Date().toISOString();
-    // Finish all reads before writing any baseline, so stale bulk clicks do not
-    // move part of a group's baseline forward.
-    for (let offset = 0; offset < previews.length; offset += 4) {
-      baselines.push(...await Promise.all(previews.slice(offset, offset + 4).map(async (preview) => {
+    // Finish all reads before writing any baseline, so a stale bulk click moves none of them forward.
+    for (let offset = 0; offset < entries.length; offset += 4) {
+      baselines.push(...await Promise.all(entries.slice(offset, offset + 4).map(async ({ preview }) => {
         const content = await textAtView(review, preview, comparison);
         return { viewHash: preview.viewHash ?? preview.diff.hash, reviewedAt,
           hasText: content !== undefined, ...(content !== undefined ? { content } : {}) };
       })));
     }
     // A file read early in a bulk click must still match when the group is saved.
-    for (let offset = 0; offset < previews.length; offset += 4) {
-      await Promise.all(previews.slice(offset, offset + 4).map(async (preview) => {
+    for (let offset = 0; offset < entries.length; offset += 4) {
+      await Promise.all(entries.slice(offset, offset + 4).map(async ({ preview }) => {
         const current = await fileDiff(review.path, review.base, review.mode, preview.file.path, comparison);
         if (current.hash !== (preview.contextHash ?? preview.diff.hash))
           throw new Error("These files changed while saving viewed versions. Refresh and review them again.");
       }));
     }
     await mkdir(join(dataDirectory(), "viewed"), { recursive: true, mode: 0o700 });
-    for (let index = 0; index < previews.length; index++) {
-      const path = location(review, group, previews[index].file.path);
+    for (let index = 0; index < entries.length; index++) {
+      const path = location(review, entries[index].group, entries[index].preview.file.path);
       const temp = `${path}.${randomUUID()}.tmp`;
       await writeFile(temp, JSON.stringify(baselines[index]), { mode: 0o600 });
       await rename(temp, path);

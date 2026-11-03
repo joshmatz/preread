@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, writeFile, readFile, rename, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapshot, markGroup } from "../server/review.ts";
+import { snapshot, markGroups } from "../server/review.ts";
 import { fileDiff } from "../server/git.ts";
 import { putCollection } from "../server/collections.ts";
 import type { Review } from "../src/review-types.ts";
@@ -90,13 +90,7 @@ test("cached branch content still checks refs and reads current descriptions and
   const initial = await snapshot(review, "loading");
   await writeFile(trace, "");
   process.env.GIT_TRACE = trace;
-  const marked = await markGroup(
-    "loading",
-    "changes",
-    "example",
-    initial.sections[0].fingerprint,
-    true,
-  );
+  const marked = await markGroups("loading", "changes", [{ group: "example", fingerprint: initial.sections[0].fingerprint }], true);
   // Saving a viewed version reads Git; cached snapshot refreshes should not.
   await writeFile(trace, "");
   const current = await snapshot(review, "loading");

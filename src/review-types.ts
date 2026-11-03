@@ -100,6 +100,8 @@ export interface ReviewProgress {
 export interface ProgressSource {
   empty: boolean;
   sections: Array<{
+    id: string;
+    fingerprint: string;
     reviewed: boolean;
     canReview: boolean;
     changedSinceReview: boolean;

@@ -4,7 +4,7 @@ import { mkdtemp, realpath, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { groupPreviews, snapshot, markGroup } from "../server/review.ts";
+import { groupPreviews, snapshot, markGroups } from "../server/review.ts";
 import {
   validateCollection,
   putCollection,
@@ -378,21 +378,65 @@ test("real Git reviews persist completion, reject stale marks, and invalidate ch
   const index = await readFile(join(repo, ".git/index"));
   const initial = await snapshot(review, "integration");
   assert.equal(initial.sections[0].reviewed, false);
-  const marked = await markGroup(
-    "integration",
-    "example",
-    "first-change",
-    initial.sections[0].fingerprint,
-    true,
-  );
+  const marked = await markGroups("integration", "example", [{ group: "first-change", fingerprint: initial.sections[0].fingerprint }], true);
   assert.equal(marked.sections[0].reviewed, true);
   assert.equal((await snapshot(review, "integration")).sections[0].reviewed, true);
   assert.equal(run("status", "--porcelain"), status);
   assert.deepEqual(await readFile(join(repo, ".git/index")), index);
   await writeFile(join(repo, "example.ts"), "different\n");
   await assert.rejects(
-    markGroup("integration", "example", "first-change", initial.sections[0].fingerprint, true),
+    markGroups("integration", "example", [{ group: "first-change", fingerprint: initial.sections[0].fingerprint }], true),
     /changed/,
   );
   assert.equal((await snapshot(review, "integration")).sections[0].changedSinceReview, true);
+});
+
+test("marking several groups at once checks every group before saving any", async () => {
+  const repo = join(directory, "batch repository");
+  const run = (...args: string[]) =>
+    execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  execFileSync("git", ["init", "-b", "main", repo], { stdio: "pipe" });
+  run("config", "user.name", "Review Test");
+  run("config", "user.email", "review@example.test");
+  await writeFile(join(repo, "first.ts"), "old\n");
+  await writeFile(join(repo, "second.ts"), "old\n");
+  run("add", ".");
+  run("commit", "-m", "Base");
+  await writeFile(join(repo, "first.ts"), "new\n");
+  await writeFile(join(repo, "second.ts"), "new\n");
+  const review = {
+    ...collection.reviews[0],
+    path: repo,
+    mode: "working" as const,
+    groups: [
+      { ...group, id: "first", title: "First", targets: [{ path: "first.ts" }] },
+      { ...group, id: "second", title: "Second", targets: [{ path: "second.ts" }] },
+      { ...group, id: "missing", title: "Missing", targets: [{ path: "absent.ts" }] },
+    ],
+  };
+  await putCollection({ ...collection, id: "batch", reviews: [review] });
+  const [first, second, missing] = (await snapshot(review, "batch")).sections;
+  assert.equal(missing.canReview, false);
+  await assert.rejects(
+    markGroups("batch", "example", [
+      { group: "first", fingerprint: first.fingerprint },
+      { group: "second", fingerprint: "stale" },
+    ], true),
+    /changed/,
+  );
+  await assert.rejects(
+    markGroups("batch", "example", [
+      { group: "first", fingerprint: first.fingerprint },
+      { group: "missing", fingerprint: missing.fingerprint },
+    ], true),
+    /“Missing” has unavailable or unmatched changes/,
+  );
+  assert.deepEqual(await readReceipts("batch"), {});
+  const marked = await markGroups("batch", "example", [
+    { group: "first", fingerprint: first.fingerprint },
+    { group: "second", fingerprint: second.fingerprint },
+  ], true);
+  assert.deepEqual(marked.sections.map((section) => section.reviewed), [true, true, false]);
+  assert.deepEqual(marked.sections[0].files.map((preview) => preview.viewed), [true]);
+  assert.deepEqual(Object.keys(await readReceipts("batch")).sort(), ["example/first", "example/second"]);
 });

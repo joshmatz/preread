@@ -6,7 +6,7 @@ import { createServer as createViteServer } from "vite";
 import { repository, comparison, fileDiff, fileContext, fileImage, stackFor } from "./git.ts";
 import { listCollections, putCollection } from "./collections.ts";
 import { bump, live } from "./live.ts";
-import { snapshot, adHocReview, resolveReview, markGroup, viewedFile } from "./review.ts";
+import { snapshot, adHocReview, resolveReview, markGroups, viewedFile } from "./review.ts";
 import { reviewProgress, progressSource } from "../src/progress.ts";
 import type { Mode } from "../src/types.ts";
 
@@ -110,13 +110,15 @@ app.get("/api/review", async (req, res) => {
   res.json(await snapshot(review, collectionId || undefined));
 });
 app.post("/api/reviewed", async (req, res) => {
-  const { collection, review, group, fingerprint, reviewed } = req.body ?? {};
+  const { collection, review, groups, reviewed } = req.body ?? {};
   if (
-    ![collection, review, group, fingerprint].every((value) => typeof value === "string") ||
+    ![collection, review].every((value) => typeof value === "string") ||
+    !Array.isArray(groups) || !groups.length ||
+    !groups.every((entry) => [entry?.group, entry?.fingerprint].every((value) => typeof value === "string")) ||
     typeof reviewed !== "boolean"
   )
     throw new Error("Invalid review status request.");
-  const result = await markGroup(collection, review, group, fingerprint, reviewed);
+  const result = await markGroups(collection, review, groups, reviewed);
   bump(false);
   res.json(result);
 });

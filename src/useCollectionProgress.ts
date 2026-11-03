@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Collection, ProgressDetails, ReviewProgress, ReviewSnapshot } from "./review-types";
+import type { Collection, ProgressDetails, ProgressSource, ReviewProgress, ReviewSnapshot } from "./review-types";
 import { progressFromSource, progressSource, reviewProgress } from "./progress";
 
 export function useCollectionProgress(
@@ -16,7 +16,8 @@ export function useCollectionProgress(
   useEffect(() => {
     if (!collection) return;
     const abort = new AbortController();
-    setResults({ collection: collection.id, items: {} });
+    // Keep the last results while re-checking, so each refresh doesn't flash "Checking…".
+    setResults((previous) => previous.collection === collection.id ? previous : { collection: collection.id, items: {} });
     let index = 0;
     const update = (id: string, progress: ProgressDetails) => {
       if (!abort.signal.aborted)
@@ -55,19 +56,19 @@ export function useCollectionProgress(
     void Promise.all([worker(), worker()]);
     return () => abort.abort();
   }, [JSON.stringify(collection), refresh]);
-  useEffect(() => {
-    if (!collection || !snapshot || !selectedId) return;
+  const record = (collectionId: string, id: string, current: ReviewSnapshot) => {
     // A slower background check must not overwrite a newly saved review receipt.
-    versions.current[selectedId] = (versions.current[selectedId] ?? 0) + 1;
-    setResults((previous) => ({
-      collection: collection.id,
-      items: {
-        ...(previous.collection === collection.id ? previous.items : {}),
-        [selectedId]: { ...reviewProgress(snapshot), source: progressSource(snapshot) },
-      },
-    }));
+    versions.current[id] = (versions.current[id] ?? 0) + 1;
+    setResults((previous) => previous.collection !== collectionId ? previous : {
+      ...previous,
+      items: { ...previous.items, [id]: { ...reviewProgress(current), source: progressSource(current) } },
+    });
+  };
+  useEffect(() => {
+    if (collection && snapshot && selectedId) record(collection.id, selectedId, snapshot);
   }, [selectedId, snapshot]);
   const items: Record<string, ReviewProgress> = {};
+  const sources: Record<string, ProgressSource> = {};
   if (collection && results.collection === collection.id) {
     for (const review of collection.reviews) {
       const entry = results.items[review.id];
@@ -75,8 +76,9 @@ export function useCollectionProgress(
         items[review.id] = entry.source
           ? progressFromSource(entry.source)
           : entry;
+        if (entry.source) sources[review.id] = entry.source;
       }
     }
   }
-  return items;
+  return { items, sources, record };
 }

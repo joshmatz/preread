@@ -19,6 +19,8 @@ export function progressSource(snapshot: ReviewSnapshot): ProgressSource {
       !snapshot.comparison.files.length &&
       snapshot.sections.every((section) => !section.warnings.length),
     sections: snapshot.sections.map((section) => ({
+      id: section.id,
+      fingerprint: section.fingerprint,
       reviewed: section.reviewed,
       canReview: section.canReview,
       changedSinceReview: section.changedSinceReview,
@@ -36,6 +38,9 @@ export function sectionViewed(section: ProgressSource["sections"][number], viewe
       : section.files.every((file) => file.viewed ?? section.reviewed))
   );
 }
+
+export const unviewedGroups = (source: ProgressSource) =>
+  source.sections.filter((section) => section.canReview && !sectionViewed(section));
 
 export function withFileViews(snapshot: ReviewSnapshot, viewed: ViewedReader): ReviewSnapshot {
   const source = progressSource(snapshot);

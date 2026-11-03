@@ -306,41 +306,43 @@ export const adHocReview = (path: string, base: string, mode: Mode): Review => (
   mode,
   groups: [],
 });
-export async function markGroup(
+export async function markGroups(
   collectionId: string,
   reviewId: string,
-  groupId: string,
-  fingerprint: string,
+  groups: Array<{ group: string; fingerprint: string }>,
   reviewed: boolean,
 ) {
   const review = await resolveReview(collectionId, reviewId);
   const current = await snapshot(review, collectionId);
-  const section = current.sections.find((section) => section.id === groupId);
-  if (!section || section.fingerprint !== fingerprint)
-    throw new Error(
-      "These changes or their description have changed. Refresh before marking the group reviewed.",
-    );
-  if (reviewed && !section.canReview)
-    throw new Error(
-      "This group has unavailable or unmatched changes. Resolve those before marking it reviewed.",
-    );
-  if (reviewed) await saveViewedFiles(baselineReview(review, collectionId), groupId, section.files, current.comparison);
-  await saveFileViews(current.comparison.path ?? review.path, section.files.map((preview) => ({ path: preview.file.path, viewHash: preview.viewHash ?? preview.diff.hash, viewed: reviewed })));
-  await setReceipt(collectionId, reviewId, groupId, reviewed ? fingerprint : null);
-  const receipt = await readReceipts(collectionId);
-  const saved = receipt[receiptKey(reviewId, groupId)];
+  // Check every group before saving any, so a stale page marks nothing.
+  const sections = groups.map(({ group, fingerprint }) => {
+    const section = current.sections.find((section) => section.id === group);
+    if (!section || section.fingerprint !== fingerprint)
+      throw new Error(
+        "These changes or their description have changed. Refresh before marking them reviewed.",
+      );
+    if (reviewed && !section.canReview)
+      throw new Error(
+        `“${section.title}” has unavailable or unmatched changes. Resolve those before marking it reviewed.`,
+      );
+    return section;
+  });
+  const worktree = current.comparison.path ?? review.path;
+  if (reviewed)
+    await saveViewedFiles(baselineReview(review, collectionId),
+      sections.flatMap((section) => section.files.map((preview) => ({ group: section.id, preview }))), current.comparison);
+  await saveFileViews(worktree, sections.flatMap((section) => section.files.map((preview) => ({ path: preview.file.path, viewHash: preview.viewHash ?? preview.diff.hash, viewed: reviewed }))));
+  for (const section of sections)
+    await setReceipt(collectionId, reviewId, section.id, reviewed ? section.fingerprint : null);
+  const receipts = await readReceipts(collectionId);
+  const marked = new Set(sections.map((section) => section.id));
   return {
     ...current,
-    sections: await withSharedFileViews(current.comparison.path ?? review.path, await withViewedBaselines(baselineReview(review, collectionId), current.sections.map((section) =>
-      section.id === groupId
-        ? {
-            ...section,
-            reviewed: !!saved,
-            reviewedAt: saved?.reviewedAt,
-            changedSinceReview: false,
-          }
-        : section,
-    ))),
+    sections: await withSharedFileViews(worktree, await withViewedBaselines(baselineReview(review, collectionId), current.sections.map((section) => {
+      if (!marked.has(section.id)) return section;
+      const saved = receipts[receiptKey(reviewId, section.id)];
+      return { ...section, reviewed: !!saved, reviewedAt: saved?.reviewedAt, changedSinceReview: false };
+    }))),
   };
 }
 
@@ -358,7 +360,7 @@ export async function viewedFile(review: Review, group: string, name: string,
   if (!preview || preview.viewHash !== expectedViewHash)
     throw new Error("The selected blocks changed since the review loaded. Refresh the review.");
   if (!save) return diffSinceViewed(baselineReview(review, collectionId), group, preview, info);
-  const baseline = viewed ? (await saveViewedFiles(baselineReview(review, collectionId), group, [preview], info))[0] : undefined;
+  const baseline = viewed ? (await saveViewedFiles(baselineReview(review, collectionId), [{ group, preview }], info))[0] : undefined;
   await saveFileViews(info.path, [{ path: name, viewHash: expectedViewHash, viewed }]);
   return { ...baseline, viewed };
 }
