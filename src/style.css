@@ -27,6 +27,8 @@
   --del-gutter: #f9dfe2;
   --add-word: #bfebce;
   --del-word: #f8c5ca;
+  --add-bar: #23764a;
+  --del-bar: #d8707c;
   --hunk-bg: #f0f2fa;
   --hunk-text: #7081a5;
   --warning-bg: #fff8e6;
@@ -61,6 +63,8 @@
   --del-gutter: #4d2931;
   --add-word: #2e5a3e;
   --del-word: #733942;
+  --add-bar: #50a670;
+  --del-bar: #b8485a;
   --hunk-bg: #242b3c;
   --hunk-text: #a2b5da;
   --warning-bg: #362f1f;
@@ -581,15 +585,8 @@ h1 {
 .file-item-viewed:focus-visible {
   opacity: 1;
 }
-.file-item > span {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
 .file-item strong {
-  flex: 0 1 auto;
+  flex: 1;
   min-width: 0;
   font-size: 11px;
   font-weight: 500;
@@ -598,13 +595,63 @@ h1 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.file-item small {
-  flex: 1 1 0;
-  min-width: 0;
+.outline-folder .file-item {
+  padding-left: 25px;
+}
+.outline-folder .search-match {
+  width: calc(100% - 28px);
+  margin-left: 28px;
+}
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 2px 13px;
+  color: var(--secondary);
   font-size: 10px;
+}
+.folder-item svg {
+  flex: none;
+}
+/* Sized before its text arrives, so filling it in doesn't re-trigger its ResizeObserver. */
+.folder-item span {
+  flex: 1;
+  min-width: 0;
+  height: 1lh;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.change-meter {
+  flex: none;
+  display: flex;
+  width: 24px;
+}
+.change-meter > span {
+  display: flex;
+  gap: 2px;
+}
+.change-meter i {
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 5px;
+  background: var(--add-bar);
+}
+.change-meter i.deleted {
+  background: var(--del-bar);
+}
+.change-meter i:last-child {
+  border-radius: 0 2px 2px 0;
+}
+@media (forced-colors: active) {
+  .change-meter i {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+  .change-meter i.deleted {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
 }
 .file-item em {
   font-size: 10px;
@@ -1808,6 +1855,34 @@ fieldset {
   border-radius: 10px;
   box-shadow: var(--shadow);
   overflow: auto;
+}
+.hover-card {
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 7px 10px 8px;
+  border-radius: 8px;
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.hover-card p {
+  margin: 0;
+}
+.hover-card p + p {
+  margin-top: 2px;
+}
+/* Whole segments move to the next line, so a name breaks at a hyphen only when it can't fit alone. */
+.path-part {
+  display: inline-block;
+  overflow-wrap: anywhere;
+}
+.hover-card-path .path-part:last-child {
+  color: var(--text);
+  font-weight: 600;
+}
+.hover-card .additions,
+.hover-card .deletions {
+  font-weight: 600;
 }
 .settings {
   display: grid;

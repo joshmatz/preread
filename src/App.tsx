@@ -45,6 +45,10 @@ import { useNote } from "./notes";
 import { Picker } from "./Picker";
 import { ReviewVisuals } from "./ReviewVisuals";
 import { OutlineGroup } from "./OutlineGroup";
+import { OutlineFolder } from "./OutlineFolder";
+import { HoverCards, useHoverCard, WrappablePath } from "./HoverCard";
+import { ChangeMeter } from "./ChangeMeter";
+import { byFolder } from "./outline-folders";
 import { SidebarResizer } from "./SidebarResizer";
 import { Popover } from "./Popover";
 import { fileKind, fileKindLabels, isTestFile, type FileKind } from "./file-kinds";
@@ -852,28 +856,63 @@ function FileOutlineItem({
   reviewed: boolean;
   onClick: () => void;
 }) {
-  const large = useMemo(() => diffSize(preview.diff.patch).deferred, [preview.diff.patch]);
-  const { viewed: done } = useFileState(worktree, markedFile(preview), reviewed, large);
+  const size = useMemo(() => diffSize(preview.diff.patch), [preview.diff.patch]);
+  const { viewed: done } = useFileState(worktree, markedFile(preview), reviewed, size.deferred);
+  const hoverCard = useHoverCard();
   const { status, path, oldPath } = preview.file;
   const change = statusNames[status] ?? "Changed";
   const from = oldPath ? ` from ${oldPath}` : "";
   const kind = fileKind(path, !!preview.diff.image);
   const KindIcon = kindIcons[kind];
+  // Too-large, failed, and combined (merge conflict) diffs have no rows to count.
+  const lines =
+    size.plus + size.minus || preview.partial
+      ? size
+      : { plus: preview.file.additions, minus: preview.file.deletions };
   return (
     <button
       className={`file-item${done ? " file-item-viewed" : ""}`}
-      title={`${path} · ${fileKindLabels[kind]} · ${change}${from}${done ? " · Viewed" : ""}`}
       aria-label={`${path}, ${change.toLowerCase()}${from}${done ? ", viewed" : ""}`}
+      aria-description={
+        fileKindLabels[kind] +
+        (lines.plus + lines.minus
+          ? `, ${lines.plus.toLocaleString()} lines added, ${lines.minus.toLocaleString()} removed${preview.partial ? " in selected blocks" : ""}`
+          : "")
+      }
       onClick={onClick}
+      {...hoverCard(() => (
+        <>
+          <p className="hover-card-path">
+            <WrappablePath path={path} />
+          </p>
+          <p>
+            {change} · {fileKindLabels[kind]}
+            {lines.plus + lines.minus > 0 && (
+              <>
+                {" · "}
+                <span className="additions">+{lines.plus.toLocaleString()}</span>{" "}
+                <span className="deletions">−{lines.minus.toLocaleString()}</span>
+                {preview.partial && " in selected blocks"}
+              </>
+            )}
+            {done && " · Viewed"}
+          </p>
+          {oldPath && (
+            <p>
+              From <WrappablePath path={oldPath} />
+            </p>
+          )}
+        </>
+      ))}
     >
       {done ? <Check size={14} /> : <KindIcon size={14} />}
-      <span>
-        <strong>{filename(path)}</strong>
-        {path.includes("/") && <small>{path.slice(0, path.lastIndexOf("/"))}</small>}
-      </span>
-      <em className={`status-${change.toLowerCase().replace(" ", "-")}`}>
-        {statusLetters[status] ?? status}
-      </em>
+      <strong>{filename(path)}</strong>
+      {status !== "M" && (
+        <em className={`status-${change.toLowerCase().replace(" ", "-")}`}>
+          {statusLetters[status] ?? status}
+        </em>
+      )}
+      <ChangeMeter plus={lines.plus} minus={lines.minus} />
     </button>
   );
 }
@@ -904,28 +943,33 @@ function ReviewOutline({ sections, worktree, hideTestFiles, reviewedCount, total
     </select></label>
     {searching && <p className="search-status" role="status">{error ?? (pending ? "Searching…" : `${results.length} matching files`)}</p>}
     {scope !== "files" && missing > 0 && <p className="search-status">{missing} oversized files have no searchable preview.</p>}
-    <nav aria-label="Changed files" aria-busy={pending && searching}>
+    <nav aria-label="Changed files" aria-busy={pending && searching}><HoverCards>
       {sections.map(({ section, files }) => {
         const visible = searching ? files.filter((preview) => matching.has(`${section.id}:${preview.file.path}`)) : files;
         if (searching && !visible.length) return null;
         return <OutlineGroup key={section.id} title={section.title} reviewed={section.reviewed} revision={section.fingerprint}
           hiddenUnreadCount={hideTestFiles ? section.files.filter((preview) => isTestFile(preview.file.path) && !fileViewed(markedFile(preview), defaultViewed(section.id))).length : 0}
           filtering={searching} onJump={() => onJump(section.id)}>
-          {visible.map((preview) => {
-            const result = matching.get(`${section.id}:${preview.file.path}`);
-            return <React.Fragment key={preview.file.path}><FileOutlineItem preview={preview} worktree={worktree}
-              reviewed={defaultViewed(section.id)} onClick={() => onJump(section.id, preview.file.path)} />
-              {searching && result?.matches.map((match, index) => <button className="search-match" key={index}
-                onClick={() => onMatch(section.id, preview, match)}>
-                <small>{match.side === "old" ? "Before" : "After"} · line {match.line}{result.count > 3 && index === 2 ? ` · ${result.count - 3} more matches` : ""}</small>
-                <code>{match.text}</code>
-              </button>)}
-            </React.Fragment>;
+          {byFolder(visible).map(({ folder, files }) => {
+            const items = files.map((preview) => {
+              const result = matching.get(`${section.id}:${preview.file.path}`);
+              return <React.Fragment key={preview.file.path}><FileOutlineItem preview={preview} worktree={worktree}
+                reviewed={defaultViewed(section.id)} onClick={() => onJump(section.id, preview.file.path)} />
+                {searching && result?.matches.map((match, index) => <button className="search-match" key={index}
+                  onClick={() => onMatch(section.id, preview, match)}>
+                  <small>{match.side === "old" ? "Before" : "After"} · line {match.line}{result.count > 3 && index === 2 ? ` · ${result.count - 3} more matches` : ""}</small>
+                  <code>{match.text}</code>
+                </button>)}
+              </React.Fragment>;
+            });
+            return folder
+              ? <OutlineFolder key={`folder:${folder}`} path={folder}>{items}</OutlineFolder>
+              : <React.Fragment key="root">{items}</React.Fragment>;
           })}
           {!files.length && section.files.length > 0 && <small className="index-hidden">Test files hidden</small>}
         </OutlineGroup>;
       })}
-    </nav>
+    </HoverCards></nav>
   </aside>;
 }
 

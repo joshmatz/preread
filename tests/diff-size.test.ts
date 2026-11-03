@@ -18,3 +18,7 @@ test("large single-line and multibyte diffs also require an explicit load", () =
   assert.equal(diffSize(patch(["+" + "é".repeat(51200)])).deferred, true);
   assert.equal(diffSize("").deferred, false);
 });
+test("counts added and removed rows, not headers, context, or no-newline markers", () => {
+  const size = diffSize("diff --git a/code.ts b/code.ts\n--- a/code.ts\n+++ b/code.ts\n@@ -1,3 +1,3 @@\n-old\n--- dashes\n+new\n+++ pluses\n same\n\\ No newline at end of file\n");
+  assert.deepEqual([size.plus, size.minus], [2, 2]);
+});
