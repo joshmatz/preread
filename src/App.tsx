@@ -45,6 +45,7 @@ import { useNote } from "./notes";
 import { Picker } from "./Picker";
 import { ReviewVisuals } from "./ReviewVisuals";
 import { OutlineGroup } from "./OutlineGroup";
+import { SidebarResizer } from "./SidebarResizer";
 import { Popover } from "./Popover";
 import { fileKind, fileKindLabels, isTestFile, type FileKind } from "./file-kinds";
 import { displaySections } from "./review-display";
@@ -1573,6 +1574,7 @@ export default function App() {
                 setSearchTarget({ section, path: preview.file.path, match, version: Date.now() });
                 jump(section, preview.file.path);
               }} />
+            <SidebarResizer />
             <div className={`review-feed${wrap ? " wrap-lines" : ""}`}>
               {!comparison?.files.length && (
                 <div className="empty-state">

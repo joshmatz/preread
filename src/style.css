@@ -442,7 +442,7 @@ h1 {
 }
 .changes-layout {
   display: grid;
-  grid-template-columns: 245px minmax(0, 1fr);
+  grid-template-columns: min(var(--sidebar-width, 245px), 50%) minmax(0, 1fr);
   flex: 1;
 }
 /* Paints the full-height sidebar column; the sticky sidebar is at most one viewport tall. */
@@ -460,6 +460,41 @@ h1 {
   max-height: 100dvh;
   overflow-y: auto;
   padding: 12px 10px;
+}
+.sidebar-resizer {
+  grid-area: 1 / 1;
+  justify-self: end;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  width: 8px;
+  height: min(100dvh, 100%);
+  margin-right: -5px;
+  /* Tab would otherwise scroll the page to fit this viewport-tall handle. */
+  scroll-margin: -45dvh 0;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+/* A border, not a background, so forced-colors mode still draws the line. */
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 1px;
+  border-left: 3px solid var(--focus);
+  opacity: 0;
+}
+.sidebar-resizer:hover::after {
+  opacity: 1;
+  transition: opacity 0s 150ms;
+}
+.sidebar-resizer:focus-visible {
+  outline: none;
+}
+.sidebar-resizer:focus-visible::after,
+.sidebar-resizer.dragging::after {
+  opacity: 1;
+  transition: none;
 }
 .outline-head {
   display: flex;
@@ -1253,7 +1288,7 @@ fieldset {
 }
 @media (min-width: 1700px) {
   .changes-layout {
-    grid-template-columns: 265px minmax(0, 1fr);
+    grid-template-columns: min(var(--sidebar-width, 265px), 50%) minmax(0, 1fr);
   }
   .review-feed {
     padding-right: 35px;
@@ -1278,7 +1313,7 @@ fieldset {
     clip-path: inset(50%);
   }
   .changes-layout {
-    grid-template-columns: 210px minmax(0, 1fr);
+    grid-template-columns: min(var(--sidebar-width, 210px), 50%) minmax(0, 1fr);
   }
   .review-feed {
     padding: 14px 15px 20px;
@@ -1346,7 +1381,8 @@ fieldset {
     display: block;
   }
   .changes-layout::before,
-  .files-sidebar {
+  .files-sidebar,
+  .sidebar-resizer {
     display: none;
   }
   .review-feed {
