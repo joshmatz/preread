@@ -1797,6 +1797,18 @@ fieldset {
   margin-top: 4px;
   font-size: 11px;
 }
+.pr-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.pr-line svg {
+  flex: none;
+  margin-top: 2px;
+}
 .review-card {
   padding: 0;
   overflow: hidden;

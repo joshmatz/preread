@@ -8,6 +8,7 @@ export interface PullRequestEntry {
 }
 export function usePullRequests(collection: Collection | undefined, refresh: number) {
   const [entries, setEntries] = useState<Record<string, PullRequestEntry>>({});
+  const [checks, setChecks] = useState(0);
   const read = async (
     collectionId: string,
     review: { id: string; pullRequest?: string },
@@ -56,9 +57,10 @@ export function usePullRequests(collection: Collection | undefined, refresh: num
     };
     void Promise.all([worker(), worker()]);
     return () => abort.abort();
-  }, [JSON.stringify(collection), refresh]);
+  }, [JSON.stringify(collection), refresh, checks]);
   return {
     entries,
+    recheckPullRequests: () => setChecks((value) => value + 1),
     refreshPullRequest: (reviewId: string) => {
       const review = collection?.reviews.find((item) => item.id === reviewId);
       if (collection && review) void read(collection.id, review, true);

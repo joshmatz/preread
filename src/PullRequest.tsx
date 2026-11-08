@@ -1,7 +1,37 @@
 import { ExternalLink, GitPullRequest, RefreshCw } from "lucide-react";
 import type { Comparison, Mode } from "./types";
 import type { PullRequestEntry } from "./usePullRequests";
-import { checksLabel, comparisonMatch, parsePullRequest, pullRequestState } from "./pull-requests";
+import {
+  checksLabel,
+  comparisonMatch,
+  parsePullRequest,
+  pullRequestFacts,
+  pullRequestState,
+} from "./pull-requests";
+
+export function PullRequestLine({ url, entry }: { url: string; entry?: PullRequestEntry }) {
+  const status = entry?.result?.status;
+  const error = entry?.result?.error;
+  const state = status ? pullRequestState(status) : "";
+  const facts = status
+    ? [...pullRequestFacts(status), ...(error ? ["Last known status"] : [])]
+    : [error ? "Status unavailable" : "Checking GitHub…"];
+  return (
+    <span className="pr-line">
+      <GitPullRequest size={12} />
+      <span>
+        PR #{parsePullRequest(url).number}
+        {state && (
+          <>
+            {" · "}
+            <span className={`pr-state pr-${state.toLowerCase()}`}>{state}</span>
+          </>
+        )}
+        {facts.map((fact) => ` · ${fact}`)}
+      </span>
+    </span>
+  );
+}
 
 export function PullRequest({
   url,

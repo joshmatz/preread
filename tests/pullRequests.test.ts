@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePullRequest, comparisonMatch, checksLabel } from "../src/pull-requests.ts";
+import {
+  parsePullRequest,
+  comparisonMatch,
+  checksLabel,
+  pullRequestFacts,
+} from "../src/pull-requests.ts";
 import { createPullRequestReader, normalizeStatus } from "../server/pullRequests.ts";
 import { validateCollection } from "../server/collections.ts";
 import type { Comparison } from "../src/types.ts";
@@ -82,6 +87,21 @@ test("check rollups distinguish failures, pending jobs, no checks and unknown co
     checksLabel({ passed: 1, failed: 0, pending: 0, unknown: 1, skipped: 0, total: 2 }),
     "Checks unavailable",
   );
+});
+test("picker facts show checks and a decisive review only while a PR is open", () => {
+  const checks = [{ status: "COMPLETED", conclusion: "SUCCESS" }];
+  const open = normalizeStatus({ ...raw, statusCheckRollup: checks }, "today");
+  assert.deepEqual(pullRequestFacts(open), ["1 check passed"]);
+  assert.deepEqual(pullRequestFacts({ ...open, isDraft: true, reviewDecision: "APPROVED" }), [
+    "1 check passed",
+    "Approved",
+  ]);
+  assert.deepEqual(pullRequestFacts({ ...open, reviewDecision: "CHANGES_REQUESTED" }), [
+    "1 check passed",
+    "Changes requested",
+  ]);
+  for (const state of ["MERGED", "CLOSED"] as const)
+    assert.deepEqual(pullRequestFacts({ ...open, state, reviewDecision: "APPROVED" }), []);
 });
 test("remote reads are coalesced and cached, with explicit refresh and retained stale status on failure", async () => {
   let calls = 0;

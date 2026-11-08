@@ -43,13 +43,21 @@ export function pullRequestState(status: PullRequestStatus) {
   if (status.state === "CLOSED") return "Closed";
   return status.isDraft ? "Draft" : "Open";
 }
+const countChecks = (count: number) => `${count} ${count === 1 ? "check" : "checks"}`;
 export function checksLabel(checks: PullRequestStatus["checks"]) {
   if (!checks.total) return "No checks";
   if (checks.failed)
     return `${checks.failed} failing${checks.pending ? ` · ${checks.pending} pending` : ""}`;
-  if (checks.pending) return `${checks.pending} checks pending`;
+  if (checks.pending) return `${countChecks(checks.pending)} pending`;
   if (checks.unknown) return "Checks unavailable";
-  return `${checks.passed} checks passed${checks.skipped ? ` · ${checks.skipped} skipped/neutral` : ""}`;
+  return `${countChecks(checks.passed)} passed${checks.skipped ? ` · ${checks.skipped} skipped/neutral` : ""}`;
+}
+export function pullRequestFacts(status: PullRequestStatus) {
+  if (status.state !== "OPEN") return [];
+  const review = (
+    { APPROVED: "Approved", CHANGES_REQUESTED: "Changes requested" } as Record<string, string>
+  )[status.reviewDecision];
+  return review ? [checksLabel(status.checks), review] : [checksLabel(status.checks)];
 }
 export function comparisonMatch(comparison: Comparison, mode: Mode, status: PullRequestStatus) {
   if (mode !== "branch") return "Local comparison includes a different scope than the PR";

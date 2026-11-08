@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 
@@ -7,12 +7,14 @@ interface Option {
   label: string;
   detail?: string;
   complete?: boolean;
+  extra?: ReactNode;
 }
 interface Props {
   label: string;
   value: string;
   options: Option[];
   onChange: (value: string) => void;
+  onOpen?: () => void;
   searchable?: boolean;
   placeholder?: string;
   className?: string;
@@ -22,6 +24,7 @@ export function Picker({
   value,
   options,
   onChange,
+  onOpen,
   searchable = false,
   placeholder = "Choose…",
   className = "",
@@ -39,6 +42,17 @@ export function Picker({
   const filtered = options.filter((option) =>
     `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(query.toLowerCase()),
   );
+  const show = () => {
+    setQuery("");
+    setActive(
+      Math.max(
+        0,
+        options.findIndex((option) => option.value === value),
+      ),
+    );
+    setOpen(true);
+    onOpen?.();
+  };
   const close = (focus = true) => {
     setOpen(false);
     if (focus) trigger.current?.focus();
@@ -117,30 +131,11 @@ export function Picker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? `${id}-list` : undefined}
-        onClick={() => {
-          if (open) close();
-          else {
-            setQuery("");
-            setActive(
-              Math.max(
-                0,
-                options.findIndex((option) => option.value === value),
-              ),
-            );
-            setOpen(true);
-          }
-        }}
+        onClick={() => (open ? close() : show())}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
-            setQuery("");
-            setActive(
-              Math.max(
-                0,
-                options.findIndex((option) => option.value === value),
-              ),
-            );
-            setOpen(true);
+            show();
           }
         }}
       >
@@ -203,6 +198,7 @@ export function Picker({
                     {option.detail && (
                       <small className={option.complete ? "completed" : ""}>{option.detail}</small>
                     )}
+                    {option.extra}
                   </div>
                 </div>
               ))}

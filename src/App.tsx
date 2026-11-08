@@ -61,7 +61,7 @@ import { scrollToChange } from "./scroll-to-change";
 import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { collectionProgress, markedFile, progressLabel, progressSource, unviewedGroups, withFileViews } from "./progress";
-import { PullRequest } from "./PullRequest";
+import { PullRequest, PullRequestLine } from "./PullRequest";
 import { LineCounts } from "./LineCounts";
 import { ImageDiff } from "./ImageDiff";
 import { BrandMark } from "./BrandMark";
@@ -1035,7 +1035,10 @@ export default function App() {
   const loadedView = useRef("");
   const collection = collections.find((entry) => entry.id === collectionId);
   const review = collection?.reviews.find((entry) => entry.id === reviewId);
-  const { entries: pullRequests, refreshPullRequest } = usePullRequests(collection, refresh);
+  const { entries: pullRequests, recheckPullRequests, refreshPullRequest } = usePullRequests(
+    collection,
+    refresh,
+  );
   const repositoryPath = review?.path ?? path;
   const reviewRequest = review
     ? JSON.stringify({ collection: collectionId, review: reviewId, definition: review })
@@ -1402,7 +1405,14 @@ export default function App() {
                   label: `${index + 1}. ${entry.title}`,
                   detail: progressLabel(itemProgress[entry.id]),
                   complete: itemProgress[entry.id]?.status === "reviewed",
+                  extra: entry.pullRequest && (
+                    <PullRequestLine
+                      url={entry.pullRequest}
+                      entry={pullRequests[entry.pullRequest]}
+                    />
+                  ),
                 }))}
+                onOpen={recheckPullRequests}
                 onChange={(value) =>
                   selectReview(
                     collection,
