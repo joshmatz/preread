@@ -2056,7 +2056,12 @@ dialog.visual-gallery { inset: 16px; width: calc(100vw - 32px); max-width: none;
 .visual-gallery button:disabled { opacity: .4; cursor: default; }
 .visual-stage { position: absolute; inset: 0; overflow: hidden; background: var(--subtle); touch-action: none; cursor: grab; }
 .visual-stage.dragging { cursor: grabbing; }
-.visual-stage > img { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; object-fit: contain; transform-origin: center; user-select: none; background: white; border-radius: 2px; }
+.visual-stage > img, .visual-stage > canvas { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; object-fit: contain; transform-origin: center; user-select: none; background: white; border-radius: 2px; }
+.gif-playback { position: absolute; left: 16px; right: 16px; bottom: 72px; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: var(--shadow); cursor: default; touch-action: auto; }
+.gif-playback input { flex: 1; min-width: 32px; height: 36px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.gif-playback input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gif-playback output { flex-shrink: 0; color: var(--secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.visual-stage:has(.gif-playback) ~ .visual-filmstrip { bottom: 144px; max-height: calc(100% - 216px); }
 .visual-status, .visual-error { position: absolute; inset: 0; display: flex; gap: 12px; align-items: center; justify-content: center; flex-direction: column; padding: 24px; color: var(--secondary); font-size: 13px; text-align: center; cursor: default; }
 .visual-toolbar { position: absolute; bottom: 16px; right: 16px; z-index: 2; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: var(--shadow); }
 
@@ -2074,6 +2079,8 @@ dialog.visual-gallery { inset: 16px; width: calc(100vw - 32px); max-width: none;
   .visual-gallery-title { padding: 10px 8px; }
   .visual-gallery-header h2 { font-size: 12px; }
   .visual-toolbar { bottom: 8px; right: 8px; }
+  .gif-playback { left: 8px; right: 8px; bottom: 64px; gap: 8px; }
+  .gif-playback output { font-size: 11px; }
 
   .visual-gallery button { min-width: 40px; min-height: 40px; }
   .visual-filmstrip { left: 8px; bottom: 64px; max-width: calc(100% - 16px); }

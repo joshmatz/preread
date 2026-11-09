@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Images, Maximize, Minus, Plus, X } from "lucide-react";
 import type { ReviewVisual } from "./review-types";
@@ -6,6 +6,7 @@ import { fitVisual, zoomVisual, MIN_ZOOM, MAX_ZOOM, type View, type Size } from 
 
 type Scope = { collection: string; review: string; group?: string };
 const isMermaid = (visual: ReviewVisual) => /\.(mmd|mermaid)$/i.test(visual.path);
+const GifVisual = lazy(() => import("./GifVisual"));
 const assetUrl = (visual: ReviewVisual, scope: Scope) => `/api/visuals?${new URLSearchParams({ ...scope, id: visual.id })}`;
 function VisualCanvas({ visual, scope }: { visual: ReviewVisual; scope: Scope }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -16,6 +17,10 @@ function VisualCanvas({ visual, scope }: { visual: ReviewVisual; scope: Scope })
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const [dragging, setDragging] = useState(false);
+  const isGif = /\.gif$/i.test(visual.path);
+  const loaded = useCallback((next: Size) => {
+    setSize(next); if (stage.current) setView(fitVisual(next, stage.current.getBoundingClientRect()));
+  }, []);
   useEffect(() => {
     const abort = new AbortController();
     let objectUrl = "";
@@ -53,6 +58,7 @@ function VisualCanvas({ visual, scope }: { visual: ReviewVisual; scope: Scope })
     const element = stage.current;
     if (!element || !size) return;
     const wheel = (event: WheelEvent) => {
+      if (event.target instanceof Element && event.target.closest(".gif-playback")) return;
       event.preventDefault();
       const bounds = element.getBoundingClientRect();
       const point = { x: event.clientX - bounds.left - bounds.width / 2,
@@ -109,13 +115,17 @@ function VisualCanvas({ visual, scope }: { visual: ReviewVisual; scope: Scope })
       {!size && !error && <p className="visual-status" role="status">{isMermaid(visual) ? "Rendering diagram…" : "Loading visual…"}</p>}
       {error && <div className="visual-error" role="alert"><p>{error}</p>
         <button onClick={() => setAttempt((value) => value + 1)}>Retry</button></div>}
-      {src && !error && <img src={src} alt={visual.title} draggable={false}
+      {src && !error && isGif && <Suspense fallback={null}><GifVisual key={`${src}|${attempt}`}
+        src={src} title={visual.title} onSize={loaded} onError={setError}
+        style={{ width: size?.width, height: size?.height, visibility: size ? "visible" : "hidden",
+          transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} /></Suspense>}
+      {src && !error && !isGif && <img src={src} alt={visual.title} draggable={false}
         style={{ width: size?.width, height: size?.height, visibility: size ? "visible" : "hidden",
           transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
         onLoad={(event) => {
           const image = event.currentTarget;
           const next = { width: image.naturalWidth, height: image.naturalHeight };
-          setSize(next); if (stage.current) setView(fitVisual(next, stage.current.getBoundingClientRect()));
+          loaded(next);
         }} onError={() => setError("Couldn’t display this visual. Ask your agent to check the attachment.")} />}
     </div>
     <div className="visual-toolbar">
