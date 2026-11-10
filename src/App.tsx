@@ -1008,7 +1008,7 @@ export default function App() {
   const [refresh, setRefresh] = useState(0);
   const [progressRefresh, setProgressRefresh] = useState(0);
   const [searchTarget, setSearchTarget] = useState<{ section: string; path: string; match: SearchMatch; version: number } | null>(null);
-  const [sinceViewedGroup, setSinceViewedGroup] = useState("");
+  const [sinceViewedGroups, setSinceViewedGroups] = useState(() => new Map<string, boolean>());
   const [split, setSplit] = useState(load("split", false));
   const [wrap, setWrap] = useState(load("wrapLines", false));
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(load("ignoreWhitespace", false));
@@ -1047,7 +1047,7 @@ export default function App() {
       : "";
   const scope = `${path}|${base}|${mode}`;
   activeView.current = `${activeReview.current}|${scope}`;
-  useEffect(() => { setSinceViewedGroup(""); }, [collectionId, reviewId, scope]);
+  useEffect(() => { setSinceViewedGroups(new Map()); }, [collectionId, reviewId, scope]);
   useEffect(() => { setMarkErrors([]); }, [collectionId, reviewId, tab]);
   const fileStateVersion = useFileStateVersion();
   const snapshot = useMemo(
@@ -1682,7 +1682,7 @@ export default function App() {
               worktree={path} hideTestFiles={hideTestFiles} reviewedCount={reviewedCount}
               totalGroups={review ? snapshot.sections.length : undefined} defaultViewed={defaultViewed}
               onJump={jump} onMatch={(section, preview, match) => {
-                setSinceViewedGroup("");
+                setSinceViewedGroups((current) => new Map(current).set(section, false));
                 setFilesCollapsed(path, [markedFile(preview)], false);
                 setSearchTarget({ section, path: preview.file.path, match, version: Date.now() });
                 jump(section, preview.file.path);
@@ -1696,8 +1696,9 @@ export default function App() {
                   <p>Choose a different base or include local edits.</p>
                 </div>
               )}
-              {displayedSections.map(({ section, files }, index) => (
-                <section className="change-group" id={anchor(section.id)} key={section.id}>
+              {displayedSections.map(({ section, files }, index) => {
+                const sinceViewed = sinceViewedGroups.get(section.id) ?? section.changedSinceReview;
+                return <section className="change-group" id={anchor(section.id)} key={section.id}>
                   <header className="group-header">
                     <div className="group-heading">
                       <span className="group-number">{String(index + 1).padStart(2, "0")}</span>
@@ -1727,11 +1728,11 @@ export default function App() {
                           {section.reviewed ? "All viewed" : "Mark all viewed"}
                         </button>
                       )}
-                      {(section.changedSinceReview || sinceViewedGroup === section.id) && (
+                      {(section.changedSinceReview || sinceViewed) && (
                         <button className="changed-label"
-                          aria-pressed={sinceViewedGroup === section.id}
-                          onClick={() => setSinceViewedGroup((current) => current === section.id ? "" : section.id)}>
-                          {sinceViewedGroup === section.id ? "Show full review" : "Changed since review"}
+                          aria-pressed={sinceViewed}
+                          onClick={() => setSinceViewedGroups((current) => new Map(current).set(section.id, !sinceViewed))}>
+                          {sinceViewed ? "Show full review" : "Changed since review"}
                         </button>
                       )}
                     </div>
@@ -1772,7 +1773,7 @@ export default function App() {
                       onViewedAdvance={advanceViewed}
                       onSearchReady={onSearchReady}
                       searchMatch={searchTarget?.section === section.id && searchTarget.path === preview.file.path ? searchTarget : undefined}
-                      sinceViewed={sinceViewedGroup === section.id}
+                      sinceViewed={sinceViewed && !!preview.lastViewed?.hasText}
                     />
                   ))}
                   {!files.length && (
@@ -1782,8 +1783,8 @@ export default function App() {
                         : "No matching changes in this group."}
                     </p>
                   )}
-                </section>
-              ))}
+                </section>;
+              })}
               <footer className="feed-end">
                 End of changes · {comparison?.files.length}{" "}
                 {comparison?.files.length === 1 ? "file" : "files"}

@@ -80,9 +80,9 @@ The outline can search file names, changed content, or both. Content search incl
 
 Viewed marks are stored in Preread’s data directory and shared by browsers using the same server. Marks follow the worktree, file path and selected content, so changing the content reopens it. Marking or unmarking a file updates open pages automatically. Earlier browser-local Viewed marks are ignored; collapse and display preferences remain browser-local.
 
-Click **Changed since review** on a group to compare each file with its most recent Viewed version. **Show full review** returns to the original comparison. Viewed and Mark all viewed save the represented file content in Preread’s local data directory without modifying the repository. Selected-block groups show a labeled whole-file comparison, including edits outside their selected blocks.
+Changed groups automatically compare files with their most recent Viewed versions. New files and files without a saved text baseline keep their full comparison. **Show full review** returns a group to the original comparison; **Changed since review** switches it back. Each group switches independently, and opening another review resets to the automatic default. Viewed and Mark all viewed save the represented file content in Preread’s local data directory without modifying the repository. Selected-block groups show a labeled whole-file comparison, including edits outside their selected blocks.
 
-Older marks saved only hashes, so they cannot reconstruct a previous file version. Those files show a baseline-unavailable message until the next Viewed click. Binary, oversized and unsupported file types also show an explicit message. Only files still present in the current comparison appear.
+Older marks saved only hashes, so they cannot reconstruct a previous file version. Those files keep the full comparison until the next Viewed click saves a text baseline. Binary, oversized and unsupported file types keep their original previews and availability messages. Only files still present in the current comparison appear.
 
 ## Large diffs and binary files
 
