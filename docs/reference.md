@@ -17,7 +17,7 @@ pnpm refresh          # re-read every open review page in place
 pnpm refresh --page   # reload the browser page itself
 ```
 
-Importing a collection refreshes open pages on its own. Use `--page` only when Preread itself changed: it reloads the page like the browser's Reload button, so unsaved text in an open dialog is lost. Open pages also reload themselves when the server restarts, so a rebuilt app shows up without a manual reload.
+Importing or deleting a collection refreshes open pages on its own. Use `--page` only when Preread itself changed: it reloads the page like the browser's Reload button, so unsaved text in an open dialog is lost. Open pages also reload themselves when the server restarts, so a rebuilt app shows up without a manual reload.
 
 ## Configuration
 

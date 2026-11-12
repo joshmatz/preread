@@ -10,9 +10,12 @@ Run these from your Preread checkout. Import prints a link to the first review:
 pnpm collection import /absolute/path/to/manifest.json
 pnpm collection list
 pnpm collection show <collection-id>
+pnpm collection delete <collection-id>
 ```
 
 Open any review directly at `http://127.0.0.1:4780/?collection=<collection-id>&review=<review-id>`.
+
+Delete removes a collection from the picker and refreshes open pages. Its review receipts and Viewed marks stay, so importing the same manifest again restores them.
 
 ## Manifest
 

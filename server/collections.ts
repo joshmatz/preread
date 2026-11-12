@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -180,6 +180,12 @@ export async function putCollection(input: unknown) {
   await mkdir(join(dataDirectory(), "collections"), { recursive: true, mode: 0o700 });
   await atomicWrite(fileFor(collection.id), collection);
   return collection;
+}
+// Receipts and Viewed baselines stay, so importing the same ID again restores them.
+export async function deleteCollection(id: string) {
+  await unlink(fileFor(id)).catch((error: NodeJS.ErrnoException) => {
+    throw error.code === "ENOENT" ? new Error(`No collection has the ID “${id}”.`) : error;
+  });
 }
 export const receiptKey = (reviewId: string, groupId: string) =>
   `${identifier(reviewId)}/${identifier(groupId)}`;

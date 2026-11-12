@@ -8,6 +8,7 @@ import { groupPreviews, snapshot, markGroups } from "../server/review.ts";
 import {
   validateCollection,
   putCollection,
+  deleteCollection,
   readCollection,
   listCollections,
   setReceipt,
@@ -322,6 +323,24 @@ test("importing descriptions preserves user review receipts and concurrent write
   assert.equal(Object.keys(await readReceipts("fixture")).length, 2);
   await setReceipt("fixture", "example", "first-change", null);
   assert.equal(Object.keys(await readReceipts("fixture")).length, 1);
+});
+test("deleting a collection keeps its review receipts for a later import", async () => {
+  await putCollection({ ...collection, id: "stray" });
+  await setReceipt("stray", "example", "first-change", "one");
+  await deleteCollection("stray");
+  assert.equal((await listCollections()).some((entry) => entry.id === "stray"), false);
+  await assert.rejects(deleteCollection("stray"), /No collection has the ID “stray”/);
+  await assert.rejects(deleteCollection("../stray"), /IDs must use/);
+  await putCollection({ ...collection, id: "stray" });
+  assert.deepEqual(Object.keys(await readReceipts("stray")), ["example/first-change"]);
+});
+test("a collection saved by another version of Preread can still be deleted", async () => {
+  await putCollection({ ...collection, id: "outdated" });
+  const file = join(directory, "metadata", "collections", "outdated.json");
+  await writeFile(file, JSON.stringify({ ...collection, id: "outdated", retired: true }));
+  await assert.rejects(readCollection("outdated"), /Unknown field “retired”/);
+  await deleteCollection("outdated");
+  await assert.rejects(readFile(file), { code: "ENOENT" });
 });
 test("large comparisons preview small tracked and untracked files beyond the first 500", async () => {
   const repo = join(directory, "many files");

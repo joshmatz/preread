@@ -128,6 +128,8 @@ curl -s "http://127.0.0.1:4780/api/review?collection=<collection-id>&review=<rev
 
 Fix every warning (a target that left the comparison, a range that matches no change, an overlap with an earlier group) and import again. Ranges drift when lines move, so check again after new commits.
 
+If you imported a collection by mistake, such as a duplicate of one that already covers the work, remove it with `pnpm collection delete <id>`. Delete any other collection only when the person asks. Its review receipts and Viewed marks stay, so importing the same manifest again restores them.
+
 A group with `canReview: false` and no warnings holds a diff over the server size limit or a file that failed to load, so it cannot be marked reviewed. Binary files such as fonts can be marked Viewed after local inspection. Text diffs with at least 500 displayed lines or 100 KB of patch text start collapsed; expand their file heading to read the continuous diff. This does not block Viewed marks.
 
 ## Keep the page current
