@@ -56,6 +56,19 @@ test("line ranges select complete change blocks while unmatched blocks stay visi
   assert.match(result[1].files[0].diff.patch, /new second/);
   assert.equal(result[1].id, "other-changes");
 });
+test("group-only scope leaves unrelated files and blocks out without changing selected Viewed identities", () => {
+  const unrelated = { ...preview, file: { ...preview.file, path: "unrelated.ts" } };
+  const complete = groupPreviews([preview, unrelated], [group], {}, scope);
+  const selected = groupPreviews([preview, unrelated], [group], {}, { ...scope, scope: "groups" });
+  assert.equal(selected.length, 1);
+  assert.deepEqual(selected[0], complete[0]);
+  assert.equal(selected[0].files[0].partial, true);
+  assert.doesNotMatch(selected[0].files[0].diff.patch, /new second/);
+  const missing = groupPreviews([unrelated], [group], {}, { ...scope, scope: "groups" });
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].canReview, false);
+  assert.match(missing[0].warnings[0], /no longer/);
+});
 test("old-side ranges select deletions and context-only ranges do not accidentally claim a change", () => {
   const result = groupPreviews(
     [preview],
@@ -304,6 +317,15 @@ test("collection validation rejects traversal, malformed ranges, duplicate IDs a
     /needs a base/,
   );
 });
+test("group-only scope survives imports and rejects invalid or empty selections", async () => {
+  const selected = { ...collection, id: "selected-scope", reviews: [{ ...collection.reviews[0], scope: "groups" as const }] };
+  await putCollection(selected);
+  assert.equal((await readCollection(selected.id)).reviews[0].scope, "groups");
+  assert.equal(validateCollection(collection).reviews[0].scope, undefined);
+  for (const scope of ["unknown", null, true])
+    assert.throws(() => validateCollection({ ...collection, reviews: [{ ...collection.reviews[0], scope }] }), /scope/);
+  assert.throws(() => validateCollection({ ...collection, reviews: [{ ...collection.reviews[0], scope: "groups", groups: [] }] }), /at least one group/);
+});
 test("an unreadable collection file does not hide the other collections", async () => {
   await putCollection(collection);
   const broken = join(directory, "metadata", "collections", "broken.json");
@@ -369,6 +391,56 @@ test("large comparisons preview small tracked and untracked files beyond the fir
   assert.match(files.find((preview) => preview.file.path === "file-504.ts")!.diff.patch, /\+new/);
   assert.match(files.find((preview) => preview.file.path === "zz-routes.ts")!.diff.patch, /\+export const route/);
   assert.equal(result.sections[0].canReview, false);
+});
+
+test("real Git group-only reviews count selected hunks once and leave the worktree and index untouched", async () => {
+  const repo = join(directory, "scoped repository");
+  execFileSync("git", ["init", "-b", "main", repo], { stdio: "pipe" });
+  const run = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: "pipe" }).trim();
+  run("config", "user.name", "Review Test");
+  run("config", "user.email", "review@example.test");
+  const lines = Array.from({ length: 60 }, (_, i) => `line ${i + 1}\n`);
+  await writeFile(join(repo, "example.ts"), lines.join(""));
+  run("add", ".");
+  run("commit", "-m", "Base");
+  lines[0] = "selected change\n";
+  lines[49] = "unrelated change\n";
+  await writeFile(join(repo, "example.ts"), lines.join(""));
+  await writeFile(join(repo, "new.ts"), "selected new file\n");
+  await writeFile(join(repo, "unrelated.ts"), "unrelated new file\n".repeat(100));
+  await writeFile(join(repo, "logo.bin"), Buffer.from([0, 1, 2]));
+  const review = {
+    ...collection.reviews[0], path: repo, mode: "working" as const, scope: "groups" as const,
+    groups: [group, { ...group, id: "duplicate" },
+      { ...group, id: "new-file", targets: [{ path: "new.ts" }, { path: "logo.bin" }] }],
+  };
+  const status = run("status", "--porcelain");
+  const index = await readFile(join(repo, ".git/index"));
+  const selected = await snapshot(review);
+  assert.equal(selected.sections.length, 3);
+  assert.deepEqual(selected.comparison.files.map((file) => file.path).sort(), ["example.ts", "logo.bin", "new.ts"]);
+  assert.equal(selected.comparison.files.reduce((sum, file) => sum + file.additions, 0), 2);
+  assert.equal(selected.comparison.files.reduce((sum, file) => sum + file.deletions, 0), 1);
+  assert.match(selected.sections[1].warnings[0], /earlier group/);
+  assert.equal(selected.sections[2].canReview, true);
+  assert.doesNotMatch(selected.sections[0].files[0].diff.patch, /unrelated change/);
+  const full = await snapshot({ ...review, scope: "comparison" });
+  assert.equal(full.comparison.files.length, 4);
+  assert.equal(full.sections.at(-1)?.id, "other-changes");
+  assert.equal(selected.comparison.version, full.comparison.version);
+  assert.equal(run("status", "--porcelain"), status);
+  assert.deepEqual(await readFile(join(repo, ".git/index")), index);
+
+  run("add", ".");
+  run("commit", "-m", "Changes");
+  const branch = { ...review, mode: "branch" as const, base: "HEAD~1" };
+  const first = await snapshot(branch);
+  assert.equal(first.comparison.files.length, 3);
+  const changedTargets = await snapshot({ ...branch, groups: [{ ...group, targets: [{ path: "unrelated.ts" }] }] });
+  assert.deepEqual(changedTargets.comparison.files.map((file) => file.path), ["unrelated.ts"]);
+  assert.equal(changedTargets.comparison.files[0].additions, 100);
+  const broad = await snapshot({ ...branch, scope: "comparison" });
+  assert.equal(broad.comparison.files.length, 4);
 });
 
 test("real Git reviews persist completion, reject stale marks, and invalidate changed content without touching the repository", async () => {

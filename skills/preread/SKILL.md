@@ -57,6 +57,8 @@ A collection is a reading list, not a Git stack. Put related work in one collect
 - Read an existing collection before changing it: `pnpm collection list`, then `pnpm collection show <id>`. Import replaces the whole collection, so carry over every review you aren't changing. Keep collection, review, and group IDs stable, because review receipts are keyed by them. A receipt also covers the group's title, description, and targets and the review's path, base, and mode, so change those only when the reader should look again.
 - Choose each base from the real ancestry, not from folder names or collection order. Check it with `git log --oneline --graph <base>..HEAD` and `git merge-base <base> HEAD` inside the worktree. Use the direct parent branch to show one layer of a stack, or the default branch to show everything since it.
 - Preread never fetches. Make sure the base ref exists locally and contains the commits you expect.
+- For a curated task review, use `"scope": "groups"` and assign every intended change to a named group. Only those complete hunks appear in the review, search, progress and line totals. This keeps concurrent and pre-existing work out of the review, including other hunks in shared files. Check each selected hunk: a range includes its entire hunk, which can contain adjacent edits.
+- Use `"scope": "comparison"` for an intentional review of the whole comparison. Omitting `scope` retains that behavior for existing collections. Unassigned changes appear under Other changes only in this scope.
 - Pick the mode for what the person should read:
   - `branch`: commits since the merge base with `base`.
   - `all`: those commits plus staged, unstaged, and untracked changes.
@@ -80,6 +82,7 @@ Write the manifest outside every reviewed repository, for example in a temporary
       "path": "/absolute/path/to/worktree",
       "base": "main",
       "mode": "branch",
+      "scope": "groups",
       "pullRequest": "https://github.com/owner/repo/pull/123",
       "groups": [
         {
@@ -106,7 +109,7 @@ Write the manifest outside every reviewed repository, for example in a temporary
 - Descriptions say what the change does, why, and what needs the reader's attention. Don't restate the file list.
 - Target paths are exact and repository-relative. Omit `ranges` to include the whole file.
 - A range uses one-based diff line numbers on the `new` side, or `old` for deleted lines. It selects every complete hunk that has a changed line inside the range; hunks are never split.
-- Give each hunk to one group. Anything unassigned appears under Other changes, which is a fine home for incidental edits.
+- Give each intended hunk to one group. With group-only scope, anything unassigned is outside the review; verify that no intended change was omitted. With comparison scope, anything unassigned appears under Other changes.
 - `pullRequest` is optional. Preread reads its status through the user's signed-in `gh` CLI.
 
 ## Add visual context

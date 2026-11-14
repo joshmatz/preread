@@ -12,6 +12,7 @@ import {
 import { readCollection, readReceipts, receiptKey, setReceipt } from "./collections.ts";
 import { saveViewedFiles, withViewedBaselines, diffSinceViewed } from "./viewed-baselines.ts";
 import { matchesRanges, parsePatch, patchFor, reviewContent } from "./patches.ts";
+import type { PatchHunk } from "./patches.ts";
 import type {
   ChangeGroup,
   FilePreview,
@@ -31,7 +32,7 @@ export function groupPreviews(
   files: FilePreview[],
   groups: ChangeGroup[],
   receipts: Record<string, ReviewReceipt>,
-  review: Pick<Review, "id" | "path" | "base" | "mode">,
+  review: Pick<Review, "id" | "path" | "base" | "mode" | "scope">,
 ): ReviewSection[] {
   const assigned = new Map<string, Set<number>>();
   const sections: ReviewSection[] = [];
@@ -140,6 +141,7 @@ export function groupPreviews(
     }
     sections.push(finish(group, previews, warnings));
   }
+  if (review.scope === "groups") return sections;
   const remainder = files.flatMap((preview) => {
     const { header, hunks } = parsed.get(preview.file.path)!;
     const used = assigned.get(preview.file.path) ?? new Set<number>();
@@ -178,6 +180,30 @@ export async function resolveReview(collectionId: string, reviewId: string) {
   return review;
 }
 type ReviewData = { comparison: ReviewSnapshot["comparison"]; files: FilePreview[] };
+const targetPaths = (review: Review) =>
+  [...new Set(review.groups.flatMap((group) => group.targets.map((target) => target.path)))].sort();
+function groupComparison(info: ReviewSnapshot["comparison"], sections: ReviewSection[]) {
+  const selected = new Map<string, { whole: boolean; hunks: Map<string, PatchHunk> }>();
+  for (const preview of sections.flatMap((section) => section.files)) {
+    const entry = selected.get(preview.file.path) ?? { whole: false, hunks: new Map() };
+    entry.whole ||= !preview.partial;
+    for (const hunk of parsePatch(preview.diff.patch).hunks) entry.hunks.set(hunk.text, hunk);
+    selected.set(preview.file.path, entry);
+  }
+  return {
+    ...info,
+    files: info.files.flatMap((file) => {
+      const entry = selected.get(file.path);
+      if (!entry) return [];
+      if (entry.whole) return [file];
+      return [{
+        ...file,
+        additions: [...entry.hunks.values()].reduce((sum, hunk) => sum + hunk.newLines.length, 0),
+        deletions: [...entry.hunks.values()].reduce((sum, hunk) => sum + hunk.oldLines.length, 0),
+      }];
+    }),
+  };
+}
 const branchCache = new Map<string, { promise: Promise<ReviewData>; bytes: number }>();
 function trimCache() {
   let bytes = [...branchCache.values()].reduce((total, entry) => total + entry.bytes, 0);
@@ -193,6 +219,10 @@ async function readReviewData(
 ): Promise<ReviewData> {
   const path = source.path;
   const info = await comparison(path, review.base, review.mode, source);
+  if (review.scope === "groups") {
+    const paths = new Set(targetPaths(review));
+    info.files = info.files.filter((file) => paths.has(file.path));
+  }
   const files: FilePreview[] = [];
   // When the combined read fails, each file falls back to the bounded per-file reader.
   // Git output and retained patches are bounded by bytes, not the number of files.
@@ -268,7 +298,8 @@ export async function snapshot(review: Review, collectionId?: string): Promise<R
   let data: ReviewData;
   if (review.mode === "branch") {
     // Only immutable Git content is shared, never review receipts.
-    const key = JSON.stringify([refs.path, review.base, refs.head, refs.baseSha]);
+    const key = JSON.stringify([refs.path, review.base, refs.head, refs.baseSha,
+      review.scope === "groups" ? targetPaths(review) : null]);
     let entry = branchCache.get(key);
     if (entry) {
       branchCache.delete(key);
@@ -292,9 +323,10 @@ export async function snapshot(review: Review, collectionId?: string): Promise<R
     }
   } else data = await read();
   const receipts = collectionId ? await readReceipts(collectionId) : {};
+  const sections = groupPreviews(data.files, review.groups, receipts, review);
   return {
-    comparison: data.comparison,
-    sections: await withSharedFileViews(refs.path, await withViewedBaselines(baselineReview(review, collectionId), groupPreviews(data.files, review.groups, receipts, review))),
+    comparison: review.scope === "groups" ? groupComparison(data.comparison, sections) : data.comparison,
+    sections: await withSharedFileViews(refs.path, await withViewedBaselines(baselineReview(review, collectionId), sections)),
   };
 }
 export const adHocReview = (path: string, base: string, mode: Mode): Review => ({

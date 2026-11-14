@@ -29,6 +29,7 @@ export interface Review {
   path: string;
   base: string;
   mode: Mode;
+  scope?: "comparison" | "groups";
   groups: ChangeGroup[];
   visuals?: ReviewVisual[];
   pullRequest?: string;

@@ -65,17 +65,19 @@ const visuals = (input: unknown, location: string): ReviewVisual[] | undefined =
 };
 export function validateCollection(input: unknown): Collection {
   const value = fields(input, ["id", "title", "description", "reviews"], "the collection");
-  const reviews = list(value.reviews, "reviews", 100).map((inputReview, reviewIndex) => {
+  const reviews = list(value.reviews, "reviews", 100).map((inputReview, reviewIndex): Collection["reviews"][number] => {
     const location = `reviews[${reviewIndex}]`;
     const review = fields(
       inputReview,
-      ["id", "title", "description", "path", "base", "mode", "groups", "pullRequest", "visuals"],
+      ["id", "title", "description", "path", "base", "mode", "scope", "groups", "pullRequest", "visuals"],
       location,
     );
     const path = text(review.path, "worktree path");
     if (!isAbsolute(path)) throw new Error("Worktree paths must be absolute.");
     if (!["branch", "all", "working", "staged"].includes(String(review.mode)))
       throw new Error("Invalid review mode.");
+    if (review.scope !== undefined && review.scope !== "comparison" && review.scope !== "groups")
+      throw new Error("Review scope must be comparison or groups.");
     const base = text(review.base, "base", 300);
     if (!base.trim() && (review.mode === "branch" || review.mode === "all"))
       throw new Error(`${location} needs a base branch or commit.`);
@@ -124,6 +126,8 @@ export function validateCollection(input: unknown): Collection {
       };
     });
     unique(groups, "group");
+    if (review.scope === "groups" && !groups.length)
+      throw new Error(`${location} needs at least one group for group-only scope.`);
     return {
       id: identifier(review.id),
       title: title(review.title),
@@ -131,6 +135,7 @@ export function validateCollection(input: unknown): Collection {
       path,
       base,
       mode: review.mode as Collection["reviews"][number]["mode"],
+      ...(review.scope !== undefined ? { scope: review.scope } : {}),
       groups,
       ...(review.visuals !== undefined ? { visuals: visuals(review.visuals, location) } : {}),
       ...(review.pullRequest

@@ -32,6 +32,7 @@ Delete removes a collection from the picker and refreshes open pages. Its review
       "path": "/Users/you/src/courier-retries",
       "base": "main",
       "mode": "branch",
+      "scope": "groups",
       "pullRequest": "https://github.com/owner/repo/pull/142",
       "groups": [
         {
@@ -63,6 +64,7 @@ Delete removes a collection from the picker and refreshes open pages. Its review
 | `path` | Absolute path to the worktree or repository. |
 | `base` | Any ref Git can resolve locally. `branch` and `all` compare against it. `working` and `staged` compare with HEAD and ignore it, but the field is still required, so use `""`. Preread never fetches, so make sure the ref has the commits you expect. |
 | `mode` | `branch` compares the merge base of `base` and HEAD with HEAD. `all` adds staged, unstaged, and untracked changes. `working` compares HEAD with the working tree, including untracked files. `staged` compares HEAD with the index. |
+| `scope` | Use `groups` for a curated review: include only complete hunks selected by named groups, with file counts and line totals limited to those changes. Requires at least one group. Use `comparison` (the default for existing manifests) to include the entire comparison, with unassigned changes under Other changes. |
 | `pullRequest` | Optional GitHub pull request URL. |
 | `targets[].path` | Exact, repository-relative file path. |
 | `targets[].ranges` | Optional. One-based diff line numbers on the `new` side, or `old` for deleted lines. A range selects every complete hunk with a changed line inside it; hunks are never split. |
@@ -71,7 +73,7 @@ Delete removes a collection from the picker and refreshes open pages. Its review
 
 Import rejects unknown fields, empty groups, and paths that aren't repository-relative, so a typo fails instead of importing a group that shows nothing. It replaces a collection's configuration and keeps its review receipts. A receipt covers a group's title, description, targets, and diff, and its review's path, base, and mode; when any of them changes, the group shows Changed since review and needs another read.
 
-Every changed hunk shows up somewhere: in the group that claims it, or under Other changes. A target that no longer matches the diff gets a warning, and so does a hunk claimed by two groups.
+In group-only scope, only assigned hunks appear; unassigned files and hunks are outside the review. In comparison scope, every changed hunk appears in its assigned group or under Other changes. Both scopes warn about targets that no longer match the diff and hunks claimed by two groups. Ranges select complete hunks, so inspect adjacent edits in each selected hunk.
 
 Editing a comparison in the UI opens an ad hoc view and leaves the saved review alone.
 

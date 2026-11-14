@@ -124,7 +124,7 @@ const modeLabels: Record<Mode, string> = {
 const modeHelp: Record<Mode, string> = {
   branch: "Commits since the branch left the base",
   all: "Those commits plus staged, unstaged, and untracked files",
-  working: "The working tree compared with HEAD",
+  working: "Staged, unstaged, and untracked files compared with HEAD",
   staged: "The index compared with HEAD",
 };
 const comparesWithHead = (mode: Mode) => mode === "working" || mode === "staged";
@@ -1591,6 +1591,11 @@ export default function App() {
                   (repo ? short(repo.branch) || "Local changes" : "Open a local worktree")}
               </h1>
               {repo?.dirty && <span className="pill">Local edits</span>}
+              {review?.scope === "groups" && (
+                <span className="pill" title="Only changes assigned to the named groups are included in this review and its totals.">
+                  Selected groups
+                </span>
+              )}
               {review && (reviewLeft.length > 0 || marking === `@review:${review.id}`) && (
                 <MarkAllButton count={reviewLeft.length} scope="review" busy={marking === `@review:${review.id}`}
                   disabled={!!marking} onClick={() => markAll(`@review:${review.id}`, [{ review, groups: reviewLeft }])} />
@@ -1598,9 +1603,9 @@ export default function App() {
             </div>
             <MarkErrors messages={markErrors} />
             {review?.description && (
-              <Description key={`${collectionId}/${reviewId}`} text={review.description} />
+              <Description key={`description:${collectionId}/${reviewId}`} text={review.description} />
             )}
-            {review && <ReviewVisuals key={`${collectionId}/${reviewId}`}
+            {review && <ReviewVisuals key={`visuals:${collectionId}/${reviewId}`}
               collection={collectionId} review={reviewId} visuals={review.visuals} />}
             {review?.pullRequest && (
               <PullRequest
