@@ -4,9 +4,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, realpath, rm, rename, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapshot, viewedFile, markGroups } from "../server/review.ts";
+import { snapshot, viewedFile, sinceViewed, markGroups } from "../server/review.ts";
 import { saveViewedFiles } from "../server/viewed-baselines.ts";
 import { reviewProgress } from "../src/progress.ts";
+import { createContextModel, initialGaps, expandContext, contextPatch } from "../src/diff-context.ts";
 import { putCollection, readReceipts, setReceipt } from "../server/collections.ts";
 import type { Review, FilePreview, SinceViewed, ViewedBaselineInfo } from "../src/review-types.ts";
 
@@ -20,7 +21,7 @@ const review = (id: string, path: string, mode: Review["mode"] = "working"): Rev
 const preview = async (scope: Review, collection?: string) =>
   (await snapshot(scope, collection)).sections[0].files[0];
 const call = (scope: Review, file: FilePreview, save: boolean, collection?: string, group = "code") =>
-  viewedFile(scope, group, file.file.path, file.contextHash ?? file.diff.hash, file.viewHash!, save, collection);
+  (save ? viewedFile : sinceViewed)(scope, group, file.file.path, file.contextHash ?? file.diff.hash, file.viewHash!, collection);
 const delta = async (scope: Review, collection?: string) =>
   await call(scope, await preview(scope, collection), false, collection) as SinceViewed;
 before(async () => {
@@ -71,9 +72,9 @@ test("stale and out-of-comparison requests cannot replace a saved baseline", asy
   await assert.rejects(call(scope, old, true), /changed since/);
   const result = await delta(scope);
   assert.match(result.diff!.patch, /-updated code/);
-  await assert.rejects(viewedFile(scope, "code", "../outside", "hash", "hash", true), /not part/);
+  await assert.rejects(viewedFile(scope, "code", "../outside", "hash", "hash"), /not part/);
   const fresh = await preview(scope);
-  await assert.rejects(viewedFile(scope, "missing", "code.ts", fresh.contextHash ?? fresh.diff.hash, "hash", true), /selected blocks/);
+  await assert.rejects(viewedFile(scope, "missing", "code.ts", fresh.contextHash ?? fresh.diff.hash, "hash"), /selected blocks/);
 });
 
 test("staged baselines use index content and ignore later working edits", async () => {
@@ -213,7 +214,7 @@ test("individual Viewed state survives fresh snapshots and explicit unmarking ov
   await markGroups("shared", "shared", [{ group: "code", fingerprint: current.sections[0].fingerprint }], true);
   current = await snapshot(scope, "shared");
   const file = current.sections[0].files[0];
-  await viewedFile(scope, "code", file.file.path, file.contextHash ?? file.diff.hash, file.viewHash!, true, "shared", false);
+  await viewedFile(scope, "code", file.file.path, file.contextHash ?? file.diff.hash, file.viewHash!, "shared", false);
   const unmarked = await snapshot(scope, "shared");
   assert.equal(unmarked.sections[0].files[0].viewed, false);
   assert.equal(reviewProgress(unmarked).reviewedGroups, before - 1);
@@ -251,4 +252,22 @@ test("a bulk save that finds one changed file saves no group's baseline", async 
     /changed/,
   );
   assert.equal((await snapshot(scope)).sections[0].files[0].lastViewed, undefined);
+});
+
+test("a since-viewed diff expands to the whole file", async () => {
+  const scope = review("expand", "expand.ts");
+  const text = (edit: string) =>
+    Array.from({ length: 60 }, (_, index) => (index === 29 ? edit : `line ${index + 1}`)).join("\n") + "\n";
+  await writeFile(join(repo, "expand.ts"), text("viewed"));
+  await call(scope, await preview(scope), true);
+  await writeFile(join(repo, "expand.ts"), text("updated"));
+  const file = await preview(scope);
+  const compare = async (fullContext: boolean) => (await sinceViewed(scope, "code", file.file.path,
+    file.contextHash ?? file.diff.hash, file.viewHash!, undefined, fullContext)).diff!.patch;
+  const compact = await compare(false);
+  assert.deepEqual(initialGaps(compact).map(({ above, below }) => [above, below]), [[24, 0], [0, 20]],
+    "the compact diff offers lines above and below its change");
+  const full = await compare(true);
+  const model = createContextModel(compact, full);
+  assert.equal(contextPatch(expandContext(expandContext(model, 0, "all"), 1, "all")), full);
 });

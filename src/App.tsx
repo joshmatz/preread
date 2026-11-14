@@ -334,6 +334,7 @@ function DiffView({
   source,
   context,
   onContextChange,
+  loadContext,
   expandable = true,
   searchMatch,
   onSearchReady,
@@ -341,6 +342,7 @@ function DiffView({
 }: {
   chunkIndex?: number;
   expandable?: boolean;
+  loadContext?: (signal: AbortSignal) => Promise<Diff>;
   searchMatch?: { match: SearchMatch; version: number };
   onSearchReady?: (row: HTMLElement) => void;
   preview: FilePreview;
@@ -372,11 +374,11 @@ function DiffView({
     try {
       let model = context;
       if (!model) {
-        const expanded = await request<Diff>(
+        const expanded = await (loadContext ? loadContext(signal) : request<Diff>(
           "context",
           { ...source, file: preview.file.path, hash: preview.contextHash ?? preview.diff.hash },
           signal,
-        );
+        ));
         model = createContextModel(preview.diff.patch, expanded.patch);
       }
       if (!signal.aborted) {
@@ -632,13 +634,17 @@ function RenamedPath({ from, to }: { from: string; to: string }) {
   );
 }
 type ViewedSource = ContextSource & { collection?: string; review?: string };
-function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespace }: {
+function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespace, context,
+  onContextChange, onCompared }: {
   preview: FilePreview;
   section: string;
   source: ViewedSource;
   split: boolean;
   wrap: boolean;
   ignoreWhitespace: boolean;
+  context: ContextModel | null;
+  onContextChange: (context: ContextModel) => void;
+  onCompared: (hash: string) => void;
 }) {
   const [result, setResult] = useState<SinceViewed | null>(null);
   const [error, setError] = useState("");
@@ -650,10 +656,21 @@ function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespa
     setResult(null);
     setError("");
     request<SinceViewed>("since-viewed", JSON.parse(values), abort.signal)
-      .then((result) => { if (!abort.signal.aborted) setResult(result); })
+      .then((result) => {
+        if (abort.signal.aborted) return;
+        setResult(result);
+        onCompared(result.diff?.hash ?? "");
+      })
       .catch((cause) => { if (!abort.signal.aborted) setError(cause.message); });
     return () => abort.abort();
   }, [values, retry]);
+  const loadContext = async (signal: AbortSignal) => {
+    const full = await request<SinceViewed>("since-viewed", { ...JSON.parse(values), context: "full" }, signal);
+    if (!full.diff) throw new Error(full.message);
+    if (full.diff.tooLarge)
+      throw new Error("This file is too large to expand here. Open it locally for the full context.");
+    return full.diff;
+  };
   if (error) return <p className="warning" role="alert">{error}{" "}
     <button onClick={() => setRetry((value) => value + 1)}>Retry comparison</button></p>;
   if (!result) return <Loading>Comparing with the last viewed version…</Loading>;
@@ -664,7 +681,7 @@ function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespa
     {result.diff!.empty ? <p className="empty-file">No text changes since this file was viewed.</p> :
       <DiffView preview={{ ...preview, partial: false, diff: result.diff! }} eager={true}
         split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} source={source}
-        context={null} onContextChange={() => {}} expandable={false} />}
+        context={context} onContextChange={onContextChange} loadContext={loadContext} />}
   </>;
 }
 function FileCard({
@@ -737,9 +754,11 @@ function FileCard({
   const kind = fileKind(preview.file.path, !!preview.diff.image);
   const FileIcon = kindIcons[kind];
   const renamedFrom = preview.file.oldPath ? `, renamed from ${preview.file.oldPath}` : "";
-  const contextKey = `${preview.diff.hash}:${source.version}`;
+  const [sinceHash, setSinceHash] = useState("");
+  const contextKey = `${sinceViewed ? sinceHash : preview.diff.hash}:${source.version}`;
   const [expanded, setExpanded] = useState<{ key: string; model: ContextModel } | null>(null);
   const context = expanded?.key === contextKey ? expanded.model : null;
+  const expand = (model: ContextModel) => setExpanded({ key: contextKey, model });
   useEffect(() => { if (searchMatch) setExpanded(null); }, [searchMatch]);
   const card = useRef<HTMLElement>(null);
   const collapseButton = useRef<HTMLButtonElement>(null);
@@ -772,7 +791,6 @@ function FileCard({
         </button>
         <button
           className={context ? "reset-context active" : "reset-context"}
-          hidden={sinceViewed}
           aria-label="Reset context"
           onClick={() => {
             setExpanded(null);
@@ -823,7 +841,8 @@ function FileCard({
       <div id={bodyId} hidden={collapsed}>
         {sinceViewed ? (
           <SinceViewedFile preview={preview} section={section} source={source}
-            split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} />
+            split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace}
+            context={context} onContextChange={expand} onCompared={setSinceHash} />
         ) : preview.diff.image && !noContentNote(preview.diff.patch) ? (
           <ImageDiff key={preview.diff.hash} preview={preview} split={split} source={source} />
         ) : (
@@ -838,7 +857,7 @@ function FileCard({
             ignoreWhitespace={ignoreWhitespace}
             source={source}
             context={context}
-            onContextChange={(model) => setExpanded({ key: contextKey, model })}
+            onContextChange={expand}
           />
         )}
       </div>

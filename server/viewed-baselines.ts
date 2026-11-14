@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createTwoFilesPatch } from "diff";
 import { dataDirectory } from "./collections.ts";
 import { fileDiff, viewedFileText, MAX_PATCH } from "./git.ts";
+import { CONTEXT_LINES } from "../src/diff-context.ts";
 import type { Comparison, Diff } from "../src/types.ts";
 import type { FilePreview, Review, ReviewSection, ViewedBaselineInfo, SinceViewed } from "../src/review-types.ts";
 
@@ -80,7 +81,7 @@ export async function withViewedBaselines(review: Review, sections: ReviewSectio
   return result;
 }
 export async function diffSinceViewed(review: Review, group: string, preview: FilePreview,
-  comparison: Comparison): Promise<SinceViewed> {
+  comparison: Comparison, fullContext = false): Promise<SinceViewed> {
   const baseline = await readBaseline(review, group, preview.file.path);
   if (!baseline) return { available: false,
     message: "No viewed version was saved for this file. Mark it viewed to save a baseline for future changes." };
@@ -89,7 +90,7 @@ export async function diffSinceViewed(review: Review, group: string, preview: Fi
     reviewedAt: baseline.reviewedAt, message: "A text comparison is unavailable for this file. Use the full review to inspect it." };
   const patch = baseline.content === content ? "" : createTwoFilesPatch(
     `a/${preview.file.path}`, `b/${preview.file.path}`, baseline.content, content,
-    "Last viewed", "Current", { context: 3, timeout: 1000 });
+    "Last viewed", "Current", { context: fullContext ? Infinity : CONTEXT_LINES, timeout: 1000 });
   if (patch === undefined) return { available: false, reviewedAt: baseline.reviewedAt,
     message: "This comparison took too long to compute. Use the full review to inspect it." };
   const tooLarge = Buffer.byteLength(patch) > MAX_PATCH;

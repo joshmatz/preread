@@ -6,7 +6,7 @@ import { createServer as createViteServer } from "vite";
 import { repository, comparison, fileDiff, fileContext, fileImage, stackFor } from "./git.ts";
 import { listCollections, putCollection } from "./collections.ts";
 import { bump, live } from "./live.ts";
-import { snapshot, adHocReview, resolveReview, markGroups, viewedFile } from "./review.ts";
+import { snapshot, adHocReview, resolveReview, markGroups, viewedFile, sinceViewed } from "./review.ts";
 import { reviewProgress, progressSource } from "../src/progress.ts";
 import type { Mode } from "../src/types.ts";
 
@@ -133,14 +133,14 @@ app.post("/api/viewed-file", async (req, res) => {
     throw new Error("Invalid viewed-file request.");
   const viewed = values.viewed ?? true;
   if (typeof viewed !== "boolean") throw new Error("Invalid viewed-file request.");
-  const result = await viewedFile(await viewedScope(values), values.group, values.file, values.hash, values.viewHash, true, query(values.collection), viewed);
+  const result = await viewedFile(await viewedScope(values), values.group, values.file, values.hash, values.viewHash, query(values.collection), viewed);
   bump(false);
   res.json(result);
 });
 app.get("/api/since-viewed", async (req, res) => {
   const values = req.query;
-  res.json(await viewedFile(await viewedScope(values), query(values.group), query(values.file),
-    query(values.hash), query(values.viewHash), false, query(values.collection)));
+  res.json(await sinceViewed(await viewedScope(values), query(values.group), query(values.file),
+    query(values.hash), query(values.viewHash), query(values.collection), values.context === "full"));
 });
 app.get("/api/visuals", async (req, res) => {
   const { content, type } = await readVisual(query(req.query.collection), query(req.query.review),

@@ -347,8 +347,8 @@ export async function markGroups(
 }
 
 
-export async function viewedFile(review: Review, group: string, name: string,
-  expectedHash: string, expectedViewHash: string, save: boolean, collectionId?: string, viewed = true) {
+async function currentPreview(review: Review, group: string, name: string,
+  expectedHash: string, expectedViewHash: string) {
   const info = await comparison(review.path, review.base, review.mode);
   const file = info.files.find((entry) => entry.path === name);
   if (!file) throw new Error("This file is not part of the current comparison. Refresh the review.");
@@ -359,7 +359,16 @@ export async function viewedFile(review: Review, group: string, name: string,
   const preview = section?.files.find((entry) => entry.file.path === name);
   if (!preview || preview.viewHash !== expectedViewHash)
     throw new Error("The selected blocks changed since the review loaded. Refresh the review.");
-  if (!save) return diffSinceViewed(baselineReview(review, collectionId), group, preview, info);
+  return { info, preview };
+}
+export async function sinceViewed(review: Review, group: string, name: string, expectedHash: string,
+  expectedViewHash: string, collectionId?: string, fullContext = false) {
+  const { info, preview } = await currentPreview(review, group, name, expectedHash, expectedViewHash);
+  return diffSinceViewed(baselineReview(review, collectionId), group, preview, info, fullContext);
+}
+export async function viewedFile(review: Review, group: string, name: string, expectedHash: string,
+  expectedViewHash: string, collectionId?: string, viewed = true) {
+  const { info, preview } = await currentPreview(review, group, name, expectedHash, expectedViewHash);
   const baseline = viewed ? (await saveViewedFiles(baselineReview(review, collectionId), [{ group, preview }], info))[0] : undefined;
   await saveFileViews(info.path, [{ path: name, viewHash: expectedViewHash, viewed }]);
   return { ...baseline, viewed };
