@@ -22,6 +22,8 @@
     "start": "NODE_ENV=production tsx server/index.ts",
     "test": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 tsx --test tests/*.test.ts",
     "collection": "tsx scripts/collections.ts",
+    "brief-demo": "tsx scripts/brief-demo.ts",
+    "feedback": "tsx scripts/brief-feedback.ts",
     "refresh": "tsx scripts/refresh.ts",
     "benchmark": "tsx scripts/benchmark.ts"
   },
@@ -34,7 +36,12 @@
     "lucide-react": "^0.468.0",
     "mermaid": "12.1.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

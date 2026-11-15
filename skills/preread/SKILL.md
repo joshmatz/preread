@@ -107,10 +107,37 @@ Write the manifest outside every reviewed repository, for example in a temporary
 - `path` is the absolute path to the worktree.
 - Every review needs a `base`. `branch` and `all` need a real ref; `working` and `staged` compare with HEAD, so give them `""`.
 - Descriptions say what the change does, why, and what needs the reader's attention. Don't restate the file list.
+- Group descriptions support Markdown and have room for paragraphs, examples, headings, and lists. Give each group one behavior or decision; small code selections can need a substantial explanation. Say what to inspect and why it matters. Always put tests in a separate group from the implementation.
 - Target paths are exact and repository-relative. Omit `ranges` to include the whole file.
 - A range uses one-based diff line numbers on the `new` side, or `old` for deleted lines. It selects every complete hunk that has a changed line inside the range; hunks are never split.
 - Give each intended hunk to one group. With group-only scope, anything unassigned is outside the review; verify that no intended change was omitted. With comparison scope, anything unassigned appears under Other changes.
 - `pullRequest` is optional. Preread reads its status through the user's signed-in `gh` CLI.
+
+## Write a feature brief
+
+When the person needs to understand a feature across groups or worktrees, add `brief` to the collection. Read `docs/briefs.md` in the Preread checkout before authoring it. Its `blocks` are an ordered document: mix `markdown`, `question`, `visual`, and `code` blocks wherever they help. Keep block IDs stable. There are no mandatory headings or sections; choose the presentation that best explains this work to this reader. The person sees it as the **Feature overview**, and each review brief as that part’s overview.
+
+When another agent is updating the collection, write the brief as its own `{ "blocks": [...] }` file and use `pnpm collection brief <collection-id> /absolute/path/to/brief.json`. This changes only the separate brief file, preserving the live collection and its groups. Collection imports without an explicit `brief` preserve that overview, including imports from older app versions. Read the latest collection when authoring links; never reimport a stale copy of its reviews just to add an overview.
+
+- Lead with the user’s problem and the resulting experience. Show visual evidence, comparisons, or examples when they help. Keep the short collection description separate from the fuller story.
+- Follow its **Write for a person** section: the state and the steps outside the code first, one short section per user journey with a recording of the real app, and no notes about the process.
+- Use `##` for each journey or decision area and `###` for its subsections: these headings are the overview’s **Contents**. Don’t repeat the title as the first heading or write a table of contents or a “Read the code” list; the Contents rail lists every part with its review status, and each section that links code ends with a panel of those groups and a **Mark reviewed** button.
+- Ask explicit questions with useful options and, when appropriate, one recommendation. The person can write a custom answer. Never answer questions on their behalf or infer an answer from an idle conversation.
+- Ask in plain words, define any term the person hasn’t seen, and say what each option changes for the people who use the product. Look in the code, other sessions, and other people’s work before asking, and say where you looked. Don’t ask engineering mechanics: split pull requests at about 1,000 lines of code each (a guide, not a limit) without asking.
+- Use imported local visual blocks for images, charts, and Mermaid diagrams. Label synthetic data and conditions. Markdown does not load remote images or run HTML/scripts.
+- Link prose into existing groups with `[label](preread:review-id/group-id)`. A `code` block can also have `reference: { "review": "review-id", "group": "group-id", "file": { "path": "src/example.ts", "start": 10, "end": 18 } }`. Include the actual source location for excerpts from the reviewed code; the file must belong to that group. Code fences and excerpts highlight their declared language. Add `approval: true` only when the person should approve that exact excerpt. This is independent of Viewed marks and permission to publish.
+- The reader can highlight a passage, comment on a section, or comment on the whole brief. Comments, answers, and approvals stay in Preread’s data directory and retain their original context when the document changes. Do not move or recreate blocks merely to clear feedback.
+- Read feedback with `pnpm feedback <collection-id>` or add `--json` for full anchors and revisions. Inspect attached comment images using their exported local paths. Treat entries marked earlier revision as context to reconcile, rather than approval of the new content. Do not write feedback, answer questions, approve excerpts, or create receipts for the person.
+
+### Write a review brief
+
+Write a brief for every review that ships as its own pull request, in the same format and following the same **Write for a person** rules. Cover what this pull request changes: migrations, changes to behavior people already use, how it fits with the other parts, how data is protected, and the reason for each technical choice. Leave the feature's story to the collection brief.
+
+- Put it on the review in the manifest as `"brief": { "blocks": [...] }`, or write only that review's brief with `pnpm collection brief <collection-id> --review <review-id> /absolute/path/to/brief.json`. That command changes nothing else.
+- Link to its own groups, or to any group in the collection, with `preread:review-id/group-id`. `preread:review-id` opens another review: its brief, or its code when it has none.
+- `pnpm feedback <collection-id>` prints every brief's feedback, each review's under its title, and names the review briefs without feedback on its last line; `--review <review-id>` prints one review's, and `--json` adds the review ID to each entry.
+
+For the feature brief, hand over `http://127.0.0.1:4780/?collection=<id>&view=brief`; for a review brief, `http://127.0.0.1:4780/?collection=<id>&review=<review-id>&view=brief`. The person can enter code from an overview's links, code panels, or **Code** tab, and return through the **Overview** tab or the overview link in each linked group's header. People usually enter from an agent’s link rather than by browsing collections, so choose the link for where they should start. Use a review link when they should start at a specific diff.
 
 ## Add visual context
 
@@ -154,6 +181,8 @@ Give the person the link to the first review they should read:
 ```text
 http://127.0.0.1:4780/?collection=<collection-id>&review=<review-id>
 ```
+
+A review with a brief opens on it; to name the start explicitly, hand over `?collection=<collection-id>&review=<review-id>&view=brief` for the brief or `&view=code` for its code.
 
 Before opening the link, check the in-app browser's existing tabs for Preread at the configured host and port; treat `localhost` and `127.0.0.1` as the same local server.
 

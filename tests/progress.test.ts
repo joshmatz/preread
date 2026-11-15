@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  codeGroups,
   collectionProgress,
   reviewProgress,
   progressLabel,
@@ -242,4 +243,18 @@ test("groups left to mark are the reviewable ones with any file not yet viewed",
   assert.deepEqual(unviewedGroups(reopened).map((section) => section.id), ["first", "other-changes"]);
   const blocked = { ...source, sections: source.sections.map((section) => ({ ...section, canReview: false })) };
   assert.deepEqual(unviewedGroups(blocked), []);
+});
+
+test("brief code counts use a review's named groups until its progress loads, then every unread group", () => {
+  const review = { id: "api", title: "API", description: "", path: "/tmp/fixture", base: "main", mode: "branch" as const,
+    groups: [{ id: "schema", title: "Schema", description: "", targets: [] }] };
+  assert.deepEqual(codeGroups([review], {}).remaining.map(({ group }) => group.id), ["schema"]);
+  const section = { fingerprint: "f", reviewed: false, canReview: true, changedSinceReview: false, files: [] };
+  const sources = { api: { empty: false, sections: [
+    { ...section, id: "schema", files: [{ path: "a.ts", viewHash: "a", patchHash: "a", viewed: true }] },
+    { ...section, id: "other-changes", files: [{ path: "b.ts", viewHash: "b", patchHash: "b" }] },
+  ] } };
+  const { groups, remaining } = codeGroups([review], sources);
+  assert.deepEqual(groups.map(({ group }) => group.id), ["schema", "other-changes"]);
+  assert.deepEqual(remaining.map(({ group }) => group.id), ["other-changes"]);
 });

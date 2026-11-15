@@ -55,17 +55,26 @@ import { fileKind, fileKindLabels, isTestFile, type FileKind } from "./file-kind
 import { displaySections } from "./review-display";
 import { diffChunks } from "./diff-chunks";
 import { useReviewSearch } from "./useReviewSearch";
+import { searchLines } from "./review-search";
 import type { SearchScope, SearchMatch } from "./review-search";
 import { diffSize } from "./diff-size";
 import { scrollToChange } from "./scroll-to-change";
 import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
 import { useCollectionProgress } from "./useCollectionProgress";
-import { collectionProgress, markedFile, progressLabel, progressSource, unviewedGroups, withFileViews } from "./progress";
+import { codeGroups, collectionProgress, markedFile, progressLabel, progressSource, unviewedGroups, withFileViews } from "./progress";
 import { PullRequest, PullRequestLine } from "./PullRequest";
 import { LineCounts } from "./LineCounts";
 import { ImageDiff } from "./ImageDiff";
 import { BrandMark } from "./BrandMark";
 import { usePullRequests } from "./usePullRequests";
+import { FeatureBrief } from "./FeatureBrief";
+import { BriefTabs } from "./BriefTabs";
+import { useBrief } from "./useBrief";
+import { Markdown } from "./Markdown";
+import type { BriefReference, FeatureBrief as BriefDocument } from "./brief-types";
+import type { MarkTargets } from "./BriefCodeGroups";
+import { Description } from "./Description";
+import { briefStructure } from "./brief-outline";
 import {
   createContextModel,
   contextGaps,
@@ -211,30 +220,6 @@ function Segmented<T extends string>({
           {text}
         </button>
       ))}
-    </div>
-  );
-}
-function Description({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const [clamped, setClamped] = useState(false);
-  const paragraph = useRef<HTMLParagraphElement>(null);
-  useLayoutEffect(() => {
-    const element = paragraph.current!;
-    if (expanded) return;
-    const measure = () => setClamped(element.scrollHeight > element.clientHeight + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [text, expanded]);
-  return (
-    <div className={`review-description${expanded ? " expanded" : ""}`}>
-      <p ref={paragraph}>{text}</p>
-      {(clamped || expanded) && (
-        <button className="more-button" onClick={() => setExpanded(!expanded)}>
-          {expanded ? "Show less" : "Show more"}
-        </button>
-      )}
     </div>
   );
 }
@@ -1019,7 +1004,15 @@ export default function App() {
   );
   const [repo, setRepo] = useState<Repository | null>(null);
   const [rawSnapshot, setSnapshot] = useState<ReviewSnapshot | null>(null);
-  const [tab, setTab] = useState<"changes" | "collection" | "commits" | "stack">("changes");
+  // "collection" is the feature brief or the collection overview; "brief" is the selected review's brief.
+  const [tab, setTab] = useState<"changes" | "collection" | "brief" | "commits" | "stack">(
+    params.get("view") === "brief" ? (params.get("review") ? "brief" : "collection") : "changes");
+  const [briefView, setBriefView] = useState<"brief" | "feedback">("brief");
+  const [briefJump, setBriefJump] = useState("");
+  const [featureJump, setFeatureJump] = useState("");
+  const entered = useRef(false);
+  const [groupJump, setGroupJump] = useState<BriefReference | null>(null);
+  const preparedGroupJump = useRef<BriefReference | null>(null);
   const [stack, setStack] = useState<StackNode[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(!!(collectionId || path));
@@ -1054,6 +1047,8 @@ export default function App() {
   const loadedView = useRef("");
   const collection = collections.find((entry) => entry.id === collectionId);
   const review = collection?.reviews.find((entry) => entry.id === reviewId);
+  const collectionBrief = useBrief(collection?.brief ? { collection } : null, refresh);
+  const reviewBrief = useBrief(collection && review?.brief ? { collection, review } : null, refresh);
   const { entries: pullRequests, recheckPullRequests, refreshPullRequest } = usePullRequests(
     collection,
     refresh,
@@ -1160,13 +1155,22 @@ export default function App() {
     request<Collection[]>("collections")
       .then((result) => {
         setCollections(result);
+        // Only the first load opens a review the way its link asks; later refreshes keep the reader's view.
+        const first = !entered.current;
+        entered.current = true;
         if (collectionId) {
           const selected = result.find((entry) => entry.id === collectionId);
+          const linked = selected?.reviews.find((entry) => entry.id === reviewId);
           if (!selected)
             setError("This collection is unavailable. Open a folder or choose another collection.");
-          else if (!reviewId) setReviewId(selected.reviews[0].id);
-          else if (!selected.reviews.some((entry) => entry.id === reviewId))
+          else if (!reviewId) {
+            setReviewId(selected.reviews[0].id);
+            if (selected.brief) setTab("collection");
+            else if (first && selected.reviews[0].brief) setTab("brief");
+          }
+          else if (!linked)
             setError("This review is unavailable. Choose another review from the collection.");
+          else if (first && linked.brief && !params.get("view") && !params.get("file") && !location.hash) setTab("brief");
         }
       })
       .catch((cause) => setError(cause.message));
@@ -1263,13 +1267,21 @@ export default function App() {
     return () => abort.abort();
   }, [tab, repo]);
   useEffect(() => {
+    if (tab === "brief" && collection && review && !review.brief) setTab(collection.brief ? "collection" : "changes");
+  }, [tab, collection, review]);
+  useEffect(() => {
     if ((!path && !collectionId) || (collectionId && !review)) return;
+    const featureBrief = tab === "collection" && !!collection?.brief;
+    const briefShown = featureBrief || (tab === "brief" && !!review?.brief);
     const next = new URLSearchParams(
-      review ? { collection: collectionId, review: reviewId } : { path, base, mode },
+      featureBrief ? { collection: collectionId } : review ? { collection: collectionId, review: reviewId } : { path, base, mode },
     );
     if (params.get("file") && !jumped.current) next.set("file", params.get("file")!);
-    history.replaceState(null, "", `?${next}${location.hash}`);
-  }, [path, base, mode, review, collectionId, reviewId]);
+    // A plain review link opens its brief, so the code view names itself to survive a reload.
+    if (briefShown) next.set("view", "brief");
+    else if (review?.brief) next.set("view", "code");
+    history.replaceState(null, "", `?${next}${briefShown ? "" : location.hash}`);
+  }, [path, base, mode, review, collectionId, reviewId, tab, !!collection?.brief]);
   const scrollTo = (id: string) => {
     stopJump.current?.();
     const target = document.getElementById(id);
@@ -1286,7 +1298,7 @@ export default function App() {
     const frame = requestAnimationFrame(() => scrollTo(initialJump.id));
     return () => cancelAnimationFrame(frame);
   }, [snapshot, initialJump]);
-  const selectReview = (nextCollection: Collection, nextReview = nextCollection.reviews[0]) => {
+  const selectReview = (nextCollection: Collection, nextReview = nextCollection.reviews[0], view: "entry" | "code" = "entry") => {
     setCollectionId(nextCollection.id);
     setReviewId(nextReview.id);
     setPath(nextReview.path);
@@ -1296,11 +1308,46 @@ export default function App() {
       setSnapshot(null);
       setBusy(true);
     }
-    setTab("changes");
+    setTab(view === "entry" && nextReview.brief ? "brief" : "changes");
+    setBriefView("brief");
+    setBriefJump("");
     setError("");
     window.scrollTo(0, 0);
     history.replaceState(null, "", location.pathname + location.search);
   };
+  const openCodeReference = (reference: BriefReference) => {
+    const target = collection?.reviews.find((entry) => entry.id === reference.review);
+    if (!collection || !target) return;
+    selectReview(collection, target, "code");
+    if (target.groups.find((group) => group.id === reference.group)?.targets.every((target) => isTestFile(target.path))) setHideTestFiles(false);
+    setGroupJump(reference);
+  };
+  const openReviewEntry = (id: string, block?: string, view?: "feedback") => {
+    const target = collection?.reviews.find((entry) => entry.id === id);
+    if (!collection || !target) return;
+    selectReview(collection, target);
+    if (view && target.brief) setBriefView(view);
+    if (block && target.brief) setBriefJump(block);
+  };
+  const openReviewBrief = (view: "brief" | "feedback") => {
+    setBriefView(view);
+    setTab("brief");
+  };
+  useEffect(() => {
+    if (!groupJump || tab !== "changes" || busy || !snapshot || groupJump.review !== reviewId) return;
+    const target = groupJump.file;
+    const section = snapshot.sections.find((section) => section.id === groupJump.group);
+    const preview = target && section?.files.find((preview) => preview.file.path === target.path);
+    if (preview && preparedGroupJump.current !== groupJump) {
+      preparedGroupJump.current = groupJump;
+      setSinceViewedGroups((current) => new Map(current).set(groupJump.group, false));
+      setFilesCollapsed(path, [markedFile(preview)], false);
+      const match = searchLines(preview.diff.patch).find((line) => line.side === "new" && line.line === target?.start);
+      if (match) setSearchTarget({ section: groupJump.group, path: preview.file.path, match, version: Date.now() });
+    }
+    const frame = requestAnimationFrame(() => { scrollTo(anchor(groupJump.group, preview?.file.path)); setGroupJump(null); });
+    return () => cancelAnimationFrame(frame);
+  }, [groupJump, tab, busy, snapshot, reviewId, path]);
   const openPath = (next: string) => {
     setCollectionId("");
     setReviewId("");
@@ -1357,11 +1404,9 @@ export default function App() {
     }
   };
   // Group IDs can't contain "@", so these keys never light up a group's spinner.
-  const markAll = async (key: string, targets: Array<{ review: Review; groups: ProgressSource["sections"] }>) => {
+  const saveMarks = async (key: string, targets: Array<{ review: Review; groups: ProgressSource["sections"] }>, reviewed: boolean) => {
     setMarking(key);
-    setMarkErrors([]);
     const selection = collectionId;
-    const startedOn = activeReview.current;
     const errors: string[] = [];
     for (const target of targets) {
       try {
@@ -1369,23 +1414,62 @@ export default function App() {
           collection: selection,
           review: target.review.id,
           groups: target.groups.map((group) => ({ group: group.id, fingerprint: group.fingerprint })),
-          reviewed: true,
+          reviewed,
         });
-        setFilesCollapsed(target.review.path, target.groups.flatMap((group) => group.files), true);
+        setFilesCollapsed(target.review.path, target.groups.flatMap((group) => group.files), reviewed);
         recordProgress(selection, target.review.id, result);
         if (activeReview.current === `${selection}/${target.review.id}`) setSnapshot(result);
       } catch (cause) {
         const message = (cause as Error).message;
-        errors.push(key === "@collection" ? `“${target.review.title}”: ${message}` : message);
+        errors.push(targets.length > 1 ? `“${target.review.title}”: ${message}` : message);
       }
     }
-    if (activeReview.current === startedOn) setMarkErrors(errors);
     setMarking("");
+    return errors;
+  };
+  const markAll = async (key: string, targets: Array<{ review: Review; groups: ProgressSource["sections"] }>) => {
+    setMarkErrors([]);
+    const startedOn = activeReview.current;
+    const errors = await saveMarks(key, targets, true);
+    if (activeReview.current === startedOn) setMarkErrors(errors);
+  };
+  const markFromBrief = async (key: string, targets: MarkTargets, reviewed: boolean) => {
+    if (!collection) return [];
+    const resolved = targets.map((target) => ({ target, review: collection.reviews.find((entry) => entry.id === target.review),
+      sections: progressSources[target.review]?.sections.filter((section) => target.groups.includes(section.id)) ?? [] }));
+    const missing = resolved.find(({ target, review, sections }) => !review || sections.length !== target.groups.length);
+    if (missing) return ["This code group’s status is still loading or changed. Refresh, then try again."];
+    return saveMarks(key, resolved.map(({ review, sections }) => ({ review: review!, groups: sections })), reviewed);
+  };
+  const briefMentions = useMemo(() => {
+    const mentions = new Map<string, { review?: string; target: string; heading: string }>();
+    if (!collection) return mentions;
+    const add = (brief: BriefDocument | undefined, owner?: string) => {
+      for (const section of brief ? briefStructure(brief).sections : [])
+        for (const target of section.groups) {
+          const key = `${target.review}/${target.group}`;
+          const existing = mentions.get(key);
+          // A group's own part explains it better than the feature overview.
+          if (!existing || (owner === target.review && existing.review !== target.review))
+            mentions.set(key, { review: owner, target: section.heading?.key ?? section.start, heading: section.heading?.text ?? "" });
+        }
+    };
+    add(collection.brief);
+    for (const entry of collection.reviews) add(entry.brief, entry.id);
+    return mentions;
+  }, [collection]);
+  const openBriefAt = (owner: string | undefined, place: string) => {
+    if (!collection) return;
+    if (owner === undefined) { setFeatureJump(place); showCollection(); return; }
+    const target = collection.reviews.find((entry) => entry.id === owner);
+    if (!target) return;
+    selectReview(collection, target);
+    setBriefJump(place);
   };
   const reviewedCount = snapshot?.sections.filter((section) => section.reviewed).length ?? 0;
 
   return (
-    <div className="app">
+    <div className={`app${collection?.brief || collection?.reviews.some((entry) => entry.brief) ? " has-feature-brief" : ""}`}>
       <header className="topbar">
         <a href="/" className="brand">
           <span className="brand-icon">
@@ -1405,11 +1489,11 @@ export default function App() {
             options={collections.map((entry) => ({
               value: entry.id,
               label: entry.title,
-              detail: `${entry.reviews.length} reviews`,
+              detail: `${entry.reviews.length} ${entry.reviews.length === 1 ? "review" : "reviews"}${entry.brief ? " · overview" : ""}`,
             }))}
             onChange={(value) => {
               const selected = collections.find((entry) => entry.id === value);
-              if (selected) selectReview(selected);
+              if (selected) { selectReview(selected); if (selected.brief) setTab("collection"); }
             }}
           />
           {collection && (
@@ -1417,12 +1501,13 @@ export default function App() {
               <span className="slash">/</span>
               <Picker
                 label="Review in collection"
-                value={reviewId}
+                value={tab === "collection" && collection.brief ? "" : reviewId}
+                placeholder={`${collection.reviews.length} ${collection.reviews.length === 1 ? "part" : "parts"}`}
                 searchable
                 options={collection.reviews.map((entry, index) => ({
                   value: entry.id,
                   label: `${index + 1}. ${entry.title}`,
-                  detail: progressLabel(itemProgress[entry.id]),
+                  detail: `${entry.brief ? "Overview · " : ""}${progressLabel(itemProgress[entry.id])}`,
                   complete: itemProgress[entry.id]?.status === "reviewed",
                   extra: entry.pullRequest && (
                     <PullRequestLine
@@ -1441,11 +1526,11 @@ export default function App() {
               />
               <button
                 className="quiet collection-link"
-                title="View collection"
+                title={collection.brief ? "Open the feature overview" : "View collection"}
                 aria-current={tab === "collection" ? "page" : undefined}
                 onClick={showCollection}
               >
-                {collectionStatus.complete ? (
+                {collection.brief ? <><BookOpen size={14} />Feature overview</> : collectionStatus.complete ? (
                   <>
                     <CheckCheck size={14} />
                     Collection reviewed
@@ -1583,8 +1668,11 @@ export default function App() {
         </Popover>
       </header>
       <main className="main">
-        {tab !== "collection" && (
+        {tab !== "collection" && tab !== "brief" && (
           <section className="review-header">
+            {collection && review && (collection.brief || review.brief) && <div className="brief-eyebrow">
+              Part {collection.reviews.findIndex((entry) => entry.id === review.id) + 1} of {collection.reviews.length}
+            </div>}
             <div className="title-row">
               <h1>
                 {review?.title ||
@@ -1604,6 +1692,11 @@ export default function App() {
             <MarkErrors messages={markErrors} />
             {review?.description && (
               <Description key={`description:${collectionId}/${reviewId}`} text={review.description} />
+            )}
+            {review?.brief && (
+              <BriefTabs label="Review views" current="code" feedback={reviewBrief.snapshot?.feedback.length ?? "…"}
+                code={itemProgress[review.id] ? codeGroups([review], progressSources).remaining.length : "…"}
+                onBrief={() => openReviewBrief("brief")} onCode={() => setTab("changes")} onFeedback={() => openReviewBrief("feedback")} />
             )}
             {review && <ReviewVisuals key={`visuals:${collectionId}/${reviewId}`}
               collection={collectionId} review={reviewId} visuals={review.visuals} />}
@@ -1699,7 +1792,7 @@ export default function App() {
             </button>
           </div>
         )}
-        {(busy || repoBusy) && !snapshot && !error && <Loading>Reading local changes…</Loading>}
+        {tab !== "collection" && tab !== "brief" && (busy || repoBusy) && !snapshot && !error && <Loading>Reading local changes…</Loading>}
         {tab === "changes" && snapshot && (
           <div className="changes-layout">
             <ReviewOutline key={`${collectionId}/${reviewId}|${scope}`} sections={displayedSections}
@@ -1722,13 +1815,16 @@ export default function App() {
               )}
               {displayedSections.map(({ section, files }, index) => {
                 const sinceViewed = sinceViewedGroups.get(section.id) ?? section.changedSinceReview;
+                const mention = review ? briefMentions.get(`${review.id}/${section.id}`) : undefined;
                 return <section className="change-group" id={anchor(section.id)} key={section.id}>
                   <header className="group-header">
                     <div className="group-heading">
                       <span className="group-number">{String(index + 1).padStart(2, "0")}</span>
                       <div>
                         <h2>{section.title}</h2>
-                        {section.description && <p>{section.description}</p>}
+                        {mention && <button className="group-brief-link" onClick={() => openBriefAt(mention.review, mention.target)}
+                          title={mention.review ? "Open where this part’s overview explains this group" : "Open where the feature overview explains this group"}>
+                          <BookOpen size={12} />{mention.review ? "Part overview" : "Feature overview"}{mention.heading && <>: {mention.heading}</>}</button>}
                       </div>
                     </div>
                     <div className="group-actions">
@@ -1761,6 +1857,7 @@ export default function App() {
                       )}
                     </div>
                   </header>
+                  {section.description && <div className="group-description"><Markdown>{section.description}</Markdown></div>}
                   {review?.groups.some((group) => group.id === section.id) &&
                     <ReviewVisuals key={`${collectionId}/${reviewId}/${section.id}`}
                       collection={collectionId} review={reviewId} group={section.id}
@@ -1821,7 +1918,14 @@ export default function App() {
             </div>
           </div>
         )}
-        {tab === "collection" && collection && (
+        {tab === "collection" && collection?.brief && <FeatureBrief key={collection.id} collection={collection} brief={collectionBrief}
+          progress={itemProgress} sources={progressSources} marking={marking} initialBlock={featureJump} onJumped={() => setFeatureJump("")}
+          onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief} />}
+        {tab === "brief" && collection && review?.brief && <FeatureBrief key={`${collection.id}/${review.id}`} collection={collection} review={review}
+          brief={reviewBrief} progress={itemProgress} sources={progressSources} marking={marking} initialView={briefView} initialBlock={briefJump}
+          onJumped={() => setBriefJump("")} onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief}
+          onCodeTab={() => { setTab("changes"); window.scrollTo(0, 0); }} />}
+        {tab === "collection" && collection && !collection.brief && (
           <div className="section-content">
             <div className="section-heading">
               <div className="title-row">

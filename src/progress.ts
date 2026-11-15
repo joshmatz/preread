@@ -2,6 +2,7 @@ import type {
   FilePreview,
   MarkedFile,
   ProgressSource,
+  Review,
   ReviewProgress,
   ReviewSnapshot,
 } from "./review-types";
@@ -41,6 +42,12 @@ export function sectionViewed(section: ProgressSource["sections"][number], viewe
 
 export const unviewedGroups = (source: ProgressSource) =>
   source.sections.filter((section) => section.canReview && !sectionViewed(section));
+
+export function codeGroups(reviews: Review[], sources: Record<string, ProgressSource>) {
+  const groups = reviews.flatMap((review) => (sources[review.id]?.sections ?? review.groups.map((group) => ({ id: group.id })))
+    .map((group) => ({ review, group, state: sources[review.id]?.sections.find((entry) => entry.id === group.id) })));
+  return { groups, remaining: groups.filter(({ state }) => !state || !sectionViewed(state)) };
+}
 
 export function withFileViews(snapshot: ReviewSnapshot, viewed: ViewedReader): ReviewSnapshot {
   const source = progressSource(snapshot);

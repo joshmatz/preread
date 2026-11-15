@@ -1,4 +1,5 @@
 import type { ChangedFile, Comparison, Diff, Mode } from "./types.ts";
+import type { FeatureBrief } from "./brief-types.ts";
 
 export interface LineRange {
   side: "old" | "new";
@@ -33,12 +34,14 @@ export interface Review {
   groups: ChangeGroup[];
   visuals?: ReviewVisual[];
   pullRequest?: string;
+  brief?: FeatureBrief;
 }
 export interface Collection {
   id: string;
   title: string;
   description: string;
   reviews: Review[];
+  brief?: FeatureBrief;
 }
 export interface ReviewReceipt {
   fingerprint: string;

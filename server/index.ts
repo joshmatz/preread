@@ -12,6 +12,8 @@ import type { Mode } from "../src/types.ts";
 
 import { readVisual } from "./review-visuals.ts";
 import { readPullRequest } from "./pullRequests.ts";
+import { briefSnapshot, collectionFeedbackText, saveBriefFeedback, readBriefVisual, readCommentAttachment } from "./briefs.ts";
+import { storeCommentImage } from "./comment-images.ts";
 
 const app = express();
 const server = createServer(app);
@@ -37,6 +39,8 @@ app.use("/api", (req, res, next) => {
 });
 app.use("/api", express.json({ limit: "1mb" }));
 const query = (value: unknown) => (typeof value === "string" ? value : "");
+// Without a review, brief routes act on the collection's own brief.
+const briefReview = (value: unknown) => query(value) || undefined;
 app.get("/api/bootstrap", (_req, res) =>
   res.json({ defaultPath: process.argv[2] ?? process.env.REVIEW_PATH ?? "", checkout: root }),
 );
@@ -88,6 +92,27 @@ app.get("/api/image", async (req, res) => {
 });
 app.get("/api/collections", async (_req, res) => res.json(await listCollections()));
 app.put("/api/collections", async (req, res) => res.json(await putCollection(req.body)));
+app.get("/api/brief", async (req, res) =>
+  res.json(await briefSnapshot(query(req.query.collection), briefReview(req.query.review))));
+app.get("/api/brief-export", async (req, res) => res.json(await collectionFeedbackText(query(req.query.collection))));
+app.post("/api/brief-feedback", async (req, res) => {
+  const result = await saveBriefFeedback(query(req.body?.collection), req.body?.command, briefReview(req.body?.review));
+  bump(false);
+  res.json(result);
+});
+app.get("/api/brief-visual", async (req, res) => {
+  const { content, type } = await readBriefVisual(query(req.query.collection), query(req.query.block), briefReview(req.query.review));
+  res.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox").type(type).send(content);
+});
+app.post("/api/comment-images", express.raw({ type: "application/octet-stream", limit: "10mb" }), async (req, res) => {
+  if (!Buffer.isBuffer(req.body)) throw new Error("Choose an image to attach.");
+  res.json(await storeCommentImage(query(req.query.collection), query(req.query.name), req.body, briefReview(req.query.review)));
+});
+app.get("/api/comment-image", async (req, res) => {
+  const { content, type } = await readCommentAttachment(query(req.query.collection), query(req.query.comment),
+    query(req.query.image), briefReview(req.query.review));
+  res.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox").type(type).send(content);
+});
 app.get("/api/review-progress", async (req, res) => {
   const collectionId = query(req.query.collection);
   const review = await resolveReview(collectionId, query(req.query.review));

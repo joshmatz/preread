@@ -2,9 +2,11 @@
 
 A collection is a reading list: one or more reviews, each pointing at a worktree and the base to compare it with, and each diff split into change groups that explain it. Your agent usually writes it with the [`preread` skill](../skills/preread/SKILL.md), but it's plain JSON you can write yourself.
 
+Add an optional `brief` to give the feature its own freely authored front page, with formatted prose, images and charts, questions, code excerpts, and passage comments. A review can have its own `brief` in the same format, for the pull request it ships as. See [Feature briefs](briefs.md) for the block format and a complete example. Group descriptions also support Markdown and have their own reading space above the diff.
+
 ## Import and open
 
-Run these from your Preread checkout. Import prints a link to the first review:
+Run these from your Preread checkout. Import prints a link to the collection’s brief, or to its first review:
 
 ```sh
 pnpm collection import /absolute/path/to/manifest.json
@@ -13,7 +15,7 @@ pnpm collection show <collection-id>
 pnpm collection delete <collection-id>
 ```
 
-Open any review directly at `http://127.0.0.1:4780/?collection=<collection-id>&review=<review-id>`.
+Open any review directly at `http://127.0.0.1:4780/?collection=<collection-id>&review=<review-id>`. A review with a brief opens on its brief; add `&view=code` to open its code.
 
 Delete removes a collection from the picker and refreshes open pages. Its review receipts and Viewed marks stay, so importing the same manifest again restores them.
 
@@ -66,6 +68,7 @@ Delete removes a collection from the picker and refreshes open pages. Its review
 | `mode` | `branch` compares the merge base of `base` and HEAD with HEAD. `all` adds staged, unstaged, and untracked changes. `working` compares HEAD with the working tree, including untracked files. `staged` compares HEAD with the index. |
 | `scope` | Use `groups` for a curated review: include only complete hunks selected by named groups, with file counts and line totals limited to those changes. Requires at least one group. Use `comparison` (the default for existing manifests) to include the entire comparison, with unassigned changes under Other changes. |
 | `pullRequest` | Optional GitHub pull request URL. |
+| `brief` | Optional, on the collection or on a review: an ordered document in the [brief format](briefs.md). Briefs are stored apart from the manifest, so an import that omits one keeps the saved brief. Write one for each review that ships as its own pull request. |
 | `targets[].path` | Exact, repository-relative file path. |
 | `targets[].ranges` | Optional. One-based diff line numbers on the `new` side, or `old` for deleted lines. A range selects every complete hunk with a changed line inside it; hunks are never split. |
 

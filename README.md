@@ -43,6 +43,7 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 
 ## What makes it different
 
+- **A feature overview before the code.** A freely authored page combines Markdown, local images and charts, multiple-choice questions, code excerpts, and comments on selected passages. Each review can have its own overview for the pull request it ships as, a tab away from its code. A Contents rail lists every part with its review status and the open overview’s sections, and each section ends with the code groups it explains, ready to open or mark reviewed. Answers and excerpt approvals stay with the content you read.
 - **One reading list across worktrees.** A collection spans worktrees and repositories. Each review has its own base, so a stacked branch shows only its own layer.
 - **Change groups that say what to check.** Each one pairs files, or single hunks, with a title and a short description. Anything unassigned lands in Other changes, so nothing hides.
 - **Progress that follows the code.** A Viewed mark is tied to the diff you read. When that diff changes, the mark clears and its group reopens.
@@ -123,6 +124,7 @@ Git still applies a repository's own clean filters when it reads working-tree fi
 
 ## Documentation
 
+- [Feature briefs](docs/briefs.md): composing feature and review briefs, collecting answers and passage comments, and preparing feedback.
 - [Collections](docs/collections.md): the manifest format, the CLI, and how imports are checked.
 - [Reference](docs/reference.md): reviewing, keeping pages current, configuration, and limits.
 - [DESIGN.md](DESIGN.md): the interface decisions.
