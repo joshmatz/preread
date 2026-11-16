@@ -7,11 +7,11 @@ import { anchorQuote, blockTitle, feedbackBody, feedbackCurrent, feedbackTitle, 
 import { captureBriefSelection, rangeForSegment, textOffset } from "./brief-selection";
 import type { BriefState } from "./useBrief";
 import type { CodeComments } from "./useCodeComments";
-import type { CodeJump } from "./code-comments";
+import { sortCodeComments, type CodeJump } from "./code-comments";
 import { useBriefAnnotations } from "./useBriefAnnotations";
 import { BriefDialog } from "./BriefDialog";
 import { BriefFeedbackView, BriefItem } from "./BriefFeedbackView";
-import { noThreads, openThreads, threadCounts, threadState, type ThreadEvent } from "./threads";
+import { noThreads, openThreads, threadCounts, threadState, type ThreadEvent, type ThreadTurn } from "./threads";
 import { BriefQuestion } from "./BriefQuestion";
 import { BriefTabs } from "./BriefTabs";
 import { BriefVisual } from "./BriefVisual";
@@ -48,10 +48,10 @@ const emptyStructure: BriefStructure = { outline: [], sections: [], headings: ne
 const headingElement = (heading: OutlineHeading) => document.getElementById(`brief-block-${heading.block}`)
   ?.querySelectorAll<HTMLElement>("[data-brief-text] > .markdown > :is(h1,h2,h3)")[heading.index];
 
-export function FeatureBrief({ collection, review, brief, progress, sources, marking, initialView = "brief", initialBlock, onJumped, onCode, onReview, onFeature, onCodeTab, onMark, codeComments }: {
+export function FeatureBrief({ collection, review, brief, progress, sources, marking, initialView = "brief", initialBlock, initialFeedback, onJumped, onCode, onReview, onFeature, onCodeTab, onMark, codeComments }: {
   collection: Collection; review?: Review; brief: BriefState; progress: Record<string, ReviewProgress>; sources: Record<string, ProgressSource>;
-  marking: string; initialView?: View; initialBlock?: string; onJumped?: () => void; onCode: (reference: CodeJump, view: View) => void;
-  onReview: (review: string, block?: string, view?: "feedback") => void; onFeature: () => void; onCodeTab?: () => void; onMark: MarkGroups;
+  marking: string; initialView?: View; initialBlock?: string; initialFeedback?: ThreadTurn; onJumped?: () => void; onCode: (reference: CodeJump, view: View) => void;
+  onReview: (review: string, block?: string, open?: "feedback" | "replies") => void; onFeature: () => void; onCodeTab?: () => void; onMark: MarkGroups;
   codeComments?: CodeComments;
 }) {
   const { snapshot, error, saving, save, send, retry } = brief;
@@ -133,6 +133,15 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   const hold = useRef(() => {});
   const pending = useRef<(() => void) | null>(null);
   const chosen = useRef("");
+  const feedbackView = useRef<HTMLElement>(null);
+  const feedbackTurn = useRef(initialFeedback);
+  const [feedbackRequest, setFeedbackRequest] = useState(0);
+  const showFeedback = (turn: ThreadTurn) => {
+    hold.current();
+    feedbackTurn.current = turn;
+    setFeedbackRequest((value) => value + 1);
+    setView("feedback");
+  };
   // Switching back from Feedback restores the old place in a layout effect, so a pending target replaces that restore.
   const reveal = (position: () => void) => {
     hold.current();
@@ -190,6 +199,20 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     window.addEventListener("scroll", record, { passive: true });
     return () => { window.removeEventListener("scroll", record); hold.current(); };
   }, [!!snapshot, view]);
+  // Feedback is shorter than the overview, so the scroll it keeps from there would land below the threads.
+  const codeLoading = !!(review && codeComments?.enabled && !codeComments.loaded && !codeComments.error);
+  useLayoutEffect(() => {
+    const turn = feedbackTurn.current;
+    if (view !== "feedback" || !snapshot || !turn || codeLoading) return;
+    feedbackTurn.current = undefined;
+    onJumped?.();
+    const group = feedbackView.current?.querySelector<HTMLElement>(`[data-turn="${turn}"]`);
+    if (!group) { window.scrollTo(0, 0); return; }
+    if (group instanceof HTMLDetailsElement) group.open = true;
+    hold.current = holdPosition(feedbackView.current, () => group.scrollIntoView({ block: "start" }));
+    group.querySelector<HTMLElement>(":scope > summary, .brief-feedback-item")?.focus({ preventScroll: true });
+    return () => hold.current();
+  }, [view, !!snapshot, feedbackRequest, codeLoading]);
   useEffect(() => {
     if (view !== "brief" || !outline.length) { setActive(""); return; }
     let frame = 0;
@@ -252,8 +275,8 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   const lastAgentWord = (events: ThreadEvent[] = []) => events.filter((event) => event.author === "agent").at(-1)?.body ?? "";
   const replies = [
     ...snapshot.feedback.filter((entry) => threadState(entry, snapshot.threads[entry.id]).turn === "person").map((entry) => lastAgentWord(snapshot.threads[entry.id])),
-    ...(codeFeedback?.comments.filter((comment) => threadState(comment, codeFeedback.threads[comment.id]).turn === "person")
-      .map((comment) => lastAgentWord(codeFeedback.threads[comment.id])) ?? []),
+    ...(codeFeedback ? sortCodeComments(codeFeedback.comments).filter((comment) => threadState(comment, codeFeedback.threads[comment.id]).turn === "person")
+      .map((comment) => lastAgentWord(codeFeedback.threads[comment.id])) : []),
   ];
   const partReplies = review ? [] : collection.reviews.flatMap((entry) => {
     const count = (snapshot.attention?.reviews[entry.id]?.threads.person ?? 0) + (snapshot.attention?.code?.[entry.id]?.person ?? 0);
@@ -384,7 +407,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
                 <strong>{next === "feature" ? collection.title : next.title}</strong>
                 {next !== "feature" && <PartStatus progress={progress[next.id]} />}</span><ArrowRight size={15} /></button>}
           </nav>}
-        </article> : <BriefFeedbackView collection={collection.id} review={review && { id: review.id, title: review.title }} snapshot={snapshot}
+        </article> : <BriefFeedbackView ref={feedbackView} collection={collection.id} review={review && { id: review.id, title: review.title }} snapshot={snapshot}
           saving={saving} send={send} onEdit={edit} onLocate={locate} onComment={documentComment}
           parts={review ? [] : collection.reviews.flatMap((entry) => {
             const brief = snapshot.attention?.reviews[entry.id]?.threads, code = snapshot.attention?.code?.[entry.id];
@@ -403,11 +426,11 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
           onPart={(id) => onReview(id, undefined, "feedback")} />}
         <aside className="brief-attention" aria-label={`${review ? "Part" : "Feature"} attention and progress`}><h2>Needs your attention</h2>
           <div className="brief-attention-items">
-            {replies.length > 0 && <button className="brief-attention-item agent-reply" onClick={() => setView("feedback")}>
+            {replies.length > 0 && <button className="brief-attention-item agent-reply" onClick={() => showFeedback("person")}>
               <span>Your agent replied{replies.length > 1 ? ` · ${replies.length}` : ""}</span><strong>{clip(replies[0])}</strong>
               <small>Reply or resolve on the Feedback tab.</small></button>}
             {partReplies.map(({ review: entry, count }) => <button className="brief-attention-item agent-reply" key={`replies/${entry.id}`}
-              onClick={() => onReview(entry.id, undefined, "feedback")}>
+              onClick={() => onReview(entry.id, undefined, "replies")}>
               <span>Your agent replied · {partLabel(entry)}</span><strong>{entry.title}</strong>
               <small>{count === 1 ? "One reply" : `${count} replies`} {entry.brief ? "on its Feedback tab" : "in its code"}.</small></button>)}
             {unanswered.map((block, index) => <button className="brief-attention-item" key={block.id} onClick={() => jump(block.id)}>
@@ -437,7 +460,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
             <q>{anchorQuote(entry.anchor) || feedbackTitle(entry)}</q><span>{entry.body || `${entry.attachments.length} attached ${entry.attachments.length === 1 ? "image" : "images"}`}</span>{!feedbackCurrent(entry, snapshot) && <small>Earlier revision</small>}
             {threadState(entry, snapshot.threads[entry.id]).turn === "person" && <small className="brief-note-replied">Your agent replied</small>}
           </button>)}
-            {notes.length > openNotes.length && <button className="brief-note-resolved" onClick={() => setView("feedback")}>{notes.length - openNotes.length} resolved</button>}</section>}
+            {notes.length > openNotes.length && <button className="brief-note-resolved" onClick={() => showFeedback("resolved")}>{notes.length - openNotes.length} resolved</button>}</section>}
           <p className="brief-attention-note">Answers, approvals, and comments stay with this {subject}. Reading doesn’t mark code reviewed; Mark reviewed does, the same as in the code.</p>
         </aside>
       </div>

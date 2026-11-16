@@ -765,6 +765,10 @@
   .has-feature-brief>.topbar {
     position:static
   }
+
+  .brief-turn-group {
+    scroll-margin-top:16px
+  }
 }
 
 @media (min-width:721px) {
@@ -1125,11 +1129,12 @@
   border-top:1px solid var(--border)
 }
 
-.brief-feedback-group {
-  margin-top:28px
+.brief-turn-group {
+  margin-top:28px;
+  scroll-margin-top:76px
 }
 
-.brief-feedback-group-title,.resolved-group>summary {
+.brief-turn-title,.resolved-group>summary {
   display:flex;
   align-items:center;
   gap:8px;

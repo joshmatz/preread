@@ -1271,6 +1271,7 @@ export default function App() {
   const [briefView, setBriefView] = useState<"brief" | "feedback">("brief");
   const [briefJump, setBriefJump] = useState("");
   const [featureJump, setFeatureJump] = useState("");
+  const [replyJump, setReplyJump] = useState(false);
   const entered = useRef(false);
   const [groupJump, setGroupJump] = useState<CodeJump | null>(null);
   const preparedGroupJump = useRef<CodeJump | null>(null);
@@ -1341,9 +1342,9 @@ export default function App() {
   const repliedComments = useMemo(() => codeComments.comments.filter((comment) => threadState(comment, codeComments.threads[comment.id]).turn === "person"),
     [codeComments.comments, codeComments.threads]);
   const [replyTurn, setReplyTurn] = useState(0);
-  const showNextReply = () => {
-    const comment = repliedComments[replyTurn % repliedComments.length];
-    setReplyTurn((value) => value + 1);
+  const showReply = (turn: number) => {
+    const comment = repliedComments[turn % repliedComments.length];
+    setReplyTurn(turn + 1);
     if (isTestFile(comment.path)) setHideTestFiles(false);
     setGroupJump({ review: reviewId, group: comment.group, comment: { line: comment.line },
       file: { path: comment.path, start: comment.line?.number ?? 1, end: comment.line?.number ?? 1 } });
@@ -1588,6 +1589,7 @@ export default function App() {
     setTab(view === "entry" && nextReview.brief ? "brief" : "changes");
     setBriefView("brief");
     setBriefJump("");
+    setReplyJump(false);
     setError("");
     window.scrollTo(0, 0);
     history.replaceState(history.state, "", location.pathname + location.search);
@@ -1613,12 +1615,13 @@ export default function App() {
     follow({ group: reference, origin: { collection: collection.id, ...(tab === "brief" ? { review: reviewId } : {}), ...feedback } });
     showCode(collection, target, reference);
   };
-  const openReviewEntry = (id: string, block?: string, view?: "feedback") => {
+  const openReviewEntry = (id: string, block?: string, open?: "feedback" | "replies") => {
     const target = collection?.reviews.find((entry) => entry.id === id);
     if (!collection || !target) return;
     follow({});
     selectReview(collection, target);
-    if (view && target.brief) setBriefView(view);
+    if (open && target.brief) setBriefView("feedback");
+    if (open === "replies") setReplyJump(true);
     if (block && target.brief) setBriefJump(block);
   };
   const openReviewBrief = (view: "brief" | "feedback") => {
@@ -1643,6 +1646,11 @@ export default function App() {
     const frame = requestAnimationFrame(() => { scrollTo(id); setGroupJump(null); });
     return () => cancelAnimationFrame(frame);
   }, [groupJump, tab, busy, snapshot, reviewId, path]);
+  useEffect(() => {
+    if (!replyJump || tab !== "changes" || busy || !snapshot || !codeComments.loaded) return;
+    setReplyJump(false);
+    if (repliedComments.length) showReply(0);
+  }, [replyJump, tab, busy, snapshot, codeComments.loaded]);
   const openPath = (next: string) => {
     setCollectionId("");
     setReviewId("");
@@ -2140,7 +2148,7 @@ export default function App() {
               {codeComments.enabled && repliedComments.length > 0 && <p className="agent-replies-notice" role="status">
                 <MessageSquareReply size={14} aria-hidden="true" />
                 <span>Your agent replied to {repliedComments.length === 1 ? "a comment" : `${repliedComments.length} comments`} in this review.</span>
-                <button onClick={showNextReply}>{repliedComments.length === 1 ? "Show it" : "Show next"}</button>
+                <button onClick={() => showReply(replyTurn)}>{repliedComments.length === 1 ? "Show it" : "Show next"}</button>
               </p>}
               {codeComments.enabled && <UnplacedComments comments={placedComments.unplaced} threads={codeComments.threads} scope={`${collectionId}/${reviewId}`}
                 groupTitle={review ? groupTitleIn(review) : () => undefined} saving={codeComments.saving}
@@ -2268,7 +2276,7 @@ export default function App() {
           onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief} />}
         {tab === "brief" && collection && review?.brief && <FeatureBrief key={`${collection.id}/${review.id}`} collection={collection} review={review}
           brief={reviewBrief} progress={itemProgress} sources={progressSources} marking={marking} initialView={briefView} initialBlock={briefJump}
-          onJumped={() => setBriefJump("")} onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief}
+          initialFeedback={replyJump ? "person" : undefined} onJumped={() => { setBriefJump(""); setReplyJump(false); }} onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief}
           onCodeTab={() => { setTab("changes"); window.scrollTo(0, 0); }} codeComments={codeComments} />}
         {tab === "collection" && collection && !collection.brief && (
           <div className="section-content">

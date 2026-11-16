@@ -45,7 +45,7 @@ export function BriefItem({ entry, snapshot, events, scope, saving, send, onEdit
   const thread = useThread(`${scope}/${entry.id}`, entry, events, send);
   const removal = useRemoval(onRemove);
   const current = feedbackCurrent(entry, snapshot);
-  return <section className={`brief-feedback-item turn-${thread.state.turn}`}>
+  return <section className={`brief-feedback-item turn-${thread.state.turn}`} tabIndex={-1}>
     <div className="brief-feedback-kind">{entry.kind === "answer" ? "Question answered" : entry.kind === "approval" ? "Code approval" : "Comment"}{!current && <span className="brief-earlier">Earlier revision</span>}</div>
     <h3>{feedbackTitle(entry)}</h3>
     {entry.kind === "comment" && anchorQuote(entry.anchor) && <blockquote className="brief-quote">{anchorQuote(entry.anchor)}</blockquote>}
@@ -65,7 +65,7 @@ function CodeItem({ comment, code, scope }: { comment: CodeComment; code: CodeFe
   const thread = useThread(`${scope}/${comment.id}`, comment, events, code.send(comment));
   const removal = useRemoval(() => code.onRemove(comment));
   const group = code.groupTitle(comment.group);
-  return <section className={`brief-feedback-item turn-${thread.state.turn}`}>
+  return <section className={`brief-feedback-item turn-${thread.state.turn}`} tabIndex={-1}>
     <div className="brief-feedback-kind">Code comment{group && <span className="brief-feedback-group">{group}</span>}</div>
     <h3 className="brief-code-place">{codeCommentPlace(comment)}</h3>
     {comment.line && <pre className="brief-code-line"><code>{lineText(comment.line)}</code></pre>}
@@ -80,8 +80,8 @@ function CodeItem({ comment, code, scope }: { comment: CodeComment; code: CodeFe
 const sections: Array<{ turn: ThreadTurn; title: string }> = [
   { turn: "person", title: "Waiting on you" }, { turn: "agent", title: "Waiting on your agent" }, { turn: "resolved", title: "Resolved" },
 ];
-export function BriefFeedbackView({ collection, review, snapshot, saving, parts = [], code, send, onEdit, onLocate, onComment, onPart }: {
-  collection: string; review?: { id: string; title: string }; snapshot: BriefSnapshot; saving: boolean; parts?: FeedbackPart[];
+export function BriefFeedbackView({ ref, collection, review, snapshot, saving, parts = [], code, send, onEdit, onLocate, onComment, onPart }: {
+  ref?: React.Ref<HTMLElement>; collection: string; review?: { id: string; title: string }; snapshot: BriefSnapshot; saving: boolean; parts?: FeedbackPart[];
   code?: CodeFeedback; send: (command: BriefCommand) => Promise<{ error?: string }>;
   onEdit: (entry: Comment) => void; onLocate: (entry: BriefFeedback) => void; onComment: () => void; onPart?: (id: string) => void;
 }) {
@@ -109,7 +109,7 @@ export function BriefFeedbackView({ collection, review, snapshot, saving, parts 
       setPrepared({ state: "ready", text: value.text });
     } catch (cause) { setPrepared({ state: "error", message: cause instanceof Error ? cause.message : "Could not prepare the feedback." }); }
   };
-  return <section className="brief-feedback-view">
+  return <section className="brief-feedback-view" ref={ref}>
     <h2>Everything you’re handing back</h2><p className="brief-introduction">Answers, approvals, and comments include their place in the {review ? "part" : "feature"} and the content you read. Your agent replies here; resolve what’s settled.</p>
     {code && !code.loaded && code.error && <p className="brief-error" role="alert">Comments on code didn’t load, so feedback can’t be prepared yet. {code.error}</p>}
     {!items.length ? <div className="brief-empty"><h3>No feedback {parts.length ? "on the overview" : "yet"}</h3>
@@ -119,8 +119,8 @@ export function BriefFeedbackView({ collection, review, snapshot, saving, parts 
         if (!list.length) return null;
         const heading = <>{title} <span className={turn === "person" ? "pill has-replies" : "pill"}>{list.length}</span></>;
         return turn === "resolved"
-          ? <details key={turn} className="brief-feedback-group resolved-group"><summary><ChevronRight size={14} className="resolved-chevron" aria-hidden="true" />{heading}</summary><div className="brief-feedback-list">{list.map((item) => item.node)}</div></details>
-          : <section key={turn} className="brief-feedback-group"><h3 className="brief-feedback-group-title">{heading}</h3><div className="brief-feedback-list">{list.map((item) => item.node)}</div></section>;
+          ? <details key={turn} className="brief-turn-group resolved-group" data-turn={turn}><summary><ChevronRight size={14} className="resolved-chevron" aria-hidden="true" />{heading}</summary><div className="brief-feedback-list">{list.map((item) => item.node)}</div></details>
+          : <section key={turn} className="brief-turn-group" data-turn={turn}><h3 className="brief-turn-title">{heading}</h3><div className="brief-feedback-list">{list.map((item) => item.node)}</div></section>;
       })}
     {parts.length > 0 && <section className="brief-feedback-parts"><h3>Feedback in parts</h3>
       <ul>{parts.map((part) => <li key={part.id}><button onClick={() => onPart?.(part.id)}><span>{part.title}</span>
