@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, realpath, rm, rename, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parse } from "diff2html";
 import { snapshot, viewedFile, sinceViewed, markGroups } from "../server/review.ts";
 import { saveViewedFiles } from "../server/viewed-baselines.ts";
 import { reviewProgress } from "../src/progress.ts";
@@ -265,6 +266,7 @@ test("a since-viewed diff expands to the whole file", async () => {
   const compare = async (fullContext: boolean) => (await sinceViewed(scope, "code", file.file.path,
     file.contextHash ?? file.diff.hash, file.viewHash!, undefined, fullContext)).diff!.patch;
   const compact = await compare(false);
+  assert.equal(parse(compact)[0].language, "ts", "nothing follows the path in the header, so the diff gets syntax colors");
   assert.deepEqual(initialGaps(compact).map(({ above, below }) => [above, below]), [[24, 0], [0, 20]],
     "the compact diff offers lines above and below its change");
   const full = await compare(true);

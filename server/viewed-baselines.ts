@@ -90,7 +90,8 @@ export async function diffSinceViewed(review: Review, group: string, preview: Fi
     reviewedAt: baseline.reviewedAt, message: "A text comparison is unavailable for this file. Use the full review to inspect it." };
   const patch = baseline.content === content ? "" : createTwoFilesPatch(
     `a/${preview.file.path}`, `b/${preview.file.path}`, baseline.content, content,
-    "Last viewed", "Current", { context: fullContext ? Infinity : CONTEXT_LINES, timeout: 1000 });
+    // A header label after the path becomes part of diff2html's file name, which hides the language.
+    undefined, undefined, { context: fullContext ? Infinity : CONTEXT_LINES, timeout: 1000 });
   if (patch === undefined) return { available: false, reviewedAt: baseline.reviewedAt,
     message: "This comparison took too long to compute. Use the full review to inspect it." };
   const tooLarge = Buffer.byteLength(patch) > MAX_PATCH;
