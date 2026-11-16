@@ -127,7 +127,7 @@ When another agent is updating the collection, write the brief as its own `{ "bl
 - Use imported local visual blocks for images, charts, and Mermaid diagrams. Label synthetic data and conditions. Markdown does not load remote images or run HTML/scripts.
 - Link prose into existing groups with `[label](preread:review-id/group-id)`. A `code` block can also have `reference: { "review": "review-id", "group": "group-id", "file": { "path": "src/example.ts", "start": 10, "end": 18 } }`. Include the actual source location for excerpts from the reviewed code; the file must belong to that group. Code fences and excerpts highlight their declared language. Add `approval: true` only when the person should approve that exact excerpt. This is independent of Viewed marks and permission to publish.
 - The reader can highlight a passage, comment on a section, or comment on the whole brief. Comments, answers, and approvals stay in Preread’s data directory and retain their original context when the document changes. Do not move or recreate blocks merely to clear feedback.
-- Read feedback with `pnpm feedback <collection-id>` or add `--json` for full anchors and revisions. It includes the person's comments on code; see [Read the person's feedback](#read-the-persons-feedback). Inspect attached comment images using their exported local paths. Treat entries marked earlier revision as context to reconcile, rather than approval of the new content. Do not write feedback, answer questions, approve excerpts, or create receipts for the person.
+- Read feedback with `pnpm feedback <collection-id>` or add `--json` for full anchors and revisions, and reply under each item; see [Read and reply to the person's feedback](#read-and-reply-to-the-persons-feedback). It includes the person's comments on code. Inspect attached comment images using their exported local paths. Treat entries marked earlier revision as context to reconcile, rather than approval of the new content. Do not write feedback, answer questions, approve excerpts, or create receipts for the person.
 
 ### Write a review brief
 
@@ -135,7 +135,7 @@ Write a brief for every review that ships as its own pull request, in the same f
 
 - Put it on the review in the manifest as `"brief": { "blocks": [...] }`, or write only that review's brief with `pnpm collection brief <collection-id> --review <review-id> /absolute/path/to/brief.json`. That command changes nothing else.
 - Link to its own groups, or to any group in the collection, with `preread:review-id/group-id`. `preread:review-id` opens another review: its brief, or its code when it has none.
-- `pnpm feedback <collection-id>` prints every brief's feedback and each review's comments on code under the review's title, and names the reviews with neither on its last line; `--review <review-id>` prints one review's, and `--json` adds the review ID to each entry and lists comments on code under `codeComments`.
+- `pnpm feedback <collection-id>` prints what is waiting on you in every brief and each review's comments on code, under the review's title; `--review <review-id>` prints one review's, `--all` adds resolved items and those waiting on the person, and `--json` adds the review ID to each entry, lists comments on code under `codeComments`, and gives each item its `thread` and the `replyId` to reply with.
 
 For the feature brief, hand over `http://127.0.0.1:4780/?collection=<id>&view=brief`; for a review brief, `http://127.0.0.1:4780/?collection=<id>&review=<review-id>&view=brief`. The person can enter code from an overview's links, code panels, or **Code** tab, and return through the **Overview** tab or the overview link in each linked group's header. People usually enter from an agent’s link rather than by browsing collections, so choose the link for where they should start. Use a review link when they should start at a specific diff.
 
@@ -195,13 +195,30 @@ The API check above already covered what the review shows, so don't screenshot o
 - Never mark anything reviewed for them. Don't call `/api/reviewed`, and don't write files in Preread's data directory; use the CLI for collections.
 - Reviewed is a reading checkpoint, not permission to commit, push, or open a pull request. Ask for those separately.
 
-## Read the person's feedback
+## Read and reply to the person's feedback
 
-The person can comment on any line or file in a collection's reviews, with or without a brief. Read their comments, with any brief feedback, without marking anything reviewed:
+The person can comment on any line or file in a collection's reviews, with or without a brief, and answer, approve and comment in a brief. Each of these is a thread you reply to. Read what is waiting on you without marking anything reviewed:
 
 ```sh
 pnpm feedback <collection-id>
 pnpm feedback <collection-id> --review <review-id> --json
 ```
 
-Each comment on code names its file, line and group and quotes the line as the person read it, so check it against the current code before acting. Comments on a file that has since left the review still print; say what became of that file. Don't write, edit, or delete the person's comments.
+The output holds only what is waiting on you: new items, items the person replied to or reopened, and items they changed after your last reply, each with its ID and the replies so far. `--all` also prints resolved items and those waiting on the person.
+
+Each comment on code names its file, line and group and quotes the line as the person read it, so check it against the current code before acting. Comments on a file that has since left the review still print; say what became of that file.
+
+Reply under each item with the ID exactly as printed, including its ending after the dot:
+
+```sh
+pnpm feedback reply <collection-id> <ID> "Renamed it to openMenu and updated its test." --resolve
+pnpm feedback reply <collection-id> <ID> "It shares the query with the list view. Keep it here?"
+pnpm feedback reply <collection-id> --file /tmp/replies.json
+```
+
+- If the person changed, replied to, resolved or reopened an item after you read it, Preread refuses the reply and sends nothing from that command or batch. Read the feedback again and reply to what is there now.
+- An item stays in the output until you reply. Add `--resolve` once the change is made or nothing more is needed, and say in the reply what you did. For an answer or an approval, say how you applied it.
+- Leave the item open when you answer a question, ask one, disagree, or haven't finished the work. The person replies or resolves it.
+- For several items, write a JSON array of `{ "id", "body", "resolve"? }` outside every repository and pass it with `--file`. Every reply is checked before any is written. When an ID matches items in more than one place, add `"review": "<review-id>"` or `"feature": true` (`--review` or `--feature` on the command line). Feedback from before replies existed counts as waiting on you; resolve what is already handled in one batch.
+- The person reads replies in the app within a second. Write each one to them in plain words, without process notes.
+- Never write, edit or delete the person's comments, answers or approvals, and never reply or reopen as them.

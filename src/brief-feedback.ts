@@ -1,6 +1,7 @@
 import type { BriefAnchor, BriefFeedback, BriefSnapshot, BriefBlock } from "./brief-types.ts";
-import { exportCodeComments, type CodeComment } from "./code-comments.ts";
+import { codeCommentPlace, lineText, sortCodeComments, type CodeComment, type CodeCommentState } from "./code-comments.ts";
 import type { Review } from "./review-types.ts";
+import { noThreads, replyId, threadLines, threadState, turnLabel, type ThreadEvent, type ThreadRoot, type ThreadState, type Threads } from "./threads.ts";
 
 export const blockTitle = (block: BriefBlock): string => {
   switch (block.kind) {
@@ -35,26 +36,70 @@ export function feedbackBody(entry: BriefFeedback) {
   }
 }
 type GroupTitle = (group: string) => string | undefined;
-const entriesWithCode = (snapshot: BriefSnapshot | undefined, comments: CodeComment[], groupTitle?: GroupTitle) => [
-  ...(snapshot?.feedback.length || !comments.length ? [snapshot ? feedbackEntries(snapshot) : "No feedback yet."] : []),
-  ...(comments.length ? [exportCodeComments(comments, groupTitle)] : []),
-].join("\n\n");
-export function exportBriefFeedback(title: string, snapshot: BriefSnapshot, review?: string, comments: CodeComment[] = [], groupTitle?: GroupTitle) {
-  return `Feature: ${title}\n${review ? `Review: ${review}\n` : ""}Brief revision: ${snapshot.version}\n\n${entriesWithCode(snapshot, comments, groupTitle)}`;
-}
-export const exportReviewFeedback = (title: string, snapshot?: BriefSnapshot, comments: CodeComment[] = [], groupTitle?: GroupTitle) =>
-  `Review: ${title}${snapshot ? `\nBrief revision: ${snapshot.version}` : ""}\n\n${entriesWithCode(snapshot, comments, groupTitle)}`;
 export const groupTitleIn = (review: Pick<Review, "groups">): GroupTitle => (group) =>
   review.groups.find((entry) => entry.id === group)?.title ?? (group === "other-changes" ? (review.groups.length ? "Other changes" : "All changes") : undefined);
-function feedbackEntries(snapshot: BriefSnapshot) {
-  if (!snapshot.feedback.length) return "No feedback yet.";
-  return snapshot.feedback.map((entry, index) => {
-    const state = feedbackCurrent(entry, snapshot) ? "" : " [earlier revision]";
-    const quote = entry.kind === "comment" ? anchorQuote(entry.anchor) : "";
-    const context = entry.kind === "approval" ? `\nApproved code:\n${entry.block.code}\n${entry.block.reference ? `Group: ${entry.block.reference.review}/${entry.block.reference.group}\n${entry.block.reference.file ? `Source: ${entry.block.reference.file.path}:${entry.block.reference.file.start}–${entry.block.reference.file.end}\n` : ""}` : ""}`
-      : entry.kind === "comment" && entry.anchor.kind === "selection"
-        ? `\nAnchor: ${entry.anchor.segments.map((segment) => `${segment.block}/${segment.part} [${segment.start}:${segment.end}] @ ${segment.revision}`).join("; ")}\n` : "";
-    const images = entry.kind === "comment" ? entry.attachments.map((image) => `\nImage: ${image.name}\nLocal attachment: ${image.path}`).join("\n") : "";
-    return `${index + 1}. ${entry.kind}${state}: ${feedbackTitle(entry)}\n${quote ? `Selected text: “${quote}”\n` : ""}${feedbackBody(entry)}${context}${images}`;
-  }).join("\n\n");
+const labelled = (heading: string, labels: string[]) => `${heading}${labels.length ? ` [${labels.join("; ")}]` : ""}`;
+function briefEntryText(entry: BriefFeedback, snapshot: BriefSnapshot, id: string, index: number, state: ThreadState, events: ThreadEvent[]) {
+  const labels = [...(feedbackCurrent(entry, snapshot) ? [] : ["earlier revision"]), ...(turnLabel(state) ? [turnLabel(state)] : [])];
+  const quote = entry.kind === "comment" ? anchorQuote(entry.anchor) : "";
+  const lines = [labelled(`${index + 1}. ${entry.kind}`, labels) + `: ${feedbackTitle(entry)}`, `ID: ${id}`, ...(quote ? [`Selected text: “${quote}”`] : []), feedbackBody(entry)];
+  if (entry.kind === "approval") {
+    const reference = entry.block.reference;
+    lines.push("Approved code:", entry.block.code, ...(reference ? [`Group: ${reference.review}/${reference.group}`] : []),
+      ...(reference?.file ? [`Source: ${reference.file.path}:${reference.file.start}–${reference.file.end}`] : []));
+  }
+  if (entry.kind === "comment") {
+    if (entry.anchor.kind === "selection")
+      lines.push(`Anchor: ${entry.anchor.segments.map((segment) => `${segment.block}/${segment.part} [${segment.start}:${segment.end}] @ ${segment.revision}`).join("; ")}`);
+    for (const image of entry.attachments) lines.push(`Image: ${image.name}`, `Local attachment: ${image.path}`);
+  }
+  return [...lines, ...threadLines(entry, events)].join("\n");
+}
+function codeCommentText(comment: CodeComment, id: string, index: number, state: ThreadState, events: ThreadEvent[], groupTitle?: GroupTitle) {
+  const group = groupTitle?.(comment.group);
+  return [labelled(`${index + 1}. ${codeCommentPlace(comment)}`, turnLabel(state) ? [turnLabel(state)] : []), `ID: ${id}`,
+    ...(group ? [`Group: ${group}`] : []), ...(comment.line ? [`Line: ${lineText(comment.line)}`] : []), comment.body, ...threadLines(comment, events)].join("\n");
+}
+const shellWord = (value: string) => /^[\w./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+export type FeedbackReview = { title: string; snapshot?: BriefSnapshot; code: CodeCommentState; groupTitle?: GroupTitle };
+export type FeedbackSource = {
+  collection: string; title: string; feature?: BriefSnapshot; reviews: FeedbackReview[];
+  ids: ReadonlyMap<string, string>;
+  // Set when one review was asked for: its heading prints even with nothing in it, and hints stay scoped to it.
+  review?: string;
+};
+// Prints what waits on the agent, or everything with `all`, with each item's ID for `pnpm feedback reply`.
+export function exportFeedback(source: FeedbackSource, { all = false, checkout }: { all?: boolean; checkout?: string } = {}) {
+  const counts = noThreads();
+  let shown = 0;
+  const pick = <T extends ThreadRoot>(roots: T[], threads: Threads) => roots.flatMap((root) => {
+    const state = threadState(root, threads[root.id]);
+    counts[state.turn] += 1;
+    if (!all && state.turn !== "agent") return [];
+    shown += 1;
+    return [{ root, state, events: threads[root.id] ?? [] }];
+  });
+  const idOf = (root: ThreadRoot, events: ThreadEvent[]) => replyId(source.ids.get(root.id) ?? root.id, root, events);
+  const briefItems = (snapshot?: BriefSnapshot) => snapshot ? pick(snapshot.feedback, snapshot.threads)
+    .map(({ root, state, events }, index) => briefEntryText(root, snapshot, idOf(root, events), index, state, events)) : [];
+  const brief = (snapshot: BriefSnapshot | undefined, items: string[]) => items.length ? `\nBrief revision: ${snapshot!.version}\n\n${items.join("\n\n")}` : "";
+  const featureItems = briefItems(source.feature);
+  const sections = [`Feature: ${source.title}${brief(source.feature, featureItems)}`];
+  const quiet: string[] = [];
+  for (const review of source.reviews) {
+    const items = briefItems(review.snapshot);
+    const code = pick(sortCodeComments(review.code.comments), review.code.threads)
+      .map(({ root, state, events }, index) => codeCommentText(root, idOf(root, events), index, state, events, review.groupTitle));
+    if (!items.length && !code.length && source.review === undefined) { quiet.push(review.title); continue; }
+    sections.push(`Review: ${review.title}${brief(review.snapshot, items)}${code.length ? `\n\nCode comments:\n\n${code.join("\n\n")}` : ""}`);
+  }
+  const command = `pnpm${checkout ? ` --dir ${shellWord(checkout)}` : ""} feedback`;
+  const hidden = [counts.person && `${counts.person} waiting on the reader`, counts.resolved && `${counts.resolved} resolved`].filter(Boolean);
+  const footer = [
+    ...(!shown ? [counts.agent + counts.person + counts.resolved ? "Nothing is waiting on the agent." : "No feedback yet."]
+      : quiet.length ? [`${all ? "No feedback on" : "Nothing waiting on the agent in"} ${quiet.length === 1 ? "review" : "reviews"}: ${quiet.join("; ")}`] : []),
+    ...(!all && hidden.length ? [`Not shown: ${hidden.join(", ")}; ${command} ${source.collection}${source.review ? ` --review ${source.review}` : ""} --all prints them.`] : []),
+    ...(shown ? [`Reply to an item with ${command} reply ${source.collection} <ID> "<reply>", adding --resolve once it is handled.`] : []),
+  ];
+  return { text: [...sections, footer.join("\n")].join("\n\n"), counts, shown };
 }

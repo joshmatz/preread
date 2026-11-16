@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import type { CodeComment, CodeCommentCommand } from "./code-comments";
+import type { CodeComment, CodeCommentCommand, CodeCommentState } from "./code-comments";
+import type { Threads } from "./threads";
 
 export type CodeComments = ReturnType<typeof useCodeComments>;
 const none: CodeComment[] = [];
+const noThreads: Threads = {};
 // A page built after its server started can call routes that server doesn't have yet.
 const failure = (response: Response, value: { error?: string }, fallback: string) =>
   response.status === 404 ? "Preread’s server is older than this page. Restart it, then try again." : value.error || fallback;
 // Keyed by review, so a late reply for the review the reader just left is dropped.
 export function useCodeComments(collection: string, review: string, refresh: number) {
   const key = collection && review ? `${collection}/${review}` : "";
-  const [state, setState] = useState<{ key: string; comments: CodeComment[] | null }>({ key, comments: null });
+  const [state, setState] = useState<{ key: string; value: CodeCommentState | null }>({ key, value: null });
   const [error, setError] = useState({ key, message: "" });
   const [saving, setSaving] = useState(false);
   const versions = useRef(new Map<string, number>());
@@ -24,7 +26,7 @@ export function useCodeComments(collection: string, review: string, refresh: num
       .then(async (response) => {
         const value = await response.json();
         if (!response.ok) throw new Error(failure(response, value, "Could not load comments."));
-        if (!abort.signal.aborted && (versions.current.get(key) ?? 0) === started) { setState({ key, comments: value.comments }); setError({ key, message: "" }); }
+        if (!abort.signal.aborted && (versions.current.get(key) ?? 0) === started) { setState({ key, value }); setError({ key, message: "" }); }
       }).catch((cause: Error) => { if (!abort.signal.aborted) setError({ key, message: cause.message }); });
     return () => abort.abort();
   }, [key, refresh]);
@@ -39,7 +41,7 @@ export function useCodeComments(collection: string, review: string, refresh: num
       const value = await response.json();
       if (!response.ok) throw new Error(failure(response, value, "Could not save your comment."));
       bumpVersion(current);
-      if (active.current === current) setState({ key: current, comments: value.comments });
+      if (active.current === current) setState({ key: current, value });
       return {};
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Could not save your comment.";
@@ -47,6 +49,7 @@ export function useCodeComments(collection: string, review: string, refresh: num
       return { error: message };
     } finally { setSaving(false); }
   }
-  return { enabled: !!key, comments: state.key === key ? state.comments ?? none : none, loaded: state.key === key && !!state.comments,
+  const value = state.key === key ? state.value : null;
+  return { enabled: !!key, comments: value?.comments ?? none, threads: value?.threads ?? noThreads, loaded: !!value,
     error: error.key === key ? error.message : "", saving, save };
 }

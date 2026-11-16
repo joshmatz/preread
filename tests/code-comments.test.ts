@@ -7,11 +7,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { briefSnapshot, collectionFeedbackText, saveBriefFeedback } from "../server/briefs.ts";
+import { briefSnapshot, saveBriefFeedback } from "../server/briefs.ts";
 import { codeComments, readCodeComments, saveCodeComment } from "../server/code-comments.ts";
+import { feedbackText } from "../server/feedback.ts";
 import { putCollection } from "../server/collections.ts";
-import { anchorLine, cardKey, clipLine, commentCard, exportCodeComments, patchLines, placeComments, type CodeComment } from "../src/code-comments.ts";
-import { groupTitleIn } from "../src/brief-feedback.ts";
+import { anchorLine, cardKey, clipLine, commentCard, patchLines, placeComments, type CodeComment } from "../src/code-comments.ts";
+import { exportFeedback, groupTitleIn } from "../src/brief-feedback.ts";
+import { readerStamp } from "../src/threads.ts";
 import { shownLines } from "../src/whitespace-diff.ts";
 import type { Collection } from "../src/review-types.ts";
 
@@ -30,7 +32,8 @@ const collection = (id: string, brief = false): Collection => ({
   ],
 });
 const save = (id: string, review: string, fields: Partial<CodeComment> & { body: string }) =>
-  saveCodeComment(id, review, { kind: "save", id: randomUUID(), group: review === "api" ? "schema" : "menu", path: review === "api" ? "src/schema.ts" : "src/menu.tsx", ...fields });
+  saveCodeComment(id, review, { kind: "save", id: randomUUID(), group: review === "api" ? "schema" : "menu", path: review === "api" ? "src/schema.ts" : "src/menu.tsx", ...fields })
+    .then((state) => state.comments);
 
 test("patch lines are keyed by side and number, with context lines on the new side and CRs dropped", () => {
   const patch = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -3,4 +3,4 @@ function top()", " same", "-old\r", "+new\r", " ", "\\ No newline at end of file",
@@ -55,7 +58,7 @@ test("code comments are saved per review in private files, sorted, edited in pla
   assert.deepEqual(await readCodeComments(id, "api"), []);
   const [first] = later;
   const edited = await saveCodeComment(id, "ui", { kind: "save", id: first.id, group: first.group, path: first.path, line: first.line, body: "Close it." });
-  const updated = edited.find((comment) => comment.id === first.id)!;
+  const updated = edited.comments.find((comment) => comment.id === first.id)!;
   assert.equal(updated.body, "Close it.");
   assert.equal(updated.createdAt, first.createdAt);
   await assert.rejects(saveCodeComment(id, "ui", { kind: "save", id: first.id, group: first.group, path: first.path,
@@ -68,8 +71,8 @@ test("code comments are saved per review in private files, sorted, edited in pla
   await assert.rejects(save(id, "ui", { id: randomUUID().toUpperCase(), body: "Capital ID." }), /lowercase UUID/);
   await assert.rejects(save(id, "missing", { body: "No review." }), /not in this collection/);
   await assert.rejects(codeComments(id, "missing"), /not in this collection/);
-  assert.equal((await saveCodeComment(id, "ui", { kind: "delete", id: first.id })).length, 2);
-  assert.equal((await saveCodeComment(id, "ui", { kind: "delete", id: first.id })).length, 2);
+  assert.equal((await saveCodeComment(id, "ui", { kind: "delete", id: first.id })).comments.length, 2);
+  assert.equal((await saveCodeComment(id, "ui", { kind: "delete", id: first.id })).comments.length, 2);
 });
 test("a damaged comment file hides only itself", async () => {
   const id = "comment-damaged";
@@ -78,18 +81,22 @@ test("a damaged comment file hides only itself", async () => {
   await writeFile(join(directory, "data", "code-comments", id, "ui", `${randomUUID()}.json`), "{");
   const warn = console.warn;
   console.warn = () => {};
-  try { assert.deepEqual((await codeComments(id, "ui")).map((comment) => comment.body), ["Still here."]); }
+  try { assert.deepEqual((await codeComments(id, "ui")).comments.map((comment) => comment.body), ["Still here."]); }
   finally { console.warn = warn; }
 });
 test("exported code comments name the file, line, group and line text", () => {
   const base = { createdAt: "2026-11-15T00:00:00.000Z", updatedAt: "2026-11-15T00:00:00.000Z", group: "menu", path: "src/menu.tsx" };
-  const text = exportCodeComments([
-    { ...base, id: randomUUID(), line: { side: "old", number: 4, text: "  " }, body: "Why remove this?" },
-    { ...base, id: randomUUID(), body: "Split this file." },
-    { ...base, id: randomUUID(), group: "gone", path: "src/a.ts", line: { side: "new", number: 9, text: "const a = 1;" }, body: "Rename." },
-  ], (group) => group === "menu" ? "Menu" : undefined);
-  assert.equal(text, ["Code comments:", "1. src/a.ts:9\nLine: const a = 1;\nRename.", "2. src/menu.tsx (whole file)\nGroup: Menu\nSplit this file.",
-    "3. src/menu.tsx:4 (removed line)\nGroup: Menu\nLine: (blank line)\nWhy remove this?"].join("\n\n"));
+  const comments: CodeComment[] = [
+    { ...base, id: "a1000000-0000-4000-8000-000000000000", line: { side: "old", number: 4, text: "  " }, body: "Why remove this?" },
+    { ...base, id: "b2000000-0000-4000-8000-000000000000", body: "Split this file." },
+    { ...base, id: "c3000000-0000-4000-8000-000000000000", group: "gone", path: "src/a.ts", line: { side: "new", number: 9, text: "const a = 1;" }, body: "Rename." },
+  ];
+  const { text } = exportFeedback({ collection: "filters", title: "Saved filters", ids: new Map(comments.map((comment) => [comment.id, comment.id.slice(0, 8)])),
+    reviews: [{ title: "Show saved filters", code: { comments, threads: {} }, groupTitle: (group) => group === "menu" ? "Menu" : undefined }] });
+  const stamp = readerStamp(base);
+  assert.equal(text, ["Feature: Saved filters", "Review: Show saved filters", "Code comments:", `1. src/a.ts:9\nID: c3000000.${stamp}\nLine: const a = 1;\nRename.`,
+    `2. src/menu.tsx (whole file)\nID: b2000000.${stamp}\nGroup: Menu\nSplit this file.`, `3. src/menu.tsx:4 (removed line)\nID: a1000000.${stamp}\nGroup: Menu\nLine: (blank line)\nWhy remove this?`,
+    "Reply to an item with pnpm feedback reply filters <ID> \"<reply>\", adding --resolve once it is handled."].join("\n\n"));
 });
 test("unassigned changes are titled All changes in a review without groups", () => {
   assert.equal(groupTitleIn({ groups: [] })("other-changes"), "All changes");
@@ -130,18 +137,18 @@ test("feedback includes each review's code comments, with or without a brief, an
   const id = "comment-feedback";
   await putCollection(collection(id, true));
   await save(id, "ui", { line: { side: "new", number: 3, text: "open()" }, body: "Focus the first item." });
-  const all = await collectionFeedbackText(id);
-  assert.equal(all.entries, 1);
-  assert.equal(all.text, ["Feature: Saved filters", "Review: Show saved filters", "Code comments:",
-    "1. src/menu.tsx:3\nGroup: Menu\nLine: open()\nFocus the first item.", "No feedback on review: Store filters"].join("\n\n"));
+  const all = await feedbackText(id);
+  assert.equal(all.shown, 1);
+  assert.match(all.text, new RegExp(["^Feature: Saved filters", "Review: Show saved filters", "Code comments:",
+    "1\\. src/menu\\.tsx:3\nID: [a-f0-9]{8}\\.[a-z0-9]{4}\nGroup: Menu\nLine: open\\(\\)\nFocus the first item\\.", "Nothing waiting on the agent in review: Store filters\nReply to an item with "].join("\n\n")));
   const snapshot = await briefSnapshot(id, "api");
-  assert.deepEqual(snapshot.attention?.codeComments, { ui: 1 });
+  assert.deepEqual(snapshot.attention?.code, { ui: { agent: 1, person: 0, resolved: 0 } });
   await saveBriefFeedback(id, { kind: "answer", block: "story", revision: snapshot.fingerprints.story, answer: { kind: "option", option: "yes" } }, "api");
   await save(id, "api", { body: "Add an index." });
-  const both = await collectionFeedbackText(id);
-  assert.equal(both.entries, 3);
-  assert.match(both.text, /\n\nReview: Store filters\nBrief revision: [a-f0-9]{64}\n\n1\. answer: Ship it\?\nYes\n\nCode comments:\n\n1\. src\/schema\.ts \(whole file\)\nGroup: Schema\nAdd an index\.\n\nReview: Show saved filters\n/);
-  assert.doesNotMatch(both.text, /No feedback on/);
+  const both = await feedbackText(id);
+  assert.equal(both.shown, 3);
+  assert.match(both.text, /\n\nReview: Store filters\nBrief revision: [a-f0-9]{64}\n\n1\. answer: Ship it\?\nID: answer-story-[a-f0-9]{8}\.[a-z0-9]{4}\nYes\n\nCode comments:\n\n1\. src\/schema\.ts \(whole file\)\nID: [a-f0-9]{8}\.[a-z0-9]{4}\nGroup: Schema\nAdd an index\.\n\nReview: Show saved filters\n/);
+  assert.doesNotMatch(both.text, /Nothing waiting/);
 });
 const root = fileURLToPath(new URL("..", import.meta.url));
 const cli = (...args: string[]) => promisify(execFile)(join(root, "node_modules", ".bin", "tsx"), [join(root, "scripts", "brief-feedback.ts"), ...args],
@@ -155,7 +162,7 @@ test("the feedback CLI prints and serializes code comments, including for a revi
   assert.equal(text.code, 0, text.stderr);
   assert.match(text.stdout, /^Feature: Saved filters\n\nReview: Show saved filters\n\nCode comments:\n\n1\. src\/menu\.tsx:3\n/);
   const one = await cli(id, "--review", "ui");
-  assert.equal(one.stdout, "Feature: Saved filters\n\nReview: Show saved filters\n\nCode comments:\n\n1. src/menu.tsx:3\nGroup: Menu\nLine: open()\nFocus the first item.\n");
+  assert.match(one.stdout, /^Feature: Saved filters\n\nReview: Show saved filters\n\nCode comments:\n\n1\. src\/menu\.tsx:3\nID: [a-f0-9]{8}\.[a-z0-9]{4}\nGroup: Menu\nLine: open\(\)\nFocus the first item\.\n\nReply to an item with pnpm feedback reply comment-cli <ID> "<reply>", adding --resolve once it is handled\.\n$/);
   assert.equal((await cli(id, "--review", "api")).stdout, "Feature: Saved filters\n\nReview: Store filters\n\nNo feedback yet.\n");
   const json = JSON.parse((await cli(id, "--json")).stdout);
   assert.deepEqual(json.reviews.map((entry: { review: string; feedback: unknown[]; codeComments: CodeComment[] }) =>

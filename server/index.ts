@@ -13,7 +13,8 @@ import type { Mode } from "../src/types.ts";
 
 import { readVisual } from "./review-visuals.ts";
 import { readPullRequest } from "./pullRequests.ts";
-import { briefSnapshot, collectionFeedbackText, saveBriefFeedback, readBriefVisual, readCommentAttachment } from "./briefs.ts";
+import { briefSnapshot, saveBriefFeedback, readBriefVisual, readCommentAttachment } from "./briefs.ts";
+import { feedbackText } from "./feedback.ts";
 import { storeCommentImage } from "./comment-images.ts";
 import { codeComments, saveCodeComment } from "./code-comments.ts";
 
@@ -96,18 +97,19 @@ app.get("/api/collections", async (_req, res) => res.json(await listCollections(
 app.put("/api/collections", async (req, res) => res.json(await putCollection(req.body)));
 app.get("/api/brief", async (req, res) =>
   res.json(await briefSnapshot(query(req.query.collection), briefReview(req.query.review))));
-app.get("/api/brief-export", async (req, res) => res.json(await collectionFeedbackText(query(req.query.collection))));
+app.get("/api/brief-export", async (req, res) =>
+  res.json(await feedbackText(query(req.query.collection), { review: briefReview(req.query.review), checkout: root })));
 app.post("/api/brief-feedback", async (req, res) => {
   const result = await saveBriefFeedback(query(req.body?.collection), req.body?.command, briefReview(req.body?.review));
   bump(false);
   res.json(result);
 });
 app.get("/api/code-comments", async (req, res) =>
-  res.json({ comments: await codeComments(query(req.query.collection), query(req.query.review)) }));
+  res.json(await codeComments(query(req.query.collection), query(req.query.review))));
 app.post("/api/code-comments", async (req, res) => {
-  const comments = await saveCodeComment(query(req.body?.collection), query(req.body?.review), req.body?.command);
+  const state = await saveCodeComment(query(req.body?.collection), query(req.body?.review), req.body?.command);
   bump(false);
-  res.json({ comments });
+  res.json(state);
 });
 app.get("/api/brief-visual", async (req, res) => {
   const { content, type } = await readBriefVisual(query(req.query.collection), query(req.query.block), briefReview(req.query.review));

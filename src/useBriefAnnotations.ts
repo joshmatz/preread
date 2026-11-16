@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { BriefSelection, BriefSnapshot } from "./brief-types";
 import { feedbackCurrent } from "./brief-feedback";
+import { threadState } from "./threads";
 import { captureBriefSelection, rangeForSegment } from "./brief-selection";
 
 export function useBriefAnnotations(root: RefObject<HTMLElement | null>, snapshot: BriefSnapshot | null, active: boolean, modalOpen: boolean) {
@@ -10,7 +11,8 @@ export function useBriefAnnotations(root: RefObject<HTMLElement | null>, snapsho
     ranges.current = [];
     if (active && root.current && snapshot) {
       for (const entry of snapshot.feedback) {
-        if (entry.kind !== "comment" || entry.anchor.kind !== "selection" || !feedbackCurrent(entry, snapshot)) continue;
+        if (entry.kind !== "comment" || entry.anchor.kind !== "selection" || !feedbackCurrent(entry, snapshot)
+          || threadState(entry, snapshot.threads[entry.id]).turn === "resolved") continue;
         for (const segment of entry.anchor.segments) {
           const range = rangeForSegment(root.current, segment);
           if (range) ranges.current.push({ id: entry.id, range });

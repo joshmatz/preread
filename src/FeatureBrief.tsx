@@ -10,14 +10,14 @@ import type { CodeComments } from "./useCodeComments";
 import type { CodeJump } from "./code-comments";
 import { useBriefAnnotations } from "./useBriefAnnotations";
 import { BriefDialog } from "./BriefDialog";
-import { BriefFeedbackView } from "./BriefFeedbackView";
+import { BriefFeedbackView, BriefItem } from "./BriefFeedbackView";
+import { noThreads, openThreads, threadCounts, threadState, type ThreadEvent } from "./threads";
 import { BriefQuestion } from "./BriefQuestion";
 import { BriefTabs } from "./BriefTabs";
 import { BriefVisual } from "./BriefVisual";
 import { Markdown, type BriefLink } from "./Markdown";
 import { HighlightedCode } from "./HighlightedCode";
 import { BriefCommentEditor, type BriefCommentDraft } from "./BriefCommentEditor";
-import { CommentImages, savedCommentImages } from "./CommentImages";
 import { BriefGroupStatus, groupReadState, type GroupReadState } from "./BriefGroupStatus";
 import { BriefContents, PartStatus, type HeadingCounts } from "./BriefContents";
 import { BriefCodeGroups, groupTitle, type MarkGroups } from "./BriefCodeGroups";
@@ -54,7 +54,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   onReview: (review: string, block?: string, view?: "feedback") => void; onFeature: () => void; onCodeTab?: () => void; onMark: MarkGroups;
   codeComments?: CodeComments;
 }) {
-  const { snapshot, error, saving, save, retry } = brief;
+  const { snapshot, error, saving, save, send, retry } = brief;
   const [view, setView] = useState<View>(initialView);
   const [modal, setModal] = useState<Modal | null>(null);
   const [notice, setNotice] = useState("");
@@ -72,6 +72,10 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   const readingKey = review ? `${collection.id}/${review.id}` : collection.id;
   const partIndex = review ? collection.reviews.findIndex((entry) => entry.id === review.id) : -1;
   const edit = (entry: Comment) => setModal({ kind: "comment", id: entry.id, anchor: entry.anchor, body: entry.body, attachments: entry.attachments });
+  // A removed comment takes its dialog with it.
+  useEffect(() => {
+    if (modal?.kind === "notes" && snapshot && !snapshot.feedback.some((entry) => modal.ids.includes(entry.id))) setModal(null);
+  }, [modal, snapshot]);
   const comment = (anchor: BriefAnchor) => {
     annotations.clearSelection();
     setModal({ kind: "comment", id: crypto.randomUUID(), anchor, body: "", attachments: [] });
@@ -241,6 +245,20 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   const approvals = snapshot.brief.blocks.filter((block) => block.kind === "code" && block.approval);
   const unapproved = approvals.filter((block) => !current.some((entry) => entry.kind === "approval" && entry.block.id === block.id));
   const notes = snapshot.feedback.filter((entry): entry is Comment => entry.kind === "comment");
+  const resolved = (entry: BriefFeedback) => threadState(entry, snapshot.threads[entry.id]).turn === "resolved";
+  const openNotes = notes.filter((entry) => !resolved(entry));
+  const codeFeedback = review && codeComments ? codeComments : undefined;
+  const own = threadCounts(snapshot.feedback, snapshot.threads, codeFeedback ? threadCounts(codeFeedback.comments, codeFeedback.threads) : noThreads());
+  const lastAgentWord = (events: ThreadEvent[] = []) => events.filter((event) => event.author === "agent").at(-1)?.body ?? "";
+  const replies = [
+    ...snapshot.feedback.filter((entry) => threadState(entry, snapshot.threads[entry.id]).turn === "person").map((entry) => lastAgentWord(snapshot.threads[entry.id])),
+    ...(codeFeedback?.comments.filter((comment) => threadState(comment, codeFeedback.threads[comment.id]).turn === "person")
+      .map((comment) => lastAgentWord(codeFeedback.threads[comment.id])) ?? []),
+  ];
+  const partReplies = review ? [] : collection.reviews.flatMap((entry) => {
+    const count = (snapshot.attention?.reviews[entry.id]?.threads.person ?? 0) + (snapshot.attention?.code?.[entry.id]?.person ?? 0);
+    return count ? [{ review: entry, count }] : [];
+  });
   const counts: HeadingCounts = {};
   const ownerAt = (block: string, offset?: number) => {
     let owner = structure.owners.get(block);
@@ -255,7 +273,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     counts[owner] ??= { comments: 0, questions: 0 };
     counts[owner][field] += 1;
   };
-  for (const entry of notes) {
+  for (const entry of openNotes) {
     if (!feedbackCurrent(entry, snapshot)) continue;
     if (entry.anchor.kind === "block") count(ownerAt(entry.anchor.block), "comments");
     else if (entry.anchor.kind === "selection") count(ownerAt(entry.anchor.segments[0].block, entry.anchor.segments[0].start), "comments");
@@ -295,16 +313,17 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
       case "question": return <BriefQuestion key={revision} block={block} revision={revision} saving={saving} onSave={save} subject={subject}
         saved={current.find((entry): entry is Extract<BriefFeedback, { kind: "answer" }> => entry.kind === "answer" && entry.block.id === block.id)} />;
       case "code": {
-        const approved = current.some((entry) => entry.kind === "approval" && entry.block.id === block.id);
+        const approval = current.find((entry) => entry.kind === "approval" && entry.block.id === block.id);
+        const approved = !!approval;
         return <section className="brief-code"><div className="brief-code-heading"><span>{block.title || "Code excerpt"}</span><small>{block.language}</small></div>
           {block.reference?.file && <button className="brief-code-source" onClick={() => block.reference && openCode(block.reference)}>
             {block.reference.file.path}:{block.reference.file.start}{block.reference.file.end !== block.reference.file.start ? `–${block.reference.file.end}` : ""}<ArrowRight size={13} />
           </button>}
           <pre data-brief-text={block.id}><HighlightedCode code={block.code} language={block.language} /></pre>
           {(block.approval || block.reference) && <div className="brief-code-actions">
-            {block.approval && <button className={`brief-approve${approved ? " approved" : ""}`} aria-pressed={approved} disabled={saving}
-              onClick={async () => { if (await save({ kind: "approve", block: block.id, revision, approved: !approved })) setNotice(approved ? "Excerpt approval removed." : "Excerpt approved. Its code group keeps its own review status."); }}>
-              {approved && <Check size={14} />}{approved ? "Excerpt approved" : "Approve this excerpt"}</button>}
+            {block.approval && <ApproveExcerpt approved={approved} saving={saving}
+              replies={!!approval && (snapshot.threads[approval.id] ?? []).some((event) => event.body !== undefined)}
+              onToggle={async () => { if (await save({ kind: "approve", block: block.id, revision, approved: !approved })) setNotice(approved ? "Excerpt approval removed." : "Excerpt approved. Its code group keeps its own review status."); }} />}
             {block.reference && <button className="brief-code-reference" onClick={() => block.reference && openCode(block.reference)}>Open code group <ArrowRight size={14} /><BriefGroupStatus state={referenceState(block.reference)} /></button>}
           </div>}
           {block.approval && <small className="brief-code-scope">Approval covers this exact excerpt. Mark its group reviewed separately, below or in the code.</small>}
@@ -325,7 +344,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
         <h1>{title}</h1>
         {summary && <Description key={readingKey} className="feature-brief-summary" text={summary} />}
         <BriefTabs label={review ? "Part views" : "Feature views"} current={view} code={checking ? "…" : remaining.length}
-          feedback={snapshot.feedback.length + (codeComments?.comments.length ?? 0)}
+          feedback={openThreads(own)} replies={own.person}
           onBrief={() => setView("brief")} onCode={openCodeTab} onFeedback={() => setView("feedback")} />
       </header>
       {notice && <p className="brief-notice" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")}><X size={13} /></button></p>}
@@ -365,14 +384,17 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
                 <strong>{next === "feature" ? collection.title : next.title}</strong>
                 {next !== "feature" && <PartStatus progress={progress[next.id]} />}</span><ArrowRight size={15} /></button>}
           </nav>}
-        </article> : <BriefFeedbackView collection={collection.id} title={collection.title} review={review && { id: review.id, title: review.title }} snapshot={snapshot}
-          saving={saving} onEdit={edit} onDelete={(id) => { void save({ kind: "delete", id }); }} onLocate={locate} onComment={documentComment}
+        </article> : <BriefFeedbackView collection={collection.id} review={review && { id: review.id, title: review.title }} snapshot={snapshot}
+          saving={saving} send={send} onEdit={edit} onLocate={locate} onComment={documentComment}
           parts={review ? [] : collection.reviews.flatMap((entry) => {
-            const count = (snapshot.attention?.reviews[entry.id]?.feedback ?? 0) + (snapshot.attention?.codeComments?.[entry.id] ?? 0);
-            return count ? [{ id: entry.id, title: `${partLabel(entry)} · ${entry.title}`, count }] : [];
+            const brief = snapshot.attention?.reviews[entry.id]?.threads, code = snapshot.attention?.code?.[entry.id];
+            const open = openThreads(brief) + openThreads(code);
+            return open ? [{ id: entry.id, title: `${partLabel(entry)} · ${entry.title}`, open,
+              replies: (brief?.person ?? 0) + (code?.person ?? 0), agent: (brief?.agent ?? 0) + (code?.agent ?? 0) }] : [];
           })}
           code={review && codeComments ? {
-            comments: codeComments.comments, loaded: codeComments.loaded, saving: codeComments.saving, error: codeComments.error, groupTitle: groupTitleIn(review),
+            comments: codeComments.comments, threads: codeComments.threads, loaded: codeComments.loaded, saving: codeComments.saving, error: codeComments.error, groupTitle: groupTitleIn(review),
+            send: (comment) => (command) => codeComments.save({ ...command, entry: comment.id }),
             // Not through openCode: the comment's group may be gone while its file shows in another group.
             onShow: (comment) => onCode({ review: review.id, group: comment.group, comment: { line: comment.line },
               file: { path: comment.path, start: comment.line?.number ?? 1, end: comment.line?.number ?? 1 } }, "feedback"),
@@ -381,6 +403,13 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
           onPart={(id) => onReview(id, undefined, "feedback")} />}
         <aside className="brief-attention" aria-label={`${review ? "Part" : "Feature"} attention and progress`}><h2>Needs your attention</h2>
           <div className="brief-attention-items">
+            {replies.length > 0 && <button className="brief-attention-item agent-reply" onClick={() => setView("feedback")}>
+              <span>Your agent replied{replies.length > 1 ? ` · ${replies.length}` : ""}</span><strong>{clip(replies[0])}</strong>
+              <small>Reply or resolve on the Feedback tab.</small></button>}
+            {partReplies.map(({ review: entry, count }) => <button className="brief-attention-item agent-reply" key={`replies/${entry.id}`}
+              onClick={() => onReview(entry.id, undefined, "feedback")}>
+              <span>Your agent replied · {partLabel(entry)}</span><strong>{entry.title}</strong>
+              <small>{count === 1 ? "One reply" : `${count} replies`} {entry.brief ? "on its Feedback tab" : "in its code"}.</small></button>)}
             {unanswered.map((block, index) => <button className="brief-attention-item" key={block.id} onClick={() => jump(block.id)}>
               <span>{unanswered.length > 1 ? `Answer requested · ${index + 1} of ${unanswered.length}` : "Answer requested"}</span><strong>{block.question}</strong>
             </button>)}
@@ -404,9 +433,11 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
               && <p className="brief-resolved"><CheckCheck size={14} />No questions left</p>}
           </div>
           <div className="brief-code-progress"><div><span>Code groups reviewed</span><span>{checking ? "…" : `${groups.length - remaining.length} / ${groups.length}`}</span></div><progress aria-label="Named code groups reviewed" max={groups.length || 1} value={checking ? undefined : groups.length - remaining.length} /></div>
-          {notes.length > 0 && <section className="brief-recent-notes"><h3>Your comments <span className="pill">{notes.length}</span></h3>{notes.map((entry) => <button className="brief-note-preview" key={entry.id} onClick={() => edit(entry)}>
+          {notes.length > 0 && <section className="brief-recent-notes"><h3>Your comments <span className="pill">{openNotes.length}</span></h3>{openNotes.map((entry) => <button className="brief-note-preview" key={entry.id} onClick={() => setModal({ kind: "notes", ids: [entry.id] })}>
             <q>{anchorQuote(entry.anchor) || feedbackTitle(entry)}</q><span>{entry.body || `${entry.attachments.length} attached ${entry.attachments.length === 1 ? "image" : "images"}`}</span>{!feedbackCurrent(entry, snapshot) && <small>Earlier revision</small>}
-          </button>)}</section>}
+            {threadState(entry, snapshot.threads[entry.id]).turn === "person" && <small className="brief-note-replied">Your agent replied</small>}
+          </button>)}
+            {notes.length > openNotes.length && <button className="brief-note-resolved" onClick={() => setView("feedback")}>{notes.length - openNotes.length} resolved</button>}</section>}
           <p className="brief-attention-note">Answers, approvals, and comments stay with this {subject}. Reading doesn’t mark code reviewed; Mark reviewed does, the same as in the code.</p>
         </aside>
       </div>
@@ -419,15 +450,36 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
       if (saved) { setModal((current) => current?.kind === "comment" && current.id === modal.id ? null : current); setNotice("Comment saved with its passage and revision."); }
       return saved;
     }} />}
-    {modal?.kind === "notes" && <BriefDialog title="Your comment" onClose={() => setModal(null)}>
-      {snapshot.feedback.filter((entry): entry is Comment => entry.kind === "comment" && modal.ids.includes(entry.id)).map((entry) => <section className="brief-note-detail" key={entry.id}>
-        {!feedbackCurrent(entry, snapshot) && <p className="brief-earlier">This comment belongs to an earlier revision. Its original quote is preserved.</p>}
-        {anchorQuote(entry.anchor) && <blockquote className="brief-quote">{anchorQuote(entry.anchor)}</blockquote>}<p>{feedbackBody(entry)}</p>
-        <CommentImages images={savedCommentImages(collection.id, entry.id, entry.attachments, review?.id)} />
-        <div className="brief-feedback-actions"><button onClick={() => edit(entry)}>Edit comment</button><button disabled={saving} onClick={async () => { if (await save({ kind: "delete", id: entry.id })) setModal(null); }}>Remove</button></div>
-      </section>)}
+    {modal?.kind === "notes" && <BriefDialog title={modal.ids.length > 1 ? "Your comments" : "Your comment"} onClose={() => setModal(null)}>
+      <div className="brief-note-thread">{snapshot.feedback.filter((entry): entry is Comment => entry.kind === "comment" && modal.ids.includes(entry.id)).map((entry) =>
+        <BriefItem key={entry.id} entry={entry} snapshot={snapshot} events={snapshot.threads[entry.id] ?? []} scope={`${collection.id}/${review?.id ?? ""}`} saving={saving}
+          send={(command) => send({ ...command, entry: entry.id })} onRemove={() => send({ kind: "delete", id: entry.id })}
+          onEdit={edit} collection={collection.id} review={review?.id} />)}</div>
     </BriefDialog>}
   </div>;
+}
+
+const clip = (text: string) => text.length > 160 ? `${text.slice(0, 157).trimEnd()}…` : text;
+
+// Removing an approval deletes its thread, so ask first once the agent has replied to it.
+function ApproveExcerpt({ approved, replies, saving, onToggle }: { approved: boolean; replies: boolean; saving: boolean; onToggle: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (confirming || saving || !refocus.current) return;
+    refocus.current = false;
+    button.current?.focus();
+  }, [confirming, saving]);
+  const close = () => { refocus.current = true; setConfirming(false); };
+  if (confirming) return <div className="brief-approve-confirm" role="group" aria-label="Remove approval">
+    <span>Remove this approval and its replies? Your agent won’t see them.</span>
+    <button disabled={saving} onClick={() => { close(); void onToggle(); }}>Remove</button>
+    <button autoFocus onClick={close}>Keep</button>
+  </div>;
+  return <button ref={button} className={`brief-approve${approved ? " approved" : ""}`} aria-pressed={approved} disabled={saving}
+    onClick={() => { if (approved && replies) setConfirming(true); else void onToggle(); }}>
+    {approved && <Check size={14} />}{approved ? "Excerpt approved" : "Approve this excerpt"}</button>;
 }
 
 function trapFocus(event: KeyboardEvent) {

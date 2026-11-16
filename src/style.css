@@ -1009,6 +1009,161 @@ h2 {
   font-size: 12px;
   color: var(--red);
 }
+.pill.has-replies {
+  background: var(--selected);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+.thread-events {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--border);
+  list-style: none;
+}
+.thread-author {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.thread-author strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.from-agent .thread-author strong {
+  color: var(--accent);
+}
+.thread-events time {
+  font-variant-numeric: tabular-nums;
+}
+.thread-events .thread-body {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.thread-resolved-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--green);
+}
+.thread-change {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.reply-box {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.reply-box textarea {
+  width: 100%;
+  min-height: 56px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.reply-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.reply-actions small {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.reply-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.thread-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--red);
+}
+.thread-status.turn-person {
+  color: var(--accent);
+  font-weight: 600;
+}
+.thread-status.turn-resolved {
+  color: var(--green);
+}
+.code-comment.agent-replied {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.code-comment.resolved-comment:has(> .thread-summary) {
+  padding: 6px 12px;
+  background: var(--canvas);
+}
+.thread-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--secondary);
+  text-align: left;
+}
+.thread-summary:hover {
+  background: none;
+  color: var(--text);
+}
+.thread-summary svg,
+.thread-summary-label {
+  flex: none;
+  color: var(--green);
+}
+.thread-summary-label {
+  font-weight: 550;
+}
+.thread-summary-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-summary-show {
+  flex: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.agent-replies-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 8px;
+  background: var(--selected);
+  font-size: 13px;
+}
+.agent-replies-notice svg {
+  flex: none;
+  color: var(--accent);
+}
+.agent-replies-notice button {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+}
 /* Comment rows sit inside diff2html's tables; a size container lets a thread match the visible width of a scrolled diff. */
 .d2h-file-diff,
 .d2h-file-side-diff {

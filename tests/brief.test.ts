@@ -9,16 +9,20 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { briefSnapshot, collectionFeedbackText, readBriefVisual, readCommentAttachment, saveBriefFeedback } from "../server/briefs.ts";
+import { briefSnapshot, readBriefVisual, readCommentAttachment, saveBriefFeedback } from "../server/briefs.ts";
+import { feedbackText } from "../server/feedback.ts";
 import { storeCommentImage } from "../server/comment-images.ts";
 import { putCollection, putCollectionBrief, readCollection, readReceipts, setReceipt, validateCollection } from "../server/collections.ts";
-import { anchorQuote, exportBriefFeedback, exportReviewFeedback, feedbackCurrent } from "../src/brief-feedback.ts";
+import { anchorQuote, exportFeedback, feedbackCurrent } from "../src/brief-feedback.ts";
+import type { BriefSnapshot } from "../src/brief-types.ts";
 import { Markdown } from "../src/Markdown.tsx";
 import { HighlightedCode } from "../src/HighlightedCode.tsx";
 import type { BriefBlock, BriefSelection } from "../src/brief-types.ts";
 import type { Collection } from "../src/review-types.ts";
 
 let directory: string;
+const exportBriefFeedback = (title: string, snapshot: BriefSnapshot) =>
+  exportFeedback({ collection: "filters", title, feature: snapshot, reviews: [], ids: new Map() }, { all: true }).text;
 before(async () => { directory = await mkdtemp(join(tmpdir(), "preread-brief-")); process.env.PREREAD_DATA_DIR = join(directory, "data"); });
 after(async () => { delete process.env.PREREAD_DATA_DIR; await rm(directory, { recursive: true, force: true }); });
 const blocks: BriefBlock[] = [
@@ -306,14 +310,17 @@ test("each brief keeps its own feedback, and every snapshot reports what each br
   const id = "review-feedback";
   await putCollection(twoReviews(id, { feature: featureBlocks, api: reviewBlocks("api", "schema"), ui: reviewBlocks("ui", "menu") }));
   const api = await briefSnapshot(id, "api");
-  const open = (review: string) => ({ questions: [{ block: "rollout", question: `Ship ${review} first?` }], approvals: [{ block: "check", title: "Code excerpt" }], comments: 0, feedback: 0 });
+  const open = (review: string) => ({ questions: [{ block: "rollout", question: `Ship ${review} first?` }], approvals: [{ block: "check", title: "Code excerpt" }],
+    threads: { agent: 0, person: 0, resolved: 0 } });
   assert.deepEqual(api.attention?.reviews, { api: open("api"), ui: open("ui") });
   assert.deepEqual((await briefSnapshot(id)).attention, api.attention);
   assert.deepEqual(api.attention?.feature?.questions.map((entry) => entry.block), ["sharing"]);
   const answer = { kind: "answer", block: "rollout", revision: api.fingerprints.rollout, answer: { kind: "option", option: "no" } };
   const answered = await saveBriefFeedback(id, answer, "api");
   assert.equal(answered.feedback.length, 1);
-  assert.deepEqual(answered.attention?.reviews.api, { ...open("api"), questions: [], feedback: 1 });
+  assert.deepEqual(answered.attention?.reviews.api, { ...open("api"), questions: [], threads: { agent: 1, person: 0, resolved: 0 } });
+  assert.match((await feedbackText(id, { review: "api" })).text,
+    /^Feature: Saved filters\n\nReview: Store filters\nBrief revision: [a-f0-9]{64}\n\n1\. answer: Ship api first\?\nID: answer-rollout-[a-f0-9]{8}\.[a-z0-9]{4}\nNo\n\nReply to an item with /);
   await stat(join(directory, "data", "brief-feedback", id, "reviews", "api", `answer-rollout-${api.fingerprints.rollout}.json`));
   const feature = await briefSnapshot(id);
   assert.equal(feature.feedback.length, 0);
@@ -321,10 +328,10 @@ test("each brief keeps its own feedback, and every snapshot reports what each br
   const approved = await saveBriefFeedback(id, { kind: "approve", block: "check", revision: api.fingerprints.check, approved: true }, "api");
   assert.deepEqual(approved.attention?.reviews.api.approvals, []);
   await saveBriefFeedback(id, { kind: "delete", id: `approval-check-${api.fingerprints.check}` }, "api");
-  const all = await collectionFeedbackText(id);
-  assert.equal(all.entries, 1);
-  assert.match(all.text, /^Feature: Saved filters\nBrief revision: [a-f0-9]{64}\n\nNo feedback yet\.\n\nReview: Store filters\n/);
-  assert.match(all.text, /\n\nNo feedback on review: Show saved filters$/);
+  const all = await feedbackText(id);
+  assert.equal(all.shown, 1);
+  assert.match(all.text, /^Feature: Saved filters\n\nReview: Store filters\nBrief revision: [a-f0-9]{64}\n\n1\. answer/);
+  assert.match(all.text, /\n\nNothing waiting on the agent in review: Show saved filters\nReply to an item with pnpm feedback reply review-feedback <ID> "<reply>", adding --resolve once it is handled\.$/);
   assert.doesNotMatch(all.text, /Review: Show saved filters/);
   assert.equal((await briefSnapshot(id, "ui")).feedback.length, 0);
   await assert.rejects(saveBriefFeedback(id, answer, "ui"), /changed/);
@@ -334,8 +341,6 @@ test("each brief keeps its own feedback, and every snapshot reports what each br
   await assert.rejects(briefSnapshot(id, "missing"), /not in this collection/);
   await putCollection(twoReviews("review-feedback-none"));
   await assert.rejects(briefSnapshot("review-feedback-none", "api"), /has no brief/);
-  assert.match(exportBriefFeedback("Saved filters", answered, "Store filters"), /^Feature: Saved filters\nReview: Store filters\nBrief revision: [a-f0-9]{64}\n\n1\. answer: Ship api first\?\nNo$/);
-  assert.match(exportReviewFeedback("Store filters", answered), /^Review: Store filters\nBrief revision: [a-f0-9]{64}\n\n1\. answer/);
 });
 test("an unreadable part brief or feedback file hides only itself", async () => {
   const id = "unreadable-part";
@@ -347,11 +352,11 @@ test("an unreadable part brief or feedback file hides only itself", async () => 
     await mkdir(broken, { recursive: true });
     await writeFile(join(broken, "broken.json"), "{");
     const api = await briefSnapshot(id, "api");
-    assert.deepEqual(Object.keys(api.attention?.reviews ?? {}), ["api"]);
+    assert.deepEqual(Object.keys(api.attention?.reviews ?? {}), ["api", "ui"]);
     assert.ok(api.attention?.feature);
     const answered = await saveBriefFeedback(id, { kind: "answer", block: "rollout", revision: api.fingerprints.rollout, answer: { kind: "option", option: "no" } }, "api");
     assert.equal(answered.feedback.length, 1);
-    await assert.rejects(briefSnapshot(id, "ui"));
+    assert.deepEqual((await briefSnapshot(id, "ui")).feedback, []);
     await writeFile(join(directory, "data", "briefs", id, "ui.json"), "{ not json");
     const current = await readCollection(id);
     assert.equal(current.reviews.find((review) => review.id === "ui")?.brief, undefined);
@@ -420,9 +425,9 @@ test("the feedback CLI prints the feature brief, then each review brief with fee
   await saveBriefFeedback(id, { kind: "answer", block: "rollout", revision: ui.fingerprints.rollout, answer: { kind: "custom", text: "After the API." } }, "ui");
   const text = await cli("brief-feedback.ts", id);
   assert.equal(text.code, 0, text.stderr);
-  assert.match(text.stdout, new RegExp(["^Feature: Saved filters\nBrief revision: [a-f0-9]{64}\n\n1\\. answer: Who can open it\\?\nMy team",
-    "Review: Show saved filters\nBrief revision: [a-f0-9]{64}\n\n1\\. answer: Ship ui first\\?\nAfter the API\\.",
-    "No feedback on review: Store filters\n$"].join("\n\n")));
+  assert.match(text.stdout, new RegExp(["^Feature: Saved filters\nBrief revision: [a-f0-9]{64}\n\n1\\. answer: Who can open it\\?\nID: answer-sharing-[a-f0-9]{8}\\.[a-z0-9]{4}\nMy team",
+    "Review: Show saved filters\nBrief revision: [a-f0-9]{64}\n\n1\\. answer: Ship ui first\\?\nID: answer-rollout-[a-f0-9]{8}\\.[a-z0-9]{4}\nAfter the API\\.",
+    "Nothing waiting on the agent in review: Store filters\nReply to an item with pnpm feedback reply review-feedback-cli <ID> \"<reply>\", adding --resolve once it is handled\\.\n$"].join("\n\n")));
   const json = JSON.parse((await cli("brief-feedback.ts", id, "--json")).stdout);
   assert.equal(json.feedback.length, 1);
   assert.equal("review" in json.feedback[0], false);

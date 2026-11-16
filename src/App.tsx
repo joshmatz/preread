@@ -24,6 +24,7 @@ import {
   LoaderCircle,
   Lock,
   MessageSquarePlus,
+  MessageSquareReply,
   Music,
   Palette,
   RefreshCw,
@@ -44,6 +45,7 @@ import { displayedLines, displayedPatch } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesCollapsed } from "./useFileState";
 import { useNote } from "./notes";
 import { anchorLine, cardKey, clipLine, commentCard, lineKey, patchLines, placeComments, type CodeComment, type CodeCommentCommand, type CodeJump, type CodeLine } from "./code-comments";
+import { openThreads, threadCounts, threadState, type Threads } from "./threads";
 import { loadDrafts, saveDrafts } from "./code-drafts";
 import { editKey, FileComments, LineThread, UnplacedComments, type CodeDraft, type CommentActions } from "./CodeComments";
 import { groupTitleIn } from "./brief-feedback";
@@ -848,7 +850,7 @@ function FileCard({
   onSearchReady,
   comments,
 }: {
-  comments?: { list: CodeComment[]; saving: boolean; save: (command: CodeCommentCommand) => Promise<{ error?: string }> };
+  comments?: { list: CodeComment[]; threads: Threads; scope: string; saving: boolean; save: (command: CodeCommentCommand) => Promise<{ error?: string }> };
   preview: FilePreview;
   eager: boolean;
   section: string;
@@ -981,7 +983,10 @@ function FileCard({
       if (failed?.key === key) setFailed(null);
     },
     edit: (comment) => openDraft(editKey(comment), { id: comment.id, text: comment.body, line: comment.line, comment }),
-    remove: (comment) => void saveComment(`remove:${comment.id}`, { kind: "delete", id: comment.id }),
+    remove: (comment) => comments ? comments.save({ kind: "delete", id: comment.id }) : Promise.resolve({}),
+    events: (comment) => comments?.threads[comment.id] ?? [],
+    thread: (comment) => (command) => comments ? comments.save({ ...command, entry: comment.id }) : Promise.resolve({}),
+    scope: comments?.scope ?? "",
   };
   const diffComments: DiffComments | undefined = comments && {
     threads: [...threads.keys()],
@@ -1333,6 +1338,18 @@ export default function App() {
     [snapshot, hideTestFiles],
   );
   const placedComments = useMemo(() => placeComments(codeComments.comments, snapshot?.sections ?? []), [codeComments.comments, snapshot]);
+  const repliedComments = useMemo(() => codeComments.comments.filter((comment) => threadState(comment, codeComments.threads[comment.id]).turn === "person"),
+    [codeComments.comments, codeComments.threads]);
+  const [replyTurn, setReplyTurn] = useState(0);
+  const showNextReply = () => {
+    const comment = repliedComments[replyTurn % repliedComments.length];
+    setReplyTurn((value) => value + 1);
+    if (isTestFile(comment.path)) setHideTestFiles(false);
+    setGroupJump({ review: reviewId, group: comment.group, comment: { line: comment.line },
+      file: { path: comment.path, start: comment.line?.number ?? 1, end: comment.line?.number ?? 1 } });
+  };
+  const reviewFeedback = reviewBrief.snapshot && threadCounts(reviewBrief.snapshot.feedback, reviewBrief.snapshot.threads,
+    threadCounts(codeComments.comments, codeComments.threads));
   const hiddenTestCount = hideTestFiles
     ? snapshot?.comparison.files.filter((file) => isTestFile(file.path)).length ?? 0
     : 0;
@@ -2005,7 +2022,7 @@ export default function App() {
             )}
             {review?.brief && (
               <BriefTabs label="Review views" current="code"
-                feedback={reviewBrief.snapshot ? reviewBrief.snapshot.feedback.length + codeComments.comments.length : "…"}
+                feedback={reviewFeedback ? openThreads(reviewFeedback) : "…"} replies={reviewFeedback?.person}
                 code={itemProgress[review.id] ? codeGroups([review], progressSources).remaining.length : "…"}
                 onBrief={() => openReviewBrief("brief")} onCode={() => setTab("changes")} onFeedback={() => openReviewBrief("feedback")} />
             )}
@@ -2120,8 +2137,15 @@ export default function App() {
               }} />
             <SidebarResizer />
             <div className={`review-feed${wrap ? " wrap-lines" : ""}`}>
-              {codeComments.enabled && <UnplacedComments comments={placedComments.unplaced} groupTitle={review ? groupTitleIn(review) : () => undefined}
-                saving={codeComments.saving} onRemove={(comment) => codeComments.save({ kind: "delete", id: comment.id })} />}
+              {codeComments.enabled && repliedComments.length > 0 && <p className="agent-replies-notice" role="status">
+                <MessageSquareReply size={14} aria-hidden="true" />
+                <span>Your agent replied to {repliedComments.length === 1 ? "a comment" : `${repliedComments.length} comments`} in this review.</span>
+                <button onClick={showNextReply}>{repliedComments.length === 1 ? "Show it" : "Show next"}</button>
+              </p>}
+              {codeComments.enabled && <UnplacedComments comments={placedComments.unplaced} threads={codeComments.threads} scope={`${collectionId}/${reviewId}`}
+                groupTitle={review ? groupTitleIn(review) : () => undefined} saving={codeComments.saving}
+                send={(comment) => (command) => codeComments.save({ ...command, entry: comment.id })}
+                onRemove={(comment) => codeComments.save({ kind: "delete", id: comment.id })} />}
               {!comparison?.files.length && (
                 <div className="empty-state">
                   <CheckCheck size={28} />
@@ -2213,6 +2237,7 @@ export default function App() {
                       sinceViewed={sinceViewed && !!preview.lastViewed?.hasText}
                       comments={codeComments.enabled ? {
                         list: placedComments.cards.get(cardKey(section.id, preview.file.path)) ?? [],
+                        threads: codeComments.threads, scope: `${collectionId}/${reviewId}`,
                         saving: codeComments.saving, save: codeComments.save,
                       } : undefined}
                     />

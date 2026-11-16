@@ -12,6 +12,8 @@ Reviewed is a reading checkpoint. It doesn't approve anything on GitHub, and it 
 
 In a review that belongs to a collection, click a line number to comment on that line, or a file’s comment button to comment on the whole file. ⌘↩ saves, and Esc closes a comment you haven’t written yet. A comment you haven’t saved survives a reload of the tab. Comments are saved in Preread’s data directory: your agent reads them with `pnpm feedback`, and a review with an overview lists them on its Feedback tab, where **Show in code** opens the comment’s line.
 
+Your agent replies under a comment, and a notice above the code says how many comments have a reply waiting for you, with **Show it** or **Show next** to jump there. **Reply** to answer back, or **Resolve** once it’s settled; your agent can resolve too, with a reply that says what it did. A resolved comment folds to one line, and **Reopen** or a reply hands it back to your agent. Editing a comment after a reply does the same. Removing a comment removes its replies.
+
 A comment stays with its line’s text, so it follows the line when edits above move it. When no single line in the diff has that text, the comment moves to the top of its file with the line it was written on. Comments follow a file into another group or to a new name. Comments on a file that left the review gather at the top of the code under **Comments on files no longer in this review**. While a file shows only its changes since you viewed it, you can comment on its current lines but not on removed ones.
 
 Private notes from earlier versions show at the top of their file until you send each one as a comment or delete it.

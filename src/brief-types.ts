@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { threadCommandSchemas, type ThreadCounts, type Threads } from "./threads";
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/);
 const text = (max: number) => z.string().max(max).refine((value) => !value.includes("\0"));
@@ -71,24 +72,26 @@ export const briefCommandSchema = z.discriminatedUnion("kind", [
   }).refine((value) => !!value.body.trim() || value.attachments.length > 0, "Write a comment or attach an image.")
     .refine((value) => new Set(value.attachments).size === value.attachments.length, "Attach each image once."),
   z.strictObject({ kind: z.literal("delete"), id: entryId }),
+  ...threadCommandSchemas(entryId),
 ]);
 export type BriefCommand = z.infer<typeof briefCommandSchema>;
 export interface BriefAttention {
   questions: Array<{ block: string; question: string }>;
   approvals: Array<{ block: string; title: string }>;
-  comments: number;
-  feedback: number;
+  threads: ThreadCounts;
 }
 export interface CollectionAttention {
   feature?: BriefAttention;
   reviews: Record<string, BriefAttention>;
-  codeComments?: Record<string, number>;
+  // Comments on code, per review that has any.
+  code?: Record<string, ThreadCounts>;
 }
 export interface BriefSnapshot {
   brief: FeatureBrief;
   version: string;
   fingerprints: Record<string, string>;
   feedback: BriefFeedback[];
+  threads: Threads;
   // Every brief in the collection, read when this snapshot was made, for the contents and the attention panel.
   attention?: CollectionAttention;
 }

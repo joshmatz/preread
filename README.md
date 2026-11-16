@@ -35,7 +35,7 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 1. **Your agents work in worktrees.** One agent or ten, in one repository or several. Preread reads any Git checkout, whatever wrote the code.
 2. **Your agent writes the reading list.** A collection is a short manifest of reviews. Each names a worktree, the base to compare it with, and change groups that give each part of the diff a title and a note on what to check. It can open with an overview that tells the story and asks what the agent needs to know. The included [agent skill](skills/preread/SKILL.md) teaches your agent to write one and hand you the link.
 3. **You read.** Mark files Viewed as you go. A group is reviewed when all of its files are Viewed, and a review is complete when all of its groups are. If the code changes after you've read it, it goes back on your list.
-4. **Your agent reads your feedback.** Answers, approved excerpts, and comments you leave in an overview or on the code are saved for your agent, which collects them with `pnpm feedback`.
+4. **Your agent reads your feedback and replies.** Answers, approved excerpts, and comments you leave in an overview or on the code are saved for your agent, which collects what is waiting on it with `pnpm feedback` and replies under each item. You reply back, and either of you resolves the thread when it’s settled.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/collection-dark.png">
@@ -51,7 +51,7 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 - **Updates on your agent's cue.** After a change, your agent runs `pnpm refresh`, and the page you have open re-reads in place and keeps your scroll position and your marks.
 - **Any stage of the work.** Branch commits, branch plus local edits, uncommitted changes, or staged changes.
 - **The pull request, once you open one.** Link a review to its GitHub pull request to see its state, checks, and review decision, and whether your local head and base still match it.
-- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, expandable context, before-and-after images, and comments for your agent on lines and files.
+- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, expandable context, before-and-after images, and comments on lines and files that your agent replies to.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/split-dark.png">

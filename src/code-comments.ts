@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BriefReference } from "./brief-types";
+import { threadCommandSchemas, type Threads } from "./threads";
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/);
 // z.uuid() accepts capitals, but comment files are found by a lowercase name.
@@ -19,7 +20,9 @@ export const codeCommentSchema = z.strictObject({
 export const codeCommentCommandSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("save"), id: commentId, group: id, path: repositoryPath, line: codeLineSchema.optional(), body }),
   z.strictObject({ kind: z.literal("delete"), id: commentId }),
+  ...threadCommandSchemas(commentId),
 ]);
+export type CodeCommentState = { comments: CodeComment[]; threads: Threads };
 export type CodeLine = z.infer<typeof codeLineSchema>;
 export type CodeComment = z.infer<typeof codeCommentSchema>;
 export type CodeCommentCommand = z.infer<typeof codeCommentCommandSchema>;
@@ -88,9 +91,3 @@ export function sortCodeComments(comments: CodeComment[]) {
 export const codeCommentPlace = (comment: CodeComment) => !comment.line ? `${comment.path} (whole file)`
   : `${comment.path}:${comment.line.number}${comment.line.side === "old" ? " (removed line)" : ""}`;
 export const lineText = (line: CodeLine) => line.text.trim() ? line.text : "(blank line)";
-export function exportCodeComments(comments: CodeComment[], groupTitle: (group: string) => string | undefined = () => undefined) {
-  return `Code comments:\n\n${sortCodeComments(comments).map((comment, index) => {
-    const group = groupTitle(comment.group);
-    return `${index + 1}. ${codeCommentPlace(comment)}\n${group ? `Group: ${group}\n` : ""}${comment.line ? `Line: ${lineText(comment.line)}\n` : ""}${comment.body}`;
-  }).join("\n\n")}`;
-}

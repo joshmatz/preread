@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import { codeCommentPlace, lineText, sortCodeComments, type CodeComment, type CodeLine } from "./code-comments";
+import { ReplyBox, ThreadButtons, ThreadEvents, useThread, type SendThread } from "./Thread";
+import type { ThreadEvent, Threads } from "./threads";
 
 export type CodeDraft = { id: string; text: string; line?: CodeLine; comment?: CodeComment };
 export type CommentActions = {
@@ -11,7 +14,11 @@ export type CommentActions = {
   save: (key: string) => void;
   cancel: (key: string) => void;
   edit: (comment: CodeComment) => void;
-  remove: (comment: CodeComment) => void;
+  remove: (comment: CodeComment) => Promise<{ error?: string }>;
+  events: (comment: CodeComment) => ThreadEvent[];
+  thread: (comment: CodeComment) => SendThread;
+  // Keys this review's reply drafts.
+  scope: string;
 };
 export const editKey = (comment: CodeComment) => `edit:${comment.id}`;
 const agentNote = "Your agent reads this with the review’s feedback.";
@@ -48,25 +55,46 @@ function Composer({ draftKey, draft, actions, hint = agentNote, place }: {
   </form>;
 }
 
-function Comment({ comment, drafts, actions, place }: { comment: CodeComment; drafts: Record<string, CodeDraft>; actions: CommentActions; place?: React.ReactNode }) {
-  const [confirming, setConfirming] = useState(false);
-  const draft = drafts[editKey(comment)];
-  if (draft) return <Composer draftKey={editKey(comment)} draft={draft} actions={actions} place={place} />;
-  const removeKey = `remove:${comment.id}`;
-  return <article className="code-comment">
+function CommentCard({ comment, place, events, send, draftKey, saving, onEdit, onRemove }: {
+  comment: CodeComment; place?: React.ReactNode; events: ThreadEvent[]; send: SendThread; draftKey: string; saving: boolean;
+  onEdit?: () => void; onRemove: () => Promise<{ error?: string }>;
+}) {
+  const thread = useThread(draftKey, comment, events, send);
+  const removal = useRemoval(onRemove);
+  const resolved = thread.state.turn === "resolved";
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => { if (!resolved) setExpanded(false); }, [resolved]);
+  if (resolved && !expanded && !thread.replying) return <article className="code-comment resolved-comment">
+    {place}
+    <button ref={thread.focusRef("toggle")} className="thread-summary" aria-expanded="false" onClick={() => { thread.focusNext("hide"); setExpanded(true); }}>
+      <Check size={13} aria-hidden="true" /><span className="thread-summary-label">{thread.label}</span>
+      <span className="thread-summary-text">{comment.body}</span><span className="thread-summary-show">Show</span>
+    </button>
+  </article>;
+  return <article className={`code-comment${thread.state.turn === "person" ? " agent-replied" : ""}${resolved ? " resolved-comment" : ""}`}>
     {place}
     <p className="code-comment-body">{comment.body}</p>
-    {actions.error(removeKey) && <p className="code-comment-error" role="alert">{actions.error(removeKey)}</p>}
-    <footer>{confirming ? <>
-      <span>Remove this comment? Your agent won’t see it.</span>
-      <button disabled={actions.saving} onClick={() => { setConfirming(false); actions.remove(comment); }}>Remove</button>
-      <button onClick={() => setConfirming(false)}>Keep</button>
+    <ThreadEvents events={events} />
+    {thread.replying && <ReplyBox thread={thread} saving={saving} />}
+    {(removal.error || thread.error) && <p className="code-comment-error" role="alert">{removal.error || thread.error}</p>}
+    <footer>{removal.confirming ? <>
+      <span>Remove this comment{events.length ? " and its replies" : ""}? Your agent won’t see it.</span>
+      <button disabled={saving} onClick={removal.confirm}>Remove</button>
+      <button onClick={removal.keep}>Keep</button>
     </> : <>
-      <span>For your agent</span>
-      <button onClick={() => actions.edit(comment)}>Edit</button>
-      <button disabled={actions.saving} onClick={() => setConfirming(true)}>{actions.busy(removeKey) ? "Removing…" : "Remove"}</button>
+      <span className={`thread-status turn-${thread.state.turn}`}>{thread.label}</span>
+      <ThreadButtons thread={thread} onHide={() => setExpanded(false)} />
+      {!resolved && onEdit && <button onClick={onEdit}>Edit</button>}
+      <button disabled={saving} onClick={removal.ask}>{removal.removing ? "Removing…" : "Remove"}</button>
     </>}</footer>
   </article>;
+}
+
+function Comment({ comment, drafts, actions, place }: { comment: CodeComment; drafts: Record<string, CodeDraft>; actions: CommentActions; place?: React.ReactNode }) {
+  const draft = drafts[editKey(comment)];
+  if (draft) return <Composer draftKey={editKey(comment)} draft={draft} actions={actions} place={place} />;
+  return <CommentCard comment={comment} place={place} events={actions.events(comment)} send={actions.thread(comment)}
+    draftKey={`${actions.scope}/${comment.id}`} saving={actions.saving} onEdit={() => actions.edit(comment)} onRemove={() => actions.remove(comment)} />;
 }
 
 export function LineThread({ comments, draftKeys, drafts, actions }: {
@@ -118,34 +146,19 @@ export function useRemoval(remove: () => Promise<{ error?: string }>) {
   } };
 }
 
-function UnplacedComment({ comment, group, saving, onRemove }: {
-  comment: CodeComment; group?: string; saving: boolean; onRemove: (comment: CodeComment) => Promise<{ error?: string }>;
-}) {
-  const removal = useRemoval(() => onRemove(comment));
-  return <article className="code-comment">
-    <div className="code-comment-place">{codeCommentPlace(comment)}{group && ` · ${group}`}{comment.line && <code>{lineText(comment.line)}</code>}</div>
-    <p className="code-comment-body">{comment.body}</p>
-    {removal.error && <p className="code-comment-error" role="alert">{removal.error}</p>}
-    <footer>{removal.confirming ? <>
-      <span>Remove this comment? Your agent won’t see it.</span>
-      <button disabled={saving} onClick={removal.confirm}>Remove</button>
-      <button onClick={removal.keep}>Keep</button>
-    </> : <>
-      <span>For your agent</span>
-      <button disabled={saving} onClick={removal.ask}>{removal.removing ? "Removing…" : "Remove"}</button>
-    </>}</footer>
-  </article>;
-}
-
-export function UnplacedComments({ comments, groupTitle, saving, onRemove }: {
-  comments: CodeComment[]; groupTitle: (group: string) => string | undefined; saving: boolean;
-  onRemove: (comment: CodeComment) => Promise<{ error?: string }>;
+export function UnplacedComments({ comments, threads, scope, groupTitle, saving, send, onRemove }: {
+  comments: CodeComment[]; threads: Threads; scope: string; groupTitle: (group: string) => string | undefined; saving: boolean;
+  send: (comment: CodeComment) => SendThread; onRemove: (comment: CodeComment) => Promise<{ error?: string }>;
 }) {
   if (!comments.length) return null;
   return <section className="unplaced-comments" id="unplaced-comments" aria-labelledby="unplaced-comments-title">
     <h2 id="unplaced-comments-title">Comments on files no longer in this review</h2>
-    <p>Your agent still reads these with the review’s feedback. Remove any that no longer apply.</p>
-    {sortCodeComments(comments).map((comment) => <UnplacedComment key={comment.id} comment={comment} group={groupTitle(comment.group)}
-      saving={saving} onRemove={onRemove} />)}
+    <p>Your agent still reads these with the review’s feedback. Resolve or remove any that no longer apply.</p>
+    {sortCodeComments(comments).map((comment) => {
+      const group = groupTitle(comment.group);
+      return <CommentCard key={comment.id} comment={comment} events={threads[comment.id] ?? []} send={send(comment)} draftKey={`${scope}/${comment.id}`}
+        saving={saving} onRemove={() => onRemove(comment)}
+        place={<div className="code-comment-place">{codeCommentPlace(comment)}{group && ` · ${group}`}{comment.line && <code>{lineText(comment.line)}</code>}</div>} />;
+    })}
   </section>;
 }
