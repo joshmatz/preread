@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   Archive,
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   Braces,
@@ -22,7 +23,7 @@ import {
   Layers3,
   LoaderCircle,
   Lock,
-  MessageSquare,
+  MessageSquarePlus,
   Music,
   Palette,
   RefreshCw,
@@ -39,9 +40,14 @@ import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import type { Diff, Mode, Repository, StackNode } from "./types";
 import type { Collection, FilePreview, ProgressSource, Review, ReviewSection, ReviewSnapshot, SinceViewed } from "./review-types";
-import { showCarriageReturns, whitespaceDiff } from "./whitespace-diff";
+import { displayedLines, displayedPatch } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesCollapsed } from "./useFileState";
 import { useNote } from "./notes";
+import { anchorLine, cardKey, clipLine, commentCard, lineKey, patchLines, placeComments, type CodeComment, type CodeCommentCommand, type CodeJump, type CodeLine } from "./code-comments";
+import { loadDrafts, saveDrafts } from "./code-drafts";
+import { editKey, FileComments, LineThread, UnplacedComments, type CodeDraft, type CommentActions } from "./CodeComments";
+import { groupTitleIn } from "./brief-feedback";
+import { useCodeComments } from "./useCodeComments";
 import { Picker } from "./Picker";
 import { ReviewVisuals } from "./ReviewVisuals";
 import { OutlineGroup } from "./OutlineGroup";
@@ -71,7 +77,7 @@ import { FeatureBrief } from "./FeatureBrief";
 import { BriefTabs } from "./BriefTabs";
 import { useBrief } from "./useBrief";
 import { Markdown } from "./Markdown";
-import type { BriefReference, FeatureBrief as BriefDocument } from "./brief-types";
+import type { FeatureBrief as BriefDocument } from "./brief-types";
 import type { MarkTargets } from "./BriefCodeGroups";
 import { Description } from "./Description";
 import { briefStructure } from "./brief-outline";
@@ -90,6 +96,9 @@ import { refineWordHighlights } from "./diff-highlights";
 import "./style.css";
 
 const params = new URLSearchParams(location.search);
+type Origin = { collection: string; review?: string; view?: "feedback" };
+type PageState = { origin?: Origin; group?: CodeJump; view?: "feedback" };
+const pageState = (): PageState => (history.state as { preread?: PageState } | null)?.preread ?? {};
 const load = <T,>(key: string, fallback: T): T => {
   try {
     return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback;
@@ -310,6 +319,57 @@ const gapRowsAbove = (element: HTMLElement, gap: number) => {
     if (Number(controls.dataset.gap) < gap) height += controls.getBoundingClientRect().height;
   return height;
 };
+type DiffComments = {
+  threads: string[];
+  render: (key: string) => React.ReactNode;
+  onAdd?: (line: CodeLine) => void;
+  newOnly?: boolean;
+  onLines?: (view: string, lines: ReadonlyMap<string, string> | null) => void;
+};
+type PlacedThread = { row: HTMLTableRowElement; spacer?: HTMLTableRowElement; mount: HTMLDivElement; observer?: ResizeObserver };
+const insertedRows = ".line-comment-row, .line-comment-spacer";
+const afterInserted = (row: Element) => {
+  let last = row;
+  while (last.nextElementSibling?.matches(insertedRows)) last = last.nextElementSibling;
+  return last;
+};
+const lineNumber = (cell: Element | null | undefined) => {
+  const value = Number(cell?.textContent?.trim() || NaN);
+  return value > 0 ? value : 0;
+};
+function diffRows(element: HTMLElement, split: boolean) {
+  const sides = (split ? [...element.querySelectorAll(".d2h-file-side-diff")] : [element]).map((table) =>
+    [...table.querySelectorAll<HTMLTableRowElement>(".d2h-diff-tbody > tr")].filter((row) => !row.matches(insertedRows)));
+  const keyAt = (side: number, index: number): string => {
+    const row = sides[side]?.[index];
+    if (!row) return "";
+    if (!split) {
+      const next = lineNumber(row.querySelector(".line-num2"));
+      const old = lineNumber(row.querySelector(".line-num1"));
+      return next ? `new:${next}` : old ? `old:${old}` : "";
+    }
+    const cell = row.querySelector("td.d2h-code-side-linenumber");
+    if (!cell || cell.matches(".d2h-emptyplaceholder, .d2h-info") || !lineNumber(cell)) return "";
+    // Tables pair up old, new: a type change draws two files, so four tables.
+    if (side % 2) return `new:${lineNumber(cell)}`;
+    return cell.classList.contains("d2h-del") ? `old:${lineNumber(cell)}` : keyAt(side + 1, index);
+  };
+  const byKey = new Map<string, { row: HTMLTableRowElement; side: number; index: number }>();
+  sides.forEach((rows, side) => rows.forEach((row, index) => {
+    const key = keyAt(side, index);
+    // Split view shows a context line in both tables; its comments go under the new side.
+    if (key && !(split && side % 2 === 0 && key.startsWith("new:"))) byKey.set(key, { row, side, index });
+  }));
+  const keyOf = (cell: Element) => {
+    const row = cell.closest("tr");
+    for (const [side, rows] of sides.entries()) {
+      const index = rows.indexOf(row!);
+      if (index >= 0) return keyAt(side, index);
+    }
+    return "";
+  };
+  return { sides, byKey, keyOf };
+}
 function DiffView({
   preview,
   eager,
@@ -324,8 +384,10 @@ function DiffView({
   searchMatch,
   onSearchReady,
   chunkIndex,
+  comments,
 }: {
   chunkIndex?: number;
+  comments?: DiffComments;
   expandable?: boolean;
   loadContext?: (signal: AbortSignal) => Promise<Diff>;
   searchMatch?: { match: SearchMatch; version: number };
@@ -351,6 +413,110 @@ function DiffView({
   const size = useMemo(() => diffSize(preview.diff.patch), [preview.diff.patch]);
   const chunks = useMemo(() => chunkIndex === undefined ? diffChunks(completePatch) : [completePatch], [completePatch, chunkIndex]);
   const patch = completePatch;
+  const note = noContentNote(preview.diff.patch);
+  let message = "";
+  if (preview.error) message = preview.error;
+  else if (preview.diff.tooLarge)
+    message =
+      "This diff is too large to preview. Open the file locally or choose a closer comparison base.";
+  else if (note) message = note;
+  else if (preview.diff.binary)
+    message = "Binary file changed. Open the file locally to inspect it, then mark it Viewed.";
+  else if (preview.diff.empty)
+    message = "No text changes. This file may be empty or have a mode change.";
+  const drawsRows = chunks.length === 1;
+  // The drawing and the comment anchors read one result: whitespace matching can time out, so two runs may differ.
+  const shownCache = useRef<{ patch: string; ignoreWhitespace: boolean; value: ReturnType<typeof displayedPatch> } | null>(null);
+  const shown = () => {
+    const cached = shownCache.current;
+    if (cached?.patch === patch && cached.ignoreWhitespace === ignoreWhitespace) return cached.value;
+    const value = displayedPatch(patch, ignoreWhitespace);
+    shownCache.current = { patch, ignoreWhitespace, value };
+    return value;
+  };
+  const newOnly = !!comments?.newOnly;
+  const reportLines = comments?.onLines;
+  const lines = useMemo(() => {
+    if (!reportLines || !drawsRows) return null;
+    const all = message ? new Map<string, string>() : displayedLines(shown());
+    // Since viewed, the old side is the last viewed text, not the base the comments were written against.
+    if (newOnly) for (const key of [...all.keys()]) if (key.startsWith("old:")) all.delete(key);
+    return all;
+  }, [patch, ignoreWhitespace, !!reportLines, drawsRows, !!message, newOnly]);
+  const lineView = chunkIndex === undefined ? "file" : `chunk:${chunkIndex}`;
+  // Before paint, so a comment saved on a shown line never flashes into the file's list first.
+  useLayoutEffect(() => {
+    if (!reportLines || !lines) return;
+    reportLines(lineView, lines);
+    return () => reportLines(lineView, null);
+  }, [lines, reportLines, lineView]);
+  const placed = useRef(new Map<string, PlacedThread>());
+  const [mounts, setMounts] = useState<ReadonlyMap<string, HTMLDivElement>>(() => new Map());
+  const threadKey = comments?.threads.join("|") ?? "";
+  const publishMounts = () => setMounts(new Map([...placed.current].map(([key, entry]) => [key, entry.mount])));
+  const clearThreads = () => {
+    for (const entry of placed.current.values()) entry.observer?.disconnect();
+    if (!placed.current.size) return;
+    placed.current.clear();
+    publishMounts();
+  };
+  const syncThreads = (element: HTMLElement) => {
+    const wanted = new Set(comments?.threads);
+    let changed = false;
+    for (const [key, entry] of placed.current) {
+      if (wanted.has(key) && element.contains(entry.row)) continue;
+      entry.row.remove();
+      entry.spacer?.remove();
+      entry.observer?.disconnect();
+      placed.current.delete(key);
+      changed = true;
+    }
+    const rows = wanted.size ? diffRows(element, split) : null;
+    for (const key of wanted) {
+      const anchor = rows?.byKey.get(key);
+      if (placed.current.has(key) || !anchor) continue;
+      const row = document.createElement("tr");
+      row.className = "line-comment-row";
+      row.dataset.line = key;
+      const gutter = document.createElement("td");
+      gutter.className = "line-comment-gutter";
+      const cell = document.createElement("td");
+      cell.className = "line-comment-cell";
+      const mount = document.createElement("div");
+      mount.className = "line-comment-mount";
+      cell.append(mount);
+      row.append(gutter, cell);
+      afterInserted(anchor.row).after(row);
+      const entry: PlacedThread = { row, mount };
+      const partner = split ? rows!.sides[anchor.side ^ 1]?.[anchor.index] : undefined;
+      if (partner) {
+        const spacer = document.createElement("tr");
+        spacer.className = "line-comment-spacer";
+        const fill = document.createElement("td");
+        fill.colSpan = 2;
+        spacer.append(fill);
+        afterInserted(partner).after(spacer);
+        entry.spacer = spacer;
+        entry.observer = new ResizeObserver(() => { fill.style.height = `${row.getBoundingClientRect().height}px`; });
+        entry.observer.observe(mount);
+      }
+      placed.current.set(key, entry);
+      changed = true;
+    }
+    if (changed) publishMounts();
+  };
+  const addComment = (event: React.MouseEvent<HTMLDivElement>) => {
+    const element = target.current;
+    const cell = event.target instanceof Element
+      ? event.target.closest("td.d2h-code-linenumber, td.d2h-code-side-linenumber") : null;
+    if (!element || !cell || !comments?.onAdd || !element.contains(cell)) return;
+    const key = diffRows(element, split).keyOf(cell);
+    if (!key || (newOnly && key.startsWith("old:"))) return;
+    const text = (lines ?? displayedLines(shown())).get(key);
+    if (text === undefined) return;
+    const [side, number] = key.split(":");
+    comments.onAdd({ side: side as CodeLine["side"], number: Number(number), text: clipLine(text) });
+  };
   const reveal = async (gap: number, direction: "above" | "below" | "all") => {
     if (contextBusy) return;
     const { signal } = abort.current;
@@ -408,8 +574,7 @@ function DiffView({
   useEffect(() => {
     const element = target.current;
     if (!element || !visible || !patch || preview.error) return;
-    const shown = showCarriageReturns(patch);
-    const view = new Diff2HtmlUI(element, ignoreWhitespace ? whitespaceDiff(shown) : shown, {
+    const view = new Diff2HtmlUI(element, shown(), {
       drawFileList: false,
       outputFormat: split ? "side-by-side" : "line-by-line",
       matching: chunkIndex !== undefined || size.deferred ? "none" : "lines",
@@ -528,11 +693,16 @@ function DiffView({
         }
       }
     }
+    syncThreads(element);
     setRetainedHeight(Math.max(180, element.getBoundingClientRect().height));
     return () => {
       element.innerHTML = "";
+      clearThreads();
     };
   }, [patch, split, visible, context, ignoreWhitespace, expandable, chunkIndex, searchMatch, onSearchReady]);
+  useEffect(() => {
+    if (target.current && visible) syncThreads(target.current);
+  }, [threadKey, visible]);
   useEffect(() => {
     const element = target.current;
     if (!element || !visible || !split || !wrap) return;
@@ -540,7 +710,7 @@ function DiffView({
     if (sides.length !== 2) return;
     const [left, right] = sides.map((side) => [
       ...side.querySelectorAll<HTMLTableRowElement>("tbody > tr"),
-    ]);
+    ].filter((row) => !row.matches(insertedRows)));
     let previousWidth = -1;
     const alignRows = () => {
       if (element.clientWidth === previousWidth) return;
@@ -576,17 +746,7 @@ function DiffView({
       status.classList.toggle("failed", current && !!contextStatus.error);
     }
   }, [contextStatus, patch]);
-  const note = noContentNote(preview.diff.patch);
-  let message = "";
-  if (preview.error) message = preview.error;
-  else if (preview.diff.tooLarge)
-    message =
-      "This diff is too large to preview. Open the file locally or choose a closer comparison base.";
-  else if (note) message = note;
-  else if (preview.diff.binary)
-    message = "Binary file changed. Open the file locally to inspect it, then mark it Viewed.";
-  else if (preview.diff.empty)
-    message = "No text changes. This file may be empty or have a mode change.";
+  const commentable = comments?.onAdd ? (comments.newOnly ? " commentable new-only" : " commentable") : "";
   return (
     <div className="diff-body">
       {message ? (
@@ -598,12 +758,13 @@ function DiffView({
           ignoreWhitespace={ignoreWhitespace} source={source} context={null}
           onContextChange={onContextChange} expandable={false}
           searchMatch={searchMatch?.match.chunk === index ? searchMatch : undefined}
-          onSearchReady={onSearchReady} />)
+          onSearchReady={onSearchReady} comments={comments} />)
       ) : (
-        <div className={`diff-renderer ${visible ? "" : "deferred"}`} ref={target}
-          style={!visible ? { height: retainedHeight } : undefined}
+        <div className={`diff-renderer ${visible ? "" : "deferred"}${commentable}`} ref={target}
+          style={!visible ? { height: retainedHeight } : undefined} onClick={comments?.onAdd ? addComment : undefined}
           tabIndex={-1} aria-label={`Diff for ${preview.file.path}${chunkIndex === undefined ? "" : `, section ${chunkIndex + 1}`}`} />
       )}
+      {comments && [...mounts].map(([key, mount]) => createPortal(comments.render(key), mount, key))}
     </div>
   );
 }
@@ -620,7 +781,8 @@ function RenamedPath({ from, to }: { from: string; to: string }) {
 }
 type ViewedSource = ContextSource & { collection?: string; review?: string };
 function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespace, context,
-  onContextChange, onCompared }: {
+  onContextChange, onCompared, comments }: {
+  comments?: DiffComments;
   preview: FilePreview;
   section: string;
   source: ViewedSource;
@@ -666,7 +828,7 @@ function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespa
     {result.diff!.empty ? <p className="empty-file">No text changes since this file was viewed.</p> :
       <DiffView preview={{ ...preview, partial: false, diff: result.diff! }} eager={true}
         split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} source={source}
-        context={context} onContextChange={onContextChange} loadContext={loadContext} />}
+        context={context} onContextChange={onContextChange} loadContext={loadContext} comments={comments} />}
   </>;
 }
 function FileCard({
@@ -684,7 +846,9 @@ function FileCard({
   onViewedAdvance,
   searchMatch,
   onSearchReady,
+  comments,
 }: {
+  comments?: { list: CodeComment[]; saving: boolean; save: (command: CodeCommentCommand) => Promise<{ error?: string }> };
   preview: FilePreview;
   eager: boolean;
   section: string;
@@ -733,8 +897,102 @@ function FileCard({
     } finally { setViewSaving(false); }
   };
   const bodyId = `${anchor(section, preview.file.path)}-body`;
-  const [notesOpen, setNotesOpen] = useState(false);
   const [note, setNote] = useNote(`${source.path}|${preview.file.path}`);
+  const draftCard = comments && source.collection && source.review ? `${source.collection}/${source.review}\n${section}\n${preview.file.path}` : "";
+  const [drafts, setDrafts] = useState<Record<string, CodeDraft>>(() => draftCard ? loadDrafts(draftCard) : {});
+  useEffect(() => { if (draftCard) saveDrafts(draftCard, drafts); }, [drafts, draftCard]);
+  const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
+  const [savingKey, setSavingKey] = useState("");
+  const [lineMaps, setLineMaps] = useState<Record<string, ReadonlyMap<string, string>>>({});
+  const reportLines = useCallback((view: string, value: ReadonlyMap<string, string> | null) => setLineMaps((current) => {
+    if (value ? current[view] === value : !(view in current)) return current;
+    const { [view]: _, ...rest } = current;
+    return value ? { ...rest, [view]: value } : rest;
+  }), []);
+  const lines = useMemo(() => {
+    const maps = Object.values(lineMaps);
+    return maps.length > 1 ? new Map(maps.flatMap((map) => [...map])) : maps[0] ?? null;
+  }, [lineMaps]);
+  const focusDraft = useRef("");
+  const list = comments?.list ?? [];
+  const threads = new Map<string, { comments: CodeComment[]; drafts: string[] }>();
+  const thread = (key: string) => {
+    if (!threads.has(key)) threads.set(key, { comments: [], drafts: [] });
+    return threads.get(key)!;
+  };
+  const fileComments: CodeComment[] = [];
+  const stray: CodeComment[] = [];
+  for (const comment of list) {
+    const key = comment.line ? anchorLine(comment.line, lines) : "";
+    if (!comment.line) fileComments.push(comment);
+    else if (key) thread(key).comments.push(comment);
+    else stray.push(comment);
+  }
+  const strayDrafts: string[] = [];
+  for (const [key, draft] of Object.entries(drafts)) {
+    if (!draft.line || draft.comment) continue;
+    // Until the diff reports its lines, a new draft stays where it was opened.
+    const anchor = lines ? anchorLine(draft.line, lines) : lineKey(draft.line);
+    if (anchor) thread(anchor).drafts.push(key);
+    else strayDrafts.push(key);
+  }
+  const without = (key: string) => (current: Record<string, CodeDraft>) => {
+    const { [key]: _, ...rest } = current;
+    return rest;
+  };
+  const openDraft = (key: string, draft: CodeDraft) => {
+    if (drafts[key]) {
+      card.current?.querySelector<HTMLTextAreaElement>(`[data-draft="${CSS.escape(key)}"] textarea`)?.focus();
+      return;
+    }
+    focusDraft.current = key;
+    setDrafts((current) => ({ ...current, [key]: draft }));
+  };
+  const saveComment = async (key: string, command: CodeCommentCommand) => {
+    if (!comments) return false;
+    setFailed(null);
+    setSavingKey(key);
+    const { error } = await comments.save(command);
+    setSavingKey("");
+    if (error) setFailed({ key, message: error });
+    return !error;
+  };
+  const closeDraft = (key: string) => {
+    setDrafts(without(key));
+    commentButton.current?.focus({ preventScroll: true });
+  };
+  const actions: CommentActions = {
+    saving: !!comments?.saving,
+    busy: (key) => savingKey === key,
+    error: (key) => (failed?.key === key ? failed.message : ""),
+    focus: (key) => {
+      if (focusDraft.current !== key) return false;
+      focusDraft.current = "";
+      return true;
+    },
+    change: (key, text) => setDrafts((current) => current[key] ? { ...current, [key]: { ...current[key], text } } : current),
+    save: async (key) => {
+      const draft = drafts[key];
+      if (draft && await saveComment(key, { kind: "save", id: draft.id, group: draft.comment?.group ?? section,
+        path: draft.comment?.path ?? preview.file.path, ...(draft.line ? { line: draft.line } : {}), body: draft.text })) closeDraft(key);
+    },
+    cancel: (key) => {
+      closeDraft(key);
+      if (failed?.key === key) setFailed(null);
+    },
+    edit: (comment) => openDraft(editKey(comment), { id: comment.id, text: comment.body, line: comment.line, comment }),
+    remove: (comment) => void saveComment(`remove:${comment.id}`, { kind: "delete", id: comment.id }),
+  };
+  const diffComments: DiffComments | undefined = comments && {
+    threads: [...threads.keys()],
+    render: (key) => <LineThread comments={threads.get(key)?.comments ?? []} draftKeys={threads.get(key)?.drafts ?? []} drafts={drafts} actions={actions} />,
+    onAdd: (line) => openDraft(threads.get(lineKey(line))?.drafts[0] ?? lineKey(line), { id: crypto.randomUUID(), text: "", line }),
+    onLines: list.some((comment) => comment.line) || Object.values(drafts).some((draft) => draft.line) ? reportLines : undefined,
+  };
+  const sendNote = async () => {
+    if (await saveComment("note", { kind: "save", id: crypto.randomUUID(), group: section, path: preview.file.path, body: note.trim() }))
+      setNote("");
+  };
   const valid = reviewable(preview);
   const kind = fileKind(preview.file.path, !!preview.diff.image);
   const FileIcon = kindIcons[kind];
@@ -747,6 +1005,9 @@ function FileCard({
   useEffect(() => { if (searchMatch) setExpanded(null); }, [searchMatch]);
   const card = useRef<HTMLElement>(null);
   const collapseButton = useRef<HTMLButtonElement>(null);
+  const commentButton = useRef<HTMLButtonElement>(null);
+  const showsLines = !preview.error && !preview.diff.tooLarge && !preview.diff.binary && !preview.diff.empty && !preview.diff.image
+    && !noContentNote(preview.diff.patch);
   return (
     <article
       className={`file-card ${reviewed ? "reviewed-file" : ""} ${collapsed ? "collapsed-file" : ""}`}
@@ -799,35 +1060,29 @@ function FileCard({
           {viewSaving ? <LoaderCircle size={14} className="spin" /> : null}
           {viewSaving ? "Saving viewed version…" : preview.partial ? "Blocks viewed" : "Viewed"}
         </button>
-        <button
-          className="icon-button"
-          aria-label={`Notes for ${preview.file.path}`}
-          aria-expanded={notesOpen}
-          title="Private notes"
-          onClick={() => setNotesOpen(!notesOpen)}
-        >
-          <MessageSquare size={15} />
-          {note && <span className="note-dot" />}
-        </button>
+        {comments && (
+          <button
+            className={`icon-button comment-button${list.length ? " has-comments" : ""}`}
+            aria-label={`Comment on ${preview.file.path}${list.length ? `, ${list.length} ${list.length === 1 ? "comment" : "comments"} so far` : ""}`}
+            title="Comment on this file. Your agent reads comments with the review’s feedback."
+            onClick={() => { if (collapsed) setCollapsed(false); openDraft("file", { id: crypto.randomUUID(), text: "" }); }}
+            ref={commentButton}
+          >
+            <MessageSquarePlus size={15} />
+            {list.length > 0 && <span className="comment-count" aria-hidden="true">{list.length}</span>}
+          </button>
+        )}
       </header>
-      {notesOpen && (
-        <div className="notes-panel">
-          <label>
-            Private file notes <small>Saved in this browser</small>
-            <textarea
-              value={note}
-              placeholder="What needs to change? What should we discuss?"
-              onChange={(event) => setNote(event.target.value)}
-            />
-          </label>
-        </div>
-      )}
       {viewSaveError && <p className="warning" role="alert">{viewSaveError}</p>}
       <div id={bodyId} hidden={collapsed}>
+        <FileComments comments={fileComments} stray={stray} strayDrafts={strayDrafts} drafts={drafts} actions={actions}
+          lineHint={!!diffComments && showsLines}
+          note={note.trim() ? note : ""} onSendNote={comments ? sendNote : undefined} onDeleteNote={() => setNote("")} />
         {sinceViewed ? (
           <SinceViewedFile preview={preview} section={section} source={source}
             split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace}
-            context={context} onContextChange={expand} onCompared={setSinceHash} />
+            context={context} onContextChange={expand} onCompared={setSinceHash}
+            comments={diffComments && { ...diffComments, newOnly: true }} />
         ) : preview.diff.image && !noContentNote(preview.diff.patch) ? (
           <ImageDiff key={preview.diff.hash} preview={preview} split={split} source={source} />
         ) : (
@@ -843,6 +1098,7 @@ function FileCard({
             source={source}
             context={context}
             onContextChange={expand}
+            comments={diffComments}
           />
         )}
       </div>
@@ -1011,8 +1267,9 @@ export default function App() {
   const [briefJump, setBriefJump] = useState("");
   const [featureJump, setFeatureJump] = useState("");
   const entered = useRef(false);
-  const [groupJump, setGroupJump] = useState<BriefReference | null>(null);
-  const preparedGroupJump = useRef<BriefReference | null>(null);
+  const [groupJump, setGroupJump] = useState<CodeJump | null>(null);
+  const preparedGroupJump = useRef<CodeJump | null>(null);
+  const [origin, setOrigin] = useState(() => pageState().origin);
   const [stack, setStack] = useState<StackNode[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(!!(collectionId || path));
@@ -1049,6 +1306,7 @@ export default function App() {
   const review = collection?.reviews.find((entry) => entry.id === reviewId);
   const collectionBrief = useBrief(collection?.brief ? { collection } : null, refresh);
   const reviewBrief = useBrief(collection && review?.brief ? { collection, review } : null, refresh);
+  const codeComments = useCodeComments(collectionId, review ? reviewId : "", refresh);
   const { entries: pullRequests, recheckPullRequests, refreshPullRequest } = usePullRequests(
     collection,
     refresh,
@@ -1074,6 +1332,7 @@ export default function App() {
     () => displaySections(snapshot?.sections ?? [], hideTestFiles),
     [snapshot, hideTestFiles],
   );
+  const placedComments = useMemo(() => placeComments(codeComments.comments, snapshot?.sections ?? []), [codeComments.comments, snapshot]);
   const hiddenTestCount = hideTestFiles
     ? snapshot?.comparison.files.filter((file) => isTestFile(file.path)).length ?? 0
     : 0;
@@ -1121,6 +1380,7 @@ export default function App() {
     : [];
   const showCollection = () => {
     setTab("collection");
+    setBriefView("brief");
     setProgressRefresh((value) => value + 1);
   };
   const comparison = snapshot?.comparison;
@@ -1280,7 +1540,7 @@ export default function App() {
     // A plain review link opens its brief, so the code view names itself to survive a reload.
     if (briefShown) next.set("view", "brief");
     else if (review?.brief) next.set("view", "code");
-    history.replaceState(null, "", `?${next}${briefShown ? "" : location.hash}`);
+    history.replaceState(history.state, "", `?${next}${briefShown ? "" : location.hash}`);
   }, [path, base, mode, review, collectionId, reviewId, tab, !!collection?.brief]);
   const scrollTo = (id: string) => {
     stopJump.current?.();
@@ -1313,18 +1573,33 @@ export default function App() {
     setBriefJump("");
     setError("");
     window.scrollTo(0, 0);
-    history.replaceState(null, "", location.pathname + location.search);
+    history.replaceState(history.state, "", location.pathname + location.search);
   };
-  const openCodeReference = (reference: BriefReference) => {
+  // Links push a history entry; pickers and tabs must replace the current one.
+  const follow = (next: PageState) => {
+    history.pushState({ preread: next }, "", location.href);
+    setOrigin(next.origin);
+  };
+  const showCode = (owner: Collection, target: Review, reference: CodeJump) => {
+    selectReview(owner, target, "code");
+    if (reference.file ? isTestFile(reference.file.path)
+      : target.groups.find((group) => group.id === reference.group)?.targets.every((target) => isTestFile(target.path))) setHideTestFiles(false);
+    setGroupJump(reference);
+  };
+  const openCodeReference = (reference: CodeJump, view?: "brief" | "feedback") => {
     const target = collection?.reviews.find((entry) => entry.id === reference.review);
     if (!collection || !target) return;
-    selectReview(collection, target, "code");
-    if (target.groups.find((group) => group.id === reference.group)?.targets.every((target) => isTestFile(target.path))) setHideTestFiles(false);
-    setGroupJump(reference);
+    const feedback = view === "feedback" ? { view } : {};
+    // Back returns to the tab the reader left, such as the comment they were working through on Feedback.
+    const { view: _, ...left } = pageState();
+    history.replaceState({ ...history.state, preread: { ...left, ...feedback } }, "", location.href);
+    follow({ group: reference, origin: { collection: collection.id, ...(tab === "brief" ? { review: reviewId } : {}), ...feedback } });
+    showCode(collection, target, reference);
   };
   const openReviewEntry = (id: string, block?: string, view?: "feedback") => {
     const target = collection?.reviews.find((entry) => entry.id === id);
     if (!collection || !target) return;
+    follow({});
     selectReview(collection, target);
     if (view && target.brief) setBriefView(view);
     if (block && target.brief) setBriefJump(block);
@@ -1335,17 +1610,20 @@ export default function App() {
   };
   useEffect(() => {
     if (!groupJump || tab !== "changes" || busy || !snapshot || groupJump.review !== reviewId) return;
-    const target = groupJump.file;
-    const section = snapshot.sections.find((section) => section.id === groupJump.group);
-    const preview = target && section?.files.find((preview) => preview.file.path === target.path);
-    if (preview && preparedGroupJump.current !== groupJump) {
+    const { file: target, comment } = groupJump;
+    const card = target && commentCard(groupJump.group, target.path, snapshot.sections);
+    const section = snapshot.sections.find((section) => section.id === (card ? card.group : groupJump.group));
+    const preview = card && section?.files.find((preview) => preview.file.path === card.path);
+    if (section && preview && preparedGroupJump.current !== groupJump) {
       preparedGroupJump.current = groupJump;
-      setSinceViewedGroups((current) => new Map(current).set(groupJump.group, false));
+      setSinceViewedGroups((current) => new Map(current).set(section.id, false));
       setFilesCollapsed(path, [markedFile(preview)], false);
-      const match = searchLines(preview.diff.patch).find((line) => line.side === "new" && line.line === target?.start);
-      if (match) setSearchTarget({ section: groupJump.group, path: preview.file.path, match, version: Date.now() });
+      const key = !comment ? `new:${target?.start}` : comment.line ? anchorLine(comment.line, patchLines(preview.diff.patch)) : "";
+      const match = key && searchLines(preview.diff.patch).find((line) => `${line.side}:${line.line}` === key);
+      if (match) setSearchTarget({ section: section.id, path: preview.file.path, match, version: Date.now() });
     }
-    const frame = requestAnimationFrame(() => { scrollTo(anchor(groupJump.group, preview?.file.path)); setGroupJump(null); });
+    const id = card ? anchor(card.group, card.path) : comment ? "unplaced-comments" : anchor(groupJump.group);
+    const frame = requestAnimationFrame(() => { scrollTo(id); setGroupJump(null); });
     return () => cancelAnimationFrame(frame);
   }, [groupJump, tab, busy, snapshot, reviewId, path]);
   const openPath = (next: string) => {
@@ -1372,7 +1650,7 @@ export default function App() {
   const jump = (section: string, file = "") => {
     scrollTo(anchor(section, file));
     history.replaceState(
-      null,
+      history.state,
       "",
       `${location.pathname}${location.search}#${anchor(section, file)}`,
     );
@@ -1382,7 +1660,7 @@ export default function App() {
     const target = files[files.indexOf(current) + 1] ?? current;
     target.querySelector<HTMLButtonElement>(".file-collapse-button")?.focus({ preventScroll: true });
     scrollTo(target.id);
-    history.replaceState(null, "", `${location.pathname}${location.search}#${target.id}`);
+    history.replaceState(history.state, "", `${location.pathname}${location.search}#${target.id}`);
   };
   const mark = async (section: ReviewSection) => {
     setMarking(section.id);
@@ -1458,14 +1736,44 @@ export default function App() {
     for (const entry of collection.reviews) add(entry.brief, entry.id);
     return mentions;
   }, [collection]);
-  const openBriefAt = (owner: string | undefined, place: string) => {
+  const openBriefAt = (owner: string | undefined, place: string, group: string) => {
     if (!collection) return;
-    if (owner === undefined) { setFeatureJump(place); showCollection(); return; }
     const target = collection.reviews.find((entry) => entry.id === owner);
-    if (!target) return;
+    if (owner !== undefined && !target) return;
+    // Back returns to this group, not the one the code view first opened at.
+    history.replaceState({ preread: { ...pageState(), group: { review: reviewId, group } } }, "", location.href);
+    follow({});
+    if (!target) { setFeatureJump(place); showCollection(); return; }
     selectReview(collection, target);
     setBriefJump(place);
   };
+  const restorePage = useRef(() => {});
+  restorePage.current = () => {
+    const next = new URLSearchParams(location.search);
+    const state = pageState();
+    const owner = collections.find((entry) => entry.id === next.get("collection"));
+    const part = owner?.reviews.find((entry) => entry.id === next.get("review"));
+    if (!owner || (next.has("review") && !part)) { location.reload(); return; }
+    setOrigin(state.origin);
+    if (!part) {
+      if (owner.id !== collectionId) selectReview(owner);
+      showCollection();
+      setBriefView(state.view ?? "brief");
+    } else if (next.get("view") === "brief") {
+      selectReview(owner, part);
+      setBriefView(state.view ?? "brief");
+    } else if (state.group) showCode(owner, part, state.group);
+    else selectReview(owner, part, "code");
+  };
+  useEffect(() => {
+    const restore = () => restorePage.current();
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+  const originPart = origin?.review === undefined ? -1 : collection?.reviews.findIndex((entry) => entry.id === origin.review) ?? -1;
+  const backTo = tab !== "changes" || !collection || origin?.collection !== collection.id ? ""
+    : origin.review === undefined ? (collection.brief ? (origin.view ? "the feature’s feedback" : "the feature overview") : "")
+    : originPart >= 0 ? `part ${originPart + 1}’s ${origin.view ?? "overview"}` : "";
   const reviewedCount = snapshot?.sections.filter((section) => section.reviewed).length ?? 0;
 
   return (
@@ -1479,6 +1787,8 @@ export default function App() {
             <span className="brand-pre">pre</span>read
           </span>
         </a>
+        {backTo && <button className="back-link" onClick={() => history.back()} title={`Back to where you were in ${backTo}`}>
+          <ArrowLeft size={15} /><span>Back<span className="back-link-place"> to {backTo}</span></span></button>}
         <nav className="crumbs" aria-label="Collection">
           <Layers3 size={15} />
           <Picker
@@ -1694,7 +2004,8 @@ export default function App() {
               <Description key={`description:${collectionId}/${reviewId}`} text={review.description} />
             )}
             {review?.brief && (
-              <BriefTabs label="Review views" current="code" feedback={reviewBrief.snapshot?.feedback.length ?? "…"}
+              <BriefTabs label="Review views" current="code"
+                feedback={reviewBrief.snapshot ? reviewBrief.snapshot.feedback.length + codeComments.comments.length : "…"}
                 code={itemProgress[review.id] ? codeGroups([review], progressSources).remaining.length : "…"}
                 onBrief={() => openReviewBrief("brief")} onCode={() => setTab("changes")} onFeedback={() => openReviewBrief("feedback")} />
             )}
@@ -1783,6 +2094,9 @@ export default function App() {
             {warning}
           </p>
         ))}
+        {tab === "changes" && codeComments.error && !codeComments.loaded && (
+          <p className="warning" role="alert">Comments on this review’s code could not be loaded. {codeComments.error}</p>
+        )}
         {!repo && !busy && !repoBusy && !collectionId && !error && (
           <div className="welcome">
             <p>Compare changes, describe the decisions, and review them here.</p>
@@ -1806,6 +2120,8 @@ export default function App() {
               }} />
             <SidebarResizer />
             <div className={`review-feed${wrap ? " wrap-lines" : ""}`}>
+              {codeComments.enabled && <UnplacedComments comments={placedComments.unplaced} groupTitle={review ? groupTitleIn(review) : () => undefined}
+                saving={codeComments.saving} onRemove={(comment) => codeComments.save({ kind: "delete", id: comment.id })} />}
               {!comparison?.files.length && (
                 <div className="empty-state">
                   <CheckCheck size={28} />
@@ -1822,7 +2138,7 @@ export default function App() {
                       <span className="group-number">{String(index + 1).padStart(2, "0")}</span>
                       <div>
                         <h2>{section.title}</h2>
-                        {mention && <button className="group-brief-link" onClick={() => openBriefAt(mention.review, mention.target)}
+                        {mention && <button className="group-brief-link" onClick={() => openBriefAt(mention.review, mention.target, section.id)}
                           title={mention.review ? "Open where this part’s overview explains this group" : "Open where the feature overview explains this group"}>
                           <BookOpen size={12} />{mention.review ? "Part overview" : "Feature overview"}{mention.heading && <>: {mention.heading}</>}</button>}
                       </div>
@@ -1895,6 +2211,10 @@ export default function App() {
                       onSearchReady={onSearchReady}
                       searchMatch={searchTarget?.section === section.id && searchTarget.path === preview.file.path ? searchTarget : undefined}
                       sinceViewed={sinceViewed && !!preview.lastViewed?.hasText}
+                      comments={codeComments.enabled ? {
+                        list: placedComments.cards.get(cardKey(section.id, preview.file.path)) ?? [],
+                        saving: codeComments.saving, save: codeComments.save,
+                      } : undefined}
                     />
                   ))}
                   {!files.length && (
@@ -1919,12 +2239,12 @@ export default function App() {
           </div>
         )}
         {tab === "collection" && collection?.brief && <FeatureBrief key={collection.id} collection={collection} brief={collectionBrief}
-          progress={itemProgress} sources={progressSources} marking={marking} initialBlock={featureJump} onJumped={() => setFeatureJump("")}
+          progress={itemProgress} sources={progressSources} marking={marking} initialView={briefView} initialBlock={featureJump} onJumped={() => setFeatureJump("")}
           onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief} />}
         {tab === "brief" && collection && review?.brief && <FeatureBrief key={`${collection.id}/${review.id}`} collection={collection} review={review}
           brief={reviewBrief} progress={itemProgress} sources={progressSources} marking={marking} initialView={briefView} initialBlock={briefJump}
           onJumped={() => setBriefJump("")} onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief}
-          onCodeTab={() => { setTab("changes"); window.scrollTo(0, 0); }} />}
+          onCodeTab={() => { setTab("changes"); window.scrollTo(0, 0); }} codeComments={codeComments} />}
         {tab === "collection" && collection && !collection.brief && (
           <div className="section-content">
             <div className="section-heading">

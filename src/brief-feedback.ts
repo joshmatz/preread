@@ -1,4 +1,6 @@
 import type { BriefAnchor, BriefFeedback, BriefSnapshot, BriefBlock } from "./brief-types.ts";
+import { exportCodeComments, type CodeComment } from "./code-comments.ts";
+import type { Review } from "./review-types.ts";
 
 export const blockTitle = (block: BriefBlock): string => {
   switch (block.kind) {
@@ -32,11 +34,18 @@ export function feedbackBody(entry: BriefFeedback) {
       : entry.block.options.find((option) => entry.answer.kind === "option" && option.id === entry.answer.option)?.label || "Unavailable option";
   }
 }
-export function exportBriefFeedback(title: string, snapshot: BriefSnapshot, review?: string) {
-  return `Feature: ${title}\n${review ? `Review: ${review}\n` : ""}Brief revision: ${snapshot.version}\n\n${feedbackEntries(snapshot)}`;
+type GroupTitle = (group: string) => string | undefined;
+const entriesWithCode = (snapshot: BriefSnapshot | undefined, comments: CodeComment[], groupTitle?: GroupTitle) => [
+  ...(snapshot?.feedback.length || !comments.length ? [snapshot ? feedbackEntries(snapshot) : "No feedback yet."] : []),
+  ...(comments.length ? [exportCodeComments(comments, groupTitle)] : []),
+].join("\n\n");
+export function exportBriefFeedback(title: string, snapshot: BriefSnapshot, review?: string, comments: CodeComment[] = [], groupTitle?: GroupTitle) {
+  return `Feature: ${title}\n${review ? `Review: ${review}\n` : ""}Brief revision: ${snapshot.version}\n\n${entriesWithCode(snapshot, comments, groupTitle)}`;
 }
-export const exportReviewFeedback = (title: string, snapshot: BriefSnapshot) =>
-  `Review: ${title}\nBrief revision: ${snapshot.version}\n\n${feedbackEntries(snapshot)}`;
+export const exportReviewFeedback = (title: string, snapshot?: BriefSnapshot, comments: CodeComment[] = [], groupTitle?: GroupTitle) =>
+  `Review: ${title}${snapshot ? `\nBrief revision: ${snapshot.version}` : ""}\n\n${entriesWithCode(snapshot, comments, groupTitle)}`;
+export const groupTitleIn = (review: Pick<Review, "groups">): GroupTitle => (group) =>
+  review.groups.find((entry) => entry.id === group)?.title ?? (group === "other-changes" ? (review.groups.length ? "Other changes" : "All changes") : undefined);
 function feedbackEntries(snapshot: BriefSnapshot) {
   if (!snapshot.feedback.length) return "No feedback yet.";
   return snapshot.feedback.map((entry, index) => {

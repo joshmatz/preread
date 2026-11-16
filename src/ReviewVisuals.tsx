@@ -8,7 +8,7 @@ type Scope = { collection: string; review: string; group?: string };
 const isMermaid = (visual: ReviewVisual) => /\.(mmd|mermaid)$/i.test(visual.path);
 const GifVisual = lazy(() => import("./GifVisual"));
 const assetUrl = (visual: ReviewVisual, scope: Scope) => `/api/visuals?${new URLSearchParams({ ...scope, id: visual.id })}`;
-function VisualCanvas({ visual, scope }: { visual: ReviewVisual; scope: Scope }) {
+function VisualCanvas({ visual, url }: { visual: ReviewVisual; url: string }) {
   const stage = useRef<HTMLDivElement>(null);
   const [src, setSrc] = useState("");
   const [size, setSize] = useState<Size | null>(null);
@@ -27,7 +27,6 @@ function VisualCanvas({ visual, scope }: { visual: ReviewVisual; scope: Scope })
     setError(""); setSize(null); setSrc("");
     const load = async () => {
       try {
-        const url = assetUrl(visual, scope);
         if (!isMermaid(visual)) { setSrc(url); return; }
         const response = await fetch(url, { signal: abort.signal });
         if (!response.ok) throw new Error("Couldn’t load this Mermaid diagram.");
@@ -42,7 +41,7 @@ function VisualCanvas({ visual, scope }: { visual: ReviewVisual; scope: Scope })
     };
     void load();
     return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [visual.id, visual.path, scope.collection, scope.review, scope.group, attempt]);
+  }, [url, visual.path, attempt]);
   const fit = () => {
     if (size && stage.current) setView(fitVisual(size, stage.current.getBoundingClientRect()));
   };
@@ -141,7 +140,7 @@ function VisualCanvas({ visual, scope }: { visual: ReviewVisual; scope: Scope })
     </div>
   </>;
 }
-function VisualGallery({ visuals, scope, onClose }: { visuals: ReviewVisual[]; scope: Scope; onClose: () => void }) {
+export function VisualGallery({ visuals, urlOf, onClose }: { visuals: ReviewVisual[]; urlOf: (visual: ReviewVisual) => string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const close = useRef<HTMLButtonElement>(null);
   const thumbnails = useRef<HTMLButtonElement>(null);
@@ -167,15 +166,15 @@ function VisualGallery({ visuals, scope, onClose }: { visuals: ReviewVisual[]; s
           <button aria-label="Previous visual" disabled={selected === 0} onClick={() => setSelectedId(visuals[selected - 1].id)}><ChevronLeft size={20} /></button>
           <button aria-label="Next visual" disabled={selected === visuals.length - 1} onClick={() => setSelectedId(visuals[selected + 1].id)}><ChevronRight size={20} /></button>
         </>}
-        <button ref={close} aria-label="Close visual gallery" onClick={onClose}><X size={20} /></button>
+        <button ref={close} aria-label={visuals.length > 1 ? "Close visual gallery" : "Close visual"} onClick={onClose}><X size={20} /></button>
       </div>
     </header>
-    <VisualCanvas key={`${visual.id}|${visual.path}`} visual={visual} scope={scope} />
+    <VisualCanvas key={`${visual.id}|${visual.path}`} visual={visual} url={urlOf(visual)} />
     {visuals.length > 1 && showThumbnails && <nav id="visual-thumbnails" className="visual-filmstrip" aria-label="Visual gallery">
       {visuals.map((entry, index) => <button key={entry.id} aria-current={selected === index ? "true" : undefined}
         aria-label={`Show ${entry.title}`} onClick={() => { setSelectedId(entry.id); setShowThumbnails(false); thumbnails.current?.focus(); }}>
         {isMermaid(entry) ? <span className="mermaid-thumbnail"><Images size={24} />Mermaid</span>
-          : <img src={assetUrl(entry, scope)} alt="" loading="lazy" />}
+          : <img src={urlOf(entry)} alt="" loading="lazy" />}
         <span>{entry.title}</span>
       </button>)}
     </nav>}
@@ -190,7 +189,7 @@ export function ReviewVisuals({ visuals = [], collection, review, group }: Scope
       title={visuals.map((visual) => visual.title).join(" · ")}
       aria-label={`Open ${group ? "group" : "review"} visual gallery, ${visuals.length} ${visuals.length === 1 ? "visual" : "visuals"}`}
       onClick={() => setOpen(true)}><Images size={16} />Visuals <span className="pill">{visuals.length}</span></button>
-    {open && <VisualGallery visuals={visuals} scope={{ collection, review, ...(group ? { group } : {}) }}
+    {open && <VisualGallery visuals={visuals} urlOf={(visual) => assetUrl(visual, { collection, review, ...(group ? { group } : {}) })}
       onClose={() => { setOpen(false); requestAnimationFrame(() => trigger.current?.focus()); }} />}
   </div>;
 }

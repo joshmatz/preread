@@ -82,6 +82,7 @@ export interface BriefAttention {
 export interface CollectionAttention {
   feature?: BriefAttention;
   reviews: Record<string, BriefAttention>;
+  codeComments?: Record<string, number>;
 }
 export interface BriefSnapshot {
   brief: FeatureBrief;

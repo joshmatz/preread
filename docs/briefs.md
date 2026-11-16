@@ -1,4 +1,4 @@
-# Feature briefs
+# Overviews
 
 A collection can have a `brief`: a freely authored document above its code reviews. Write the story in the order that helps the reader understand and decide. There are no required sections. A short argument, a visual comparison, and a longer walkthrough can all use the same interaction controls.
 
@@ -87,7 +87,7 @@ Links to code groups and the **Open code group** action show the group’s curre
 
 Markdown supports headings, paragraphs, emphasis, lists, blockquotes, fenced code, tables, and links. Keep passages short, as [Write for a person](#write-for-a-person) describes. Split prose into stable blocks when the passages have different purposes; there is no need to make every paragraph a block. Raw HTML and scripts are omitted. Remote Markdown images are replaced with a reminder to import a visual, so authored content cannot load tracking assets.
 
-Visual blocks import PNG, JPEG, WebP, GIF, SVG, or Mermaid files into Preread’s data directory. Use a chart exported to SVG or an image, or a Mermaid diagram, wherever it helps the story. Give illustrative data a clear caption; measured results should name their source and conditions. The original source files remain outside the reviewed repository when they are review-only artifacts.
+Visual blocks import PNG, JPEG, WebP, GIF, SVG, or Mermaid files into Preread’s data directory. Use a chart exported to SVG or an image, or a Mermaid diagram, wherever it helps the story. Give illustrative data a clear caption; measured results should name their source and conditions. The original source files remain outside the reviewed repository when they are review-only artifacts. The reader opens a visual in the same full-screen viewer as review visuals, to zoom, pan, and pause or scrub a GIF.
 
 A question has two to eight options, with at most one recommendation. The reader can always write a different answer. A recommendation is suggested, never submitted automatically. Without one, no option starts selected. Answers remain editable. The attention panel lists every unanswered question.
 
@@ -117,7 +117,7 @@ Clicking a sidebar annotation opens its editor directly. Comments can include up
 
 Comments preserve the selected quote, its offsets, the rendered text baseline, and each block’s content fingerprint. Highlights appear only when the original block and text still match. A changed block retains its old feedback under **Earlier revision**; Preread never silently moves an old approval or annotation onto new content. Changing unrelated prose does not reopen a question or excerpt approval.
 
-Feedback lives under `brief-feedback` in Preread’s data directory, outside repositories, in one folder per brief: `brief-feedback/<collection-id>/` for the collection brief and `brief-feedback/<collection-id>/reviews/<review-id>/` for each review brief. Each entry has its own file, so comments from separate tabs do not overwrite each other. **Prepare feedback** makes one batch with questions, answers, approved excerpts, and quoted comments. It does not send messages to a client.
+Feedback lives under `brief-feedback` in Preread’s data directory, outside repositories, in one folder per brief: `brief-feedback/<collection-id>/` for the collection brief and `brief-feedback/<collection-id>/reviews/<review-id>/` for each review brief. Each entry has its own file, so comments from separate tabs do not overwrite each other. **Prepare feedback** makes one batch with questions, answers, approved excerpts, quoted comments and, in a review, its comments on code. It does not send messages to a client.
 
 Read that same feedback from an agent without marking anything reviewed:
 
@@ -127,7 +127,9 @@ pnpm feedback <collection-id> --json
 pnpm feedback <collection-id> --review <review-id>
 ```
 
-The text output starts with the collection brief’s feedback, then each review brief’s under its review’s title. Review briefs without feedback are named together on the last line, so a long collection’s batch holds only what needs action. **Prepare all feedback** on the feature overview’s Feedback tab makes this same text. `--json` keeps the collection brief’s fields at the top level, lists review briefs under `reviews`, and adds `review` to each of their entries. `--review` prints only that review’s brief.
+The text output starts with the collection brief’s feedback, then each review’s overview feedback and comments on code under its title. Reviews with neither are named together on the last line, so a long collection’s batch holds only what needs action. **Prepare all feedback** on the feature overview’s Feedback tab makes this same text. `--json` keeps the collection brief’s fields at the top level, lists each review with an overview or comments on code under `reviews`, with its comments under `codeComments`, and adds `review` to each feedback entry. `--review` prints only that review’s feedback and comments on code.
+
+Comments on code reach an agent too, in every review of a collection, with or without an overview. In the code, the reader clicks a line number to comment on that line, or a file’s comment button to comment on the whole file. Each comment keeps its file, line number, side, the line’s text and its group, under `code-comments/<collection-id>/<review-id>/` in Preread’s data directory. It stays with its line’s text, following the line when edits above move it. When no single line on screen has that text, it moves to the top of its file, marked as not in the diff shown here, with the line it was written on. Comments follow a file into another group or to a new name, and comments on a file that left the review gather at the top of the code. A review’s Feedback tab lists its comments on code with **Show in code**, and Back returns to the Feedback tab. Notes written in the browser before comments existed stay there until the reader sends each one as a comment or deletes it.
 
 Give the reader a direct link to the intended entry point:
 
@@ -135,7 +137,7 @@ Give the reader a direct link to the intended entry point:
 - `http://127.0.0.1:4780/?collection=<id>&review=<review-id>&view=brief` for one pull request’s brief. A review link without `view`, a file, or a group anchor also starts at the review’s brief when it has one.
 - `http://127.0.0.1:4780/?collection=<id>&review=<review-id>&view=code` for that review’s code. Review links with a file or group anchor open code too.
 
-Navigation history does not override the supplied link.
+A supplied link opens where it points, even in a tab that has shown Preread before. Within a tab, links between an overview and its code add a history entry, so the browser’s Back button returns to the exact place the reader left and Forward reopens the other page. After a link from an overview into the code, the top bar also shows **Back to the feature overview** or **Back to part N’s overview**, or **Back to part N’s feedback** after **Show in code** on a Feedback tab. A reload keeps those places. The pickers and tabs replace the current entry instead of adding one.
 
 ## Try a complete example
 

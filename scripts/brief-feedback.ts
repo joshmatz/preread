@@ -1,6 +1,7 @@
 import { collectionFeedbackText, storedBriefSnapshot } from "../server/briefs.ts";
+import { readCodeComments } from "../server/code-comments.ts";
 import { readCollection } from "../server/collections.ts";
-import { exportReviewFeedback } from "../src/brief-feedback.ts";
+import { exportReviewFeedback, groupTitleIn } from "../src/brief-feedback.ts";
 
 const args = process.argv.slice(2);
 const flag = args.indexOf("--review");
@@ -17,18 +18,18 @@ if (!id || extra.length || (flag !== -1 && (!review || review.startsWith("--")))
       const collection = await readCollection(id);
       if (review !== undefined && !collection.reviews.some((entry) => entry.id === review))
         throw new Error("That review is not in this collection.");
-      const reviews = collection.reviews.filter((entry) => entry.brief && (review === undefined || entry.id === review));
-      if (review !== undefined && !reviews.length) throw new Error("This review has no brief.");
       const feature = review === undefined && collection.brief ? await storedBriefSnapshot(collection) : undefined;
-      if (!feature && !reviews.length) throw new Error("This collection has no feature brief or review briefs.");
-      const briefs = await Promise.all(reviews.map(async (entry) => ({ review: entry, snapshot: await storedBriefSnapshot(collection, entry.id) })));
+      const reviews = await Promise.all(collection.reviews.filter((entry) => review === undefined || entry.id === review).map(async (entry) => ({
+        review: entry, snapshot: entry.brief ? await storedBriefSnapshot(collection, entry.id) : undefined, comments: await readCodeComments(id, entry.id),
+      })));
       if (json) {
-        // The collection brief keeps its original top-level shape; review briefs follow under reviews.
-        console.log(JSON.stringify({ ...feature, reviews: briefs.map(({ review: entry, snapshot }) => ({
-          review: entry.id, title: entry.title, ...snapshot, feedback: snapshot.feedback.map((item) => ({ ...item, review: entry.id })),
-        })) }, null, 2));
+        // The collection brief's fields stay at the top level, where readers found them before reviews were added.
+        console.log(JSON.stringify({ ...feature, reviews: reviews.filter((entry) => review !== undefined || entry.snapshot || entry.comments.length)
+          .map(({ review: entry, snapshot, comments }) => ({ review: entry.id, title: entry.title, ...snapshot,
+            feedback: (snapshot?.feedback ?? []).map((item) => ({ ...item, review: entry.id })), codeComments: comments })) }, null, 2));
       } else {
-        console.log([`Feature: ${collection.title}`, ...briefs.map(({ review: entry, snapshot }) => exportReviewFeedback(entry.title, snapshot))].join("\n\n"));
+        console.log([`Feature: ${collection.title}`, ...reviews.map(({ review: entry, snapshot, comments }) =>
+          exportReviewFeedback(entry.title, snapshot, comments, groupTitleIn(entry)))].join("\n\n"));
       }
     }
   } catch (error) { console.error(error instanceof Error ? error.message : "Could not read feature feedback."); process.exitCode = 1; }

@@ -201,6 +201,25 @@ small,
 .crumbs > svg {
   margin-right: 2px;
 }
+.back-link {
+  flex-shrink: 0;
+  margin-left: 16px;
+  padding: 6px 11px 6px 9px;
+  border-radius: 999px;
+  background: var(--selected);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.back-link:not(:disabled):hover {
+  background: var(--selected);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.back-link + .crumbs {
+  margin-left: 10px;
+}
 .open-button {
   color: var(--secondary);
   padding: 7px 10px;
@@ -863,33 +882,198 @@ h2 {
 .reviewed-file > .file-toolbar {
   box-shadow: inset 3px 0 var(--green);
 }
-.note-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  position: absolute;
-  right: 4px;
-  top: 5px;
+.comment-button.has-comments {
+  width: auto;
+  padding: 0 8px;
+  gap: 5px;
+  color: var(--accent);
 }
-.notes-panel {
-  padding: 15px;
+.comment-count {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.file-comments {
+  display: grid;
+  gap: 10px;
+  padding: 12px 15px;
   border-bottom: 1px solid var(--border);
   background: var(--subtle);
 }
-.notes-panel label {
+.code-thread {
+  display: grid;
+  gap: 8px;
+}
+.unplaced-comments {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 28px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--subtle);
+  scroll-margin-top: 18px;
+}
+.unplaced-comments h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.unplaced-comments > p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--secondary);
+}
+.code-comment,
+.code-comment-composer,
+.legacy-note {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  padding: 10px 12px;
+  max-width: 720px;
+}
+.legacy-note {
+  border-style: dashed;
+  background: var(--canvas);
+}
+.code-comment-place {
+  font-size: 11px;
+  color: var(--secondary);
+  margin-bottom: 4px;
+}
+.code-comment-place code {
+  display: block;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--subtle);
+  color: var(--text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  white-space: pre;
+  overflow-x: auto;
+}
+.code-comment-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.code-comment footer,
+.legacy-note footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.code-comment footer span,
+.legacy-note footer span {
+  margin-right: auto;
+}
+.code-comment footer button,
+.legacy-note footer button {
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.code-comment-composer {
+  display: grid;
+  gap: 8px;
+}
+.code-comment-composer textarea {
+  width: 100%;
+  min-height: 72px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.code-comment-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.code-comment-actions small {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--secondary);
+}
+.code-comment-actions button {
+  padding: 6px 12px;
   font-size: 12px;
 }
-.notes-panel small {
-  margin-left: 10px;
-  font-size: 10px;
+.code-comment-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--red);
 }
-.notes-panel textarea {
-  width: 100%;
-  min-height: 80px;
-  display: block;
-  margin-top: 10px;
-  line-height: 1.6;
+/* Comment rows sit inside diff2html's tables; a size container lets a thread match the visible width of a scrolled diff. */
+.d2h-file-diff,
+.d2h-file-side-diff {
+  container-type: inline-size;
+}
+.line-comment-row {
+  --line-gutter: 96px;
+}
+.d2h-file-side-diff .line-comment-row {
+  --line-gutter: 48px;
+}
+.line-comment-row > td,
+.line-comment-spacer > td {
+  padding: 0;
+  border: 0;
+  background: var(--canvas);
+}
+.line-comment-row > .line-comment-gutter,
+.line-comment-spacer > td {
+  background: var(--subtle);
+}
+.line-comment-row > .line-comment-gutter {
+  border-right: 1px solid var(--border);
+}
+/* Borders would add half a pixel to the neighboring rows of one split table and misalign the other. */
+.line-comment-row > .line-comment-cell,
+.line-comment-spacer > td {
+  box-shadow: inset 0 1px var(--border), inset 0 -1px var(--border);
+}
+.line-comment-row > .line-comment-cell {
+  padding: 8px 12px;
+}
+.line-comment-mount {
+  position: sticky;
+  left: calc(var(--line-gutter) + 12px);
+  width: min(720px, calc(100cqw - var(--line-gutter) - 24px));
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: normal;
+}
+.commentable :is(.d2h-code-linenumber, .d2h-code-side-linenumber) {
+  position: relative !important;
+}
+.commentable tr:not(.context-row):hover > :is(.d2h-code-linenumber, .d2h-code-side-linenumber):not(.d2h-info, .d2h-emptyplaceholder)::before {
+  content: "+";
+  position: absolute;
+  top: 2px;
+  right: -21px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--canvas);
+  font: 600 14px/1 Inter, -apple-system, sans-serif;
+  box-shadow: 0 1px 3px #0003;
+}
+.commentable.new-only tr:not(.context-row):hover > .d2h-del:is(.d2h-code-linenumber, .d2h-code-side-linenumber)::before {
+  content: none;
+}
+.commentable.new-only .d2h-del {
+  cursor: default;
 }
 .diff-body {
   min-width: 0;
@@ -1350,6 +1534,7 @@ fieldset {
   }
 }
 @media (max-width: 1180px) {
+  .back-link-place,
   .collection-link-text {
     position: absolute;
     width: 1px;

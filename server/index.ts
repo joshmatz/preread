@@ -1,4 +1,5 @@
 import express from "express";
+import { ZodError } from "zod";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
@@ -14,6 +15,7 @@ import { readVisual } from "./review-visuals.ts";
 import { readPullRequest } from "./pullRequests.ts";
 import { briefSnapshot, collectionFeedbackText, saveBriefFeedback, readBriefVisual, readCommentAttachment } from "./briefs.ts";
 import { storeCommentImage } from "./comment-images.ts";
+import { codeComments, saveCodeComment } from "./code-comments.ts";
 
 const app = express();
 const server = createServer(app);
@@ -100,6 +102,13 @@ app.post("/api/brief-feedback", async (req, res) => {
   bump(false);
   res.json(result);
 });
+app.get("/api/code-comments", async (req, res) =>
+  res.json({ comments: await codeComments(query(req.query.collection), query(req.query.review)) }));
+app.post("/api/code-comments", async (req, res) => {
+  const comments = await saveCodeComment(query(req.body?.collection), query(req.body?.review), req.body?.command);
+  bump(false);
+  res.json({ comments });
+});
 app.get("/api/brief-visual", async (req, res) => {
   const { content, type } = await readBriefVisual(query(req.query.collection), query(req.query.block), briefReview(req.query.review));
   res.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox").type(type).send(content);
@@ -177,9 +186,10 @@ app.get("/api/stack", async (req, res) => res.json(await stackFor(query(req.quer
 app.use("/api", (_req, res) => res.status(404).json({ error: "Unknown local review endpoint." }));
 app.use(
   (error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    const message = error.message.includes("not a git repository")
-      ? "That folder is not a Git repository. Choose a repository or worktree folder."
-      : error.message;
+    const message = error instanceof ZodError ? error.issues[0]?.message ?? "That request is not valid."
+      : error.message.includes("not a git repository")
+        ? "That folder is not a Git repository. Choose a repository or worktree folder."
+        : error.message;
     res.status(400).json({ error: message.slice(0, 1200) });
   },
 );

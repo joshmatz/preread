@@ -3,9 +3,11 @@ import { createPortal, flushSync } from "react-dom";
 import { ArrowLeft, ArrowRight, Check, CheckCheck, ListTree, LoaderCircle, MessageSquare, X } from "lucide-react";
 import type { Collection, ProgressSource, Review, ReviewProgress } from "./review-types";
 import type { BriefAnchor, BriefBlock, BriefFeedback, BriefReference } from "./brief-types";
-import { anchorQuote, blockTitle, feedbackBody, feedbackCurrent, feedbackTitle } from "./brief-feedback";
+import { anchorQuote, blockTitle, feedbackBody, feedbackCurrent, feedbackTitle, groupTitleIn } from "./brief-feedback";
 import { captureBriefSelection, rangeForSegment, textOffset } from "./brief-selection";
 import type { BriefState } from "./useBrief";
+import type { CodeComments } from "./useCodeComments";
+import type { CodeJump } from "./code-comments";
 import { useBriefAnnotations } from "./useBriefAnnotations";
 import { BriefDialog } from "./BriefDialog";
 import { BriefFeedbackView } from "./BriefFeedbackView";
@@ -30,15 +32,27 @@ type View = "brief" | "feedback";
 type ReadingPlace = { block: string; offset: number };
 // A brief unmounts while its code is open, so the reader's place is kept outside it.
 // It is kept relative to a block: visuals above it load again after a remount and would move a plain scroll offset.
-const readingPositions = new Map<string, ReadingPlace>();
+// A reload keeps the tab's places; a newly opened link starts where it points.
+const placesKey = "preread-reading-places";
+const readingPositions = new Map<string, ReadingPlace>(((): [string, ReadingPlace][] => {
+  try {
+    const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    if (navigation?.type !== "reload" && navigation?.type !== "back_forward") return [];
+    return Object.entries(JSON.parse(sessionStorage.getItem(placesKey) ?? "{}") as Record<string, ReadingPlace>);
+  } catch { return []; }
+})());
+window.addEventListener("pagehide", () => {
+  try { sessionStorage.setItem(placesKey, JSON.stringify(Object.fromEntries(readingPositions))); } catch {}
+});
 const emptyStructure: BriefStructure = { outline: [], sections: [], headings: new Map(), owners: new Map() };
 const headingElement = (heading: OutlineHeading) => document.getElementById(`brief-block-${heading.block}`)
   ?.querySelectorAll<HTMLElement>("[data-brief-text] > .markdown > :is(h1,h2,h3)")[heading.index];
 
-export function FeatureBrief({ collection, review, brief, progress, sources, marking, initialView = "brief", initialBlock, onJumped, onCode, onReview, onFeature, onCodeTab, onMark }: {
+export function FeatureBrief({ collection, review, brief, progress, sources, marking, initialView = "brief", initialBlock, onJumped, onCode, onReview, onFeature, onCodeTab, onMark, codeComments }: {
   collection: Collection; review?: Review; brief: BriefState; progress: Record<string, ReviewProgress>; sources: Record<string, ProgressSource>;
-  marking: string; initialView?: View; initialBlock?: string; onJumped?: () => void; onCode: (reference: BriefReference) => void;
+  marking: string; initialView?: View; initialBlock?: string; onJumped?: () => void; onCode: (reference: CodeJump, view: View) => void;
   onReview: (review: string, block?: string, view?: "feedback") => void; onFeature: () => void; onCodeTab?: () => void; onMark: MarkGroups;
+  codeComments?: CodeComments;
 }) {
   const { snapshot, error, saving, save, retry } = brief;
   const [view, setView] = useState<View>(initialView);
@@ -95,7 +109,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     || !!sources[reference.review]?.sections.some((section) => section.id === reference.group);
   const openCode = (reference: BriefReference) => {
     if (!groupExists(reference)) { setNotice("That code group is no longer in this feature."); return; }
-    onCode(reference);
+    onCode(reference, view);
   };
   const referenceState = (reference: BriefReference): GroupReadState => {
     if (!collection.reviews.some((entry) => entry.id === reference.review) || !groupExists(reference))
@@ -310,7 +324,8 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
         <div className="brief-eyebrow">{review ? `Part ${partIndex + 1} of ${collection.reviews.length}` : "Feature overview"}</div>
         <h1>{title}</h1>
         {summary && <Description key={readingKey} className="feature-brief-summary" text={summary} />}
-        <BriefTabs label={review ? "Part views" : "Feature views"} current={view} code={checking ? "…" : remaining.length} feedback={snapshot.feedback.length}
+        <BriefTabs label={review ? "Part views" : "Feature views"} current={view} code={checking ? "…" : remaining.length}
+          feedback={snapshot.feedback.length + (codeComments?.comments.length ?? 0)}
           onBrief={() => setView("brief")} onCode={openCodeTab} onFeedback={() => setView("feedback")} />
       </header>
       {notice && <p className="brief-notice" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")}><X size={13} /></button></p>}
@@ -318,6 +333,8 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
       <div className="brief-layout">
         {view === "brief" ? <article className="brief-document" ref={text} tabIndex={-1} aria-label={`${review ? "Part" : "Feature"} overview`}
           onClick={(event) => {
+            // Clicks in portals, such as the visual viewer, bubble here through React.
+            if (!event.currentTarget.contains(event.target as Node)) return;
             if (event.target instanceof Element && event.target.closest("button,a,input,textarea,label")) return;
             if (window.getSelection()?.toString().trim()) return;
             const ids = annotations.notesAt(event.clientX, event.clientY);
@@ -350,7 +367,17 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
           </nav>}
         </article> : <BriefFeedbackView collection={collection.id} title={collection.title} review={review && { id: review.id, title: review.title }} snapshot={snapshot}
           saving={saving} onEdit={edit} onDelete={(id) => { void save({ kind: "delete", id }); }} onLocate={locate} onComment={documentComment}
-          parts={partAttention.filter((entry) => entry.feedback > 0).map((entry) => ({ id: entry.review.id, title: `${partLabel(entry.review)} · ${entry.review.title}`, count: entry.feedback }))}
+          parts={review ? [] : collection.reviews.flatMap((entry) => {
+            const count = (snapshot.attention?.reviews[entry.id]?.feedback ?? 0) + (snapshot.attention?.codeComments?.[entry.id] ?? 0);
+            return count ? [{ id: entry.id, title: `${partLabel(entry)} · ${entry.title}`, count }] : [];
+          })}
+          code={review && codeComments ? {
+            comments: codeComments.comments, loaded: codeComments.loaded, saving: codeComments.saving, error: codeComments.error, groupTitle: groupTitleIn(review),
+            // Not through openCode: the comment's group may be gone while its file shows in another group.
+            onShow: (comment) => onCode({ review: review.id, group: comment.group, comment: { line: comment.line },
+              file: { path: comment.path, start: comment.line?.number ?? 1, end: comment.line?.number ?? 1 } }, "feedback"),
+            onRemove: (comment) => codeComments.save({ kind: "delete", id: comment.id }),
+          } : undefined}
           onPart={(id) => onReview(id, undefined, "feedback")} />}
         <aside className="brief-attention" aria-label={`${review ? "Part" : "Feature"} attention and progress`}><h2>Needs your attention</h2>
           <div className="brief-attention-items">

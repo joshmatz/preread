@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { ReviewVisual } from "./review-types";
-import { BriefDialog } from "./BriefDialog";
+import { VisualGallery } from "./ReviewVisuals";
 import { briefScope } from "./brief-scope";
 
 export function BriefVisual({ collection, review, block, visual }: { collection: string; review?: string; block: string; visual: ReviewVisual }) {
@@ -8,10 +8,11 @@ export function BriefVisual({ collection, review, block, visual }: { collection:
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState(false);
+  const opener = useRef<HTMLElement | null>(null);
+  const url = `/api/brief-visual?${new URLSearchParams({ ...briefScope(collection, review), block })}`;
   useEffect(() => {
     const abort = new AbortController(); let objectUrl = "";
     setSource(""); setError("");
-    const url = `/api/brief-visual?${new URLSearchParams({ ...briefScope(collection, review), block })}`;
     const load = async () => {
       try {
         if (!/\.(mmd|mermaid)$/i.test(visual.path)) { setSource(url); return; }
@@ -24,14 +25,16 @@ export function BriefVisual({ collection, review, block, visual }: { collection:
     };
     void load();
     return () => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [collection, review, block, visual.path, attempt]);
+  }, [url, visual.path, attempt]);
+  const expand = (event: React.MouseEvent<HTMLElement>) => { opener.current = event.currentTarget; setOpen(true); };
   return <figure className="brief-visual">
-    <div className="brief-visual-heading"><span>{visual.title}</span><button onClick={() => setOpen(true)} disabled={!source || !!error}>Expand image ↗</button></div>
+    <div className="brief-visual-heading"><span>{visual.title}</span><button aria-haspopup="dialog" onClick={expand} disabled={!source || !!error}>Expand image ↗</button></div>
     {error ? <div className="brief-visual-error" role="alert">{error}<button onClick={() => setAttempt((value) => value + 1)}>Try again</button></div>
-      : source ? <button className="brief-image" aria-label={`Expand ${visual.title}`} onClick={() => setOpen(true)}>
+      : source ? <button className="brief-image" aria-haspopup="dialog" aria-label={`Expand ${visual.title}`} onClick={expand}>
         <img src={source} alt={visual.title} loading="lazy" onError={() => setError("Could not load this visual. Your brief is still available.")} /></button>
         : <p className="muted" role="status">Loading diagram…</p>}
     {visual.caption && <figcaption data-brief-text={block}>{visual.caption}</figcaption>}
-    {open && <BriefDialog title={visual.title} wide onClose={() => setOpen(false)}><img className="brief-expanded-image" src={source} alt={visual.title} /></BriefDialog>}
+    {open && <VisualGallery visuals={[visual]} urlOf={() => url}
+      onClose={() => { setOpen(false); requestAnimationFrame(() => opener.current?.focus({ preventScroll: true })); }} />}
   </figure>;
 }

@@ -1,6 +1,7 @@
 import { diffArrays } from "diff";
 import { parse } from "diff2html";
-import { LineType, type DiffLine } from "diff2html/lib/types";
+import { LineType, type DiffFile, type DiffLine } from "diff2html/lib/types";
+import { patchLines } from "./code-comments";
 
 const withoutSpaces = (value: string) => value.replace(/[\t\r\f\v ]/g, "");
 
@@ -89,4 +90,21 @@ export function whitespaceDiff(patch: string) {
       .filter((line) => line.type === LineType.DELETE).length;
   }
   return files;
+}
+
+export const displayedPatch = (patch: string, ignoreWhitespace: boolean) => {
+  const shown = showCarriageReturns(patch);
+  return ignoreWhitespace ? whitespaceDiff(shown) : shown;
+};
+export const shownLines = (patch: string, ignoreWhitespace: boolean) => displayedLines(displayedPatch(patch, ignoreWhitespace));
+export function displayedLines(displayed: string | DiffFile[]) {
+  if (typeof displayed === "string") return patchLines(displayed);
+  const lines = new Map<string, string>();
+  for (const file of displayed)
+    for (const block of file.blocks)
+      for (const line of block.lines) {
+        if (line.type === LineType.DELETE) lines.set(`old:${line.oldNumber}`, line.content.slice(1));
+        else lines.set(`new:${line.newNumber}`, line.content.slice(1));
+      }
+  return lines;
 }

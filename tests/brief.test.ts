@@ -439,5 +439,6 @@ test("the feedback CLI prints the feature brief, then each review brief with fee
   assert.equal(missing.code, 1);
   assert.match(missing.stderr, /That review is not in this collection/);
   await putCollection(twoReviews("review-feedback-cli-none", { api: reviewBlocks("api", "schema") }));
-  assert.match((await cli("brief-feedback.ts", "review-feedback-cli-none", "--review", "ui")).stderr, /This review has no brief/);
+  assert.equal((await cli("brief-feedback.ts", "review-feedback-cli-none", "--review", "ui")).stdout,
+    "Feature: Saved filters\n\nReview: Show saved filters\n\nNo feedback yet.\n");
 });

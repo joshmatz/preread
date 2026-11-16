@@ -6,8 +6,9 @@ import { dataDirectory, readCollection } from "./collections.ts";
 import { visualAsset } from "./visual-assets.ts";
 import { briefCommandSchema, briefFeedbackSchema, type BriefAnchor, type BriefAttention, type BriefBlock, type BriefFeedback, type BriefSnapshot, type CollectionAttention, type FeatureBrief } from "../src/brief-types.ts";
 import type { Collection } from "../src/review-types.ts";
-import { blockTitle, exportBriefFeedback, exportReviewFeedback, feedbackCurrent } from "../src/brief-feedback.ts";
+import { blockTitle, exportBriefFeedback, exportReviewFeedback, feedbackCurrent, groupTitleIn } from "../src/brief-feedback.ts";
 import { readCommentImage, commentImageAsset } from "./comment-images.ts";
+import { readCodeComments } from "./code-comments.ts";
 
 const collectionId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/);
 const entryId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,159}$/);
@@ -65,11 +66,17 @@ async function collectionAttention(current: Collection, known: { review?: string
       return undefined;
     }
   };
-  const [feature, reviews] = await Promise.all([
+  const [feature, reviews, comments] = await Promise.all([
     current.brief ? attentionOf(current.brief) : undefined,
     Promise.all(current.reviews.flatMap((review) => review.brief ? [attentionOf(review.brief, review.id).then((value) => [review.id, value] as const)] : [])),
+    Promise.all(current.reviews.map((review) => readCodeComments(current.id, review.id).then((entries) => [review.id, entries.length] as const, (error) => {
+      console.warn(`Skipped code comments for ${review.id} in ${current.id}: ${error instanceof Error ? error.message : error}`);
+      return [review.id, 0] as const;
+    }))),
   ]);
-  return { ...(feature ? { feature } : {}), reviews: Object.fromEntries(reviews.filter((entry): entry is readonly [string, BriefAttention] => !!entry[1])) };
+  const codeComments = Object.fromEntries(comments.filter(([, count]) => count > 0));
+  return { ...(feature ? { feature } : {}), reviews: Object.fromEntries(reviews.filter((entry): entry is readonly [string, BriefAttention] => !!entry[1])),
+    ...(Object.keys(codeComments).length ? { codeComments } : {}) };
 }
 export async function storedBriefSnapshot(current: Collection, review?: string) {
   return snapshotOf(briefFor(current, review).brief, await readFeedback(current.id, review));
@@ -79,19 +86,19 @@ export async function briefSnapshot(collection: string, review?: string): Promis
   const snapshot = await storedBriefSnapshot(current, review);
   return { ...snapshot, attention: await collectionAttention(current, { review, snapshot }) };
 }
-// The same batch for the feature and every review brief that `pnpm feedback` prints.
 export async function collectionFeedbackText(collection: string) {
   const current = await readCollection(collection);
-  const reviews = current.reviews.filter((entry) => entry.brief);
-  if (!current.brief && !reviews.length) throw new Error("This collection has no feature brief or review briefs.");
   const feature = current.brief ? snapshotOf(current.brief, await readFeedback(collection)) : undefined;
-  const briefs = await Promise.all(reviews.map(async (entry) => ({ review: entry, snapshot: snapshotOf(entry.brief!, await readFeedback(collection, entry.id)) })));
-  const quiet = briefs.filter(({ snapshot }) => !snapshot.feedback.length).map(({ review: entry }) => entry.title);
+  const reviews = await Promise.all(current.reviews.map(async (entry) => ({ review: entry,
+    snapshot: entry.brief ? snapshotOf(entry.brief, await readFeedback(collection, entry.id)) : undefined,
+    comments: await readCodeComments(collection, entry.id) })));
+  const count = ({ snapshot, comments }: (typeof reviews)[number]) => (snapshot?.feedback.length ?? 0) + comments.length;
+  const quiet = reviews.filter((entry) => !count(entry)).map(({ review: entry }) => entry.title);
   return {
     text: [feature ? exportBriefFeedback(current.title, feature) : `Feature: ${current.title}`,
-      ...briefs.filter(({ snapshot }) => snapshot.feedback.length).map(({ review: entry, snapshot }) => exportReviewFeedback(entry.title, snapshot)),
+      ...reviews.filter((entry) => count(entry)).map(({ review: entry, snapshot, comments }) => exportReviewFeedback(entry.title, snapshot, comments, groupTitleIn(entry))),
       ...(quiet.length ? [`No feedback on ${quiet.length === 1 ? "review" : "reviews"}: ${quiet.join("; ")}`] : [])].join("\n\n"),
-    entries: (feature?.feedback.length ?? 0) + briefs.reduce((sum, { snapshot }) => sum + snapshot.feedback.length, 0),
+    entries: (feature?.feedback.length ?? 0) + reviews.reduce((sum, entry) => sum + count(entry), 0),
   };
 }
 function requireBlock(snapshot: BriefSnapshot, id: string, revision: string) {

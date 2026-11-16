@@ -33,8 +33,9 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 ## How it works
 
 1. **Your agents work in worktrees.** One agent or ten, in one repository or several. Preread reads any Git checkout, whatever wrote the code.
-2. **Your agent writes the reading list.** A collection is a short manifest of reviews. Each names a worktree, the base to compare it with, and change groups that give each part of the diff a title and a note on what to check. The included [agent skill](skills/preread/SKILL.md) teaches your agent to write one and hand you the link.
+2. **Your agent writes the reading list.** A collection is a short manifest of reviews. Each names a worktree, the base to compare it with, and change groups that give each part of the diff a title and a note on what to check. It can open with an overview that tells the story and asks what the agent needs to know. The included [agent skill](skills/preread/SKILL.md) teaches your agent to write one and hand you the link.
 3. **You read.** Mark files Viewed as you go. A group is reviewed when all of its files are Viewed, and a review is complete when all of its groups are. If the code changes after you've read it, it goes back on your list.
+4. **Your agent reads your feedback.** Answers, approved excerpts, and comments you leave in an overview or on the code are saved for your agent, which collects them with `pnpm feedback`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/collection-dark.png">
@@ -43,14 +44,14 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 
 ## What makes it different
 
-- **A feature overview before the code.** A freely authored page combines Markdown, local images and charts, multiple-choice questions, code excerpts, and comments on selected passages. Each review can have its own overview for the pull request it ships as, a tab away from its code. A Contents rail lists every part with its review status and the open overview’s sections, and each section ends with the code groups it explains, ready to open or mark reviewed. Answers and excerpt approvals stay with the content you read.
+- **A feature overview before the code.** A freely authored page combines Markdown, multiple-choice questions, code excerpts, comments on selected passages, and local images, GIFs, and charts that open full screen to zoom, pan, or scrub. Each review can have its own overview for the pull request it ships as, a tab away from its code. A Contents rail lists every part with its review status and the open overview’s sections, and each section ends with the code groups it explains, ready to open or mark reviewed. Open one and **Back** returns you to the same spot in the overview. Answers and excerpt approvals stay with the content you read, and your agent collects them, with your comments, through `pnpm feedback`.
 - **One reading list across worktrees.** A collection spans worktrees and repositories. Each review has its own base, so a stacked branch shows only its own layer.
 - **Change groups that say what to check.** Each one pairs files, or single hunks, with a title and a short description. Anything unassigned lands in Other changes, so nothing hides.
 - **Progress that follows the code.** A Viewed mark is tied to the diff you read. When that diff changes, the mark clears and its group reopens.
 - **Updates on your agent's cue.** After a change, your agent runs `pnpm refresh`, and the page you have open re-reads in place and keeps your scroll position and your marks.
 - **Any stage of the work.** Branch commits, branch plus local edits, uncommitted changes, or staged changes.
 - **The pull request, once you open one.** Link a review to its GitHub pull request to see its state, checks, and review decision, and whether your local head and base still match it.
-- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, expandable context, before-and-after images, and private notes on any file.
+- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, expandable context, before-and-after images, and comments for your agent on lines and files.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/split-dark.png">
@@ -124,7 +125,7 @@ Git still applies a repository's own clean filters when it reads working-tree fi
 
 ## Documentation
 
-- [Feature briefs](docs/briefs.md): composing feature and review briefs, collecting answers and passage comments, and preparing feedback.
+- [Overviews](docs/briefs.md): writing feature and part overviews, collecting answers and passage comments, and handing feedback to your agent.
 - [Collections](docs/collections.md): the manifest format, the CLI, and how imports are checked.
 - [Reference](docs/reference.md): reviewing, keeping pages current, configuration, and limits.
 - [DESIGN.md](DESIGN.md): the interface decisions.
