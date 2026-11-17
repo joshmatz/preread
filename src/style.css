@@ -153,6 +153,8 @@ small,
   color: var(--secondary);
 }
 .app {
+  --sticky-top: 0px;
+  --group-bar-height: 0px;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -700,8 +702,12 @@ h1 {
   font-size: 11px;
 }
 .review-feed {
+  --feed-gutter: 24px;
   min-width: 0;
-  padding: 16px 24px 24px;
+  padding: 16px var(--feed-gutter) 24px;
+}
+.review-feed.has-group-bars {
+  --group-bar-height: 38px;
 }
 .segmented {
   display: flex;
@@ -722,9 +728,10 @@ h1 {
   color: var(--text);
   box-shadow: 0 1px 3px #0002;
 }
+/* With the root's 18px scroll padding, a jump puts the previous group's end at the top, so no sliver of its bar shows. */
 .change-group {
   margin-bottom: 28px;
-  scroll-margin-top: 18px;
+  scroll-margin-top: calc(var(--sticky-top) + 10px);
 }
 .group-header {
   display: flex;
@@ -781,6 +788,71 @@ h2 {
   background: var(--add-bg);
   border-color: var(--add-gutter);
 }
+/* In flow right after the header, shifted up so it leaves the window when the header slides under the bar. */
+.group-bar-trigger {
+  position: relative;
+  top: calc(-1 * var(--sticky-top) - var(--group-bar-height));
+}
+/* Zero height, so the bar takes no room: it hangs above its sticking point and leaves with the group's last file. */
+.group-bar {
+  position: sticky;
+  top: calc(var(--sticky-top) + var(--group-bar-height));
+  z-index: 3;
+  height: 0;
+}
+.group-bar-inner {
+  position: absolute;
+  bottom: 0;
+  left: calc(-1 * var(--feed-gutter));
+  right: calc(-1 * var(--feed-gutter));
+  height: var(--group-bar-height);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 var(--feed-gutter);
+  border-bottom: 1px solid var(--border);
+  background: var(--canvas);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease-out, visibility 0s linear 120ms;
+}
+.group-bar.shown .group-bar-inner {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 160ms ease-out;
+}
+.group-bar-title {
+  flex: 1;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 4px 0;
+  text-align: left;
+  transform: translateY(6px);
+  transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+.group-bar.shown .group-bar-title {
+  transform: none;
+}
+.group-bar-title:not(:disabled):hover {
+  background: transparent;
+}
+.group-bar-title:hover .group-bar-name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.group-bar .group-number {
+  padding: 0;
+}
+.group-bar-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 620;
+}
 .mark-all {
   margin-left: auto;
   flex-shrink: 0;
@@ -796,7 +868,7 @@ h2 {
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 12px;
-  scroll-margin-top: 18px;
+  scroll-margin-top: calc(var(--sticky-top) + var(--group-bar-height) + 18px);
   overflow: clip;
   background: var(--canvas);
 }
@@ -809,7 +881,7 @@ h2 {
   border-bottom: 1px solid var(--border);
   background: var(--subtle);
   position: sticky;
-  top: 0;
+  top: calc(var(--sticky-top) + var(--group-bar-height));
   z-index: 2;
 }
 .collapsed-file > .file-toolbar {
@@ -1684,8 +1756,7 @@ fieldset {
     grid-template-columns: min(var(--sidebar-width, 265px), 50%) minmax(0, 1fr);
   }
   .review-feed {
-    padding-right: 35px;
-    padding-left: 35px;
+    --feed-gutter: 35px;
   }
 }
 @media (max-width: 1180px) {
@@ -1710,7 +1781,8 @@ fieldset {
     grid-template-columns: min(var(--sidebar-width, 210px), 50%) minmax(0, 1fr);
   }
   .review-feed {
-    padding: 14px 15px 20px;
+    --feed-gutter: 15px;
+    padding: 14px var(--feed-gutter) 20px;
   }
 }
 @media (max-width: 720px) {
@@ -1780,7 +1852,15 @@ fieldset {
     display: none;
   }
   .review-feed {
-    padding: 12px 12px 20px;
+    --feed-gutter: 12px;
+    padding: 12px var(--feed-gutter) 20px;
+  }
+  .review-feed.has-group-bars {
+    --group-bar-height: 0px;
+  }
+  .group-bar,
+  .group-bar-trigger {
+    display: none;
   }
   .group-header {
     flex-wrap: wrap;
@@ -2433,4 +2513,5 @@ dialog.visual-gallery { inset: 16px; width: calc(100vw - 32px); max-width: none;
 .search-match small, .search-match code { display: block; overflow-wrap: anywhere; font-size: 10px; }
 .search-match small { color: var(--secondary); margin-bottom: 3px; }
 
+.search-hit { scroll-margin-top: calc(var(--sticky-top) + var(--group-bar-height) + 84px); }
 .search-hit td { box-shadow: inset 0 2px var(--accent), inset 0 -2px var(--accent); }

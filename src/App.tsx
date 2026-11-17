@@ -76,6 +76,7 @@ import { ImageDiff } from "./ImageDiff";
 import { BrandMark } from "./BrandMark";
 import { usePullRequests } from "./usePullRequests";
 import { FeatureBrief } from "./FeatureBrief";
+import { GroupBar, GroupReviewButton } from "./GroupBar";
 import { BriefTabs } from "./BriefTabs";
 import { useBrief } from "./useBrief";
 import { Markdown } from "./Markdown";
@@ -688,7 +689,6 @@ function DiffView({
       const row = cells.find((cell) => Number(cell.textContent) === match.line)?.closest("tr");
       if (row) {
         row.classList.add("search-hit");
-        row.style.scrollMarginTop = "84px";
         if (handledMatch.current !== searchMatch.version) {
           handledMatch.current = searchMatch.version;
           onSearchReady?.(row);
@@ -833,6 +833,11 @@ function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespa
         context={context} onContextChange={onContextChange} loadContext={loadContext} comments={comments} />}
   </>;
 }
+// The top bar and group bar cover a card down to where its toolbar sticks.
+function topHidden(card: HTMLElement) {
+  const style = getComputedStyle(card.querySelector(".file-toolbar")!);
+  return card.getBoundingClientRect().top < (style.position === "sticky" ? parseFloat(style.top) : 0);
+}
 function FileCard({
   preview,
   eager,
@@ -880,7 +885,7 @@ function FileCard({
   currentViewKey.current = viewKey;
   useEffect(() => { setViewSaveError(""); }, [viewKey]);
   const toggleViewed = async () => {
-    const advance = !viewed && !!card.current && card.current.getBoundingClientRect().top < 0;
+    const advance = !viewed && !!card.current && topHidden(card.current);
     setViewSaving(true);
     setViewSaveError("");
     try {
@@ -1046,8 +1051,7 @@ function FileCard({
           onClick={() => {
             setExpanded(null);
             collapseButton.current!.focus({ preventScroll: true });
-            if (card.current!.getBoundingClientRect().top < 0)
-              card.current!.scrollIntoView({ block: "start" });
+            if (topHidden(card.current!)) card.current!.scrollIntoView({ block: "start" });
           }}
         >
           <FoldVertical size={14} />
@@ -1699,12 +1703,19 @@ export default function App() {
         reviewed: !section.reviewed,
       });
       setFilesCollapsed(path, section.files.map(markedFile), !section.reviewed);
-      if (activeReview.current === selection) setSnapshot(result);
+      const current = activeReview.current === selection;
+      if (current) setSnapshot(result);
+      return current;
     } catch (cause) {
       setError((cause as Error).message);
+      return false;
     } finally {
       setMarking("");
     }
+  };
+  // Marking collapses the files under the reader, so move on to the next group, as Viewed does for a file.
+  const markFromBar = async (section: ReviewSection, next?: string) => {
+    if (await mark(section) && !section.reviewed) jump(next ?? section.id);
   };
   // Group IDs can't contain "@", so these keys never light up a group's spinner.
   const saveMarks = async (key: string, targets: Array<{ review: Review; groups: ProgressSource["sections"] }>, reviewed: boolean) => {
@@ -2144,7 +2155,7 @@ export default function App() {
                 jump(section, preview.file.path);
               }} />
             <SidebarResizer />
-            <div className={`review-feed${wrap ? " wrap-lines" : ""}`}>
+            <div className={`review-feed${wrap ? " wrap-lines" : ""}${review ? " has-group-bars" : ""}`}>
               {codeComments.enabled && repliedComments.length > 0 && <p className="agent-replies-notice" role="status">
                 <MessageSquareReply size={14} aria-hidden="true" />
                 <span>Your agent replied to {repliedComments.length === 1 ? "a comment" : `${repliedComments.length} comments`} in this review.</span>
@@ -2164,10 +2175,12 @@ export default function App() {
               {displayedSections.map(({ section, files }, index) => {
                 const sinceViewed = sinceViewedGroups.get(section.id) ?? section.changedSinceReview;
                 const mention = review ? briefMentions.get(`${review.id}/${section.id}`) : undefined;
+                const number = String(index + 1).padStart(2, "0");
+                const markState = { section, busy: marking === section.id, disabled: !!marking || (!section.canReview && !section.reviewed) };
                 return <section className="change-group" id={anchor(section.id)} key={section.id}>
                   <header className="group-header">
                     <div className="group-heading">
-                      <span className="group-number">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="group-number">{number}</span>
                       <div>
                         <h2>{section.title}</h2>
                         {mention && <button className="group-brief-link" onClick={() => openBriefAt(mention.review, mention.target, section.id)}
@@ -2176,26 +2189,7 @@ export default function App() {
                       </div>
                     </div>
                     <div className="group-actions">
-                      {review && (
-                        <button
-                          className={`review-button ${section.reviewed ? "is-reviewed" : ""}`}
-                          aria-pressed={section.reviewed}
-                          title={
-                            section.reviewed
-                              ? "Unmark all files in this group"
-                              : "Mark all files in this group viewed"
-                          }
-                          disabled={!!marking || (!section.canReview && !section.reviewed)}
-                          onClick={() => mark(section)}
-                        >
-                          {marking === section.id ? (
-                            <LoaderCircle size={15} className="spin" />
-                          ) : (
-                            <CheckCheck size={15} />
-                          )}
-                          {section.reviewed ? "All viewed" : "Mark all viewed"}
-                        </button>
-                      )}
+                      {review && <GroupReviewButton {...markState} onClick={() => void mark(section)} />}
                       {(section.changedSinceReview || sinceViewed) && (
                         <button className="changed-label"
                           aria-pressed={sinceViewed}
@@ -2205,6 +2199,10 @@ export default function App() {
                       )}
                     </div>
                   </header>
+                  {review && <GroupBar number={number} title={section.title} onTitle={() => jump(section.id)}>
+                    <GroupReviewButton {...markState} tabIndex={-1}
+                      onClick={() => void markFromBar(section, displayedSections[index + 1]?.section.id)} />
+                  </GroupBar>}
                   {section.description && <div className="group-description"><Markdown>{section.description}</Markdown></div>}
                   {review?.groups.some((group) => group.id === section.id) &&
                     <ReviewVisuals key={`${collectionId}/${reviewId}/${section.id}`}

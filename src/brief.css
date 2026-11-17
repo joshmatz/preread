@@ -772,6 +772,10 @@
 }
 
 @media (min-width:721px) {
+  .app.has-feature-brief {
+    --sticky-top:48px
+  }
+
   .has-feature-brief .files-sidebar {
     top:48px;
     max-height:calc(100dvh - 48px)
@@ -780,14 +784,6 @@
   .has-feature-brief .sidebar-resizer {
     top:48px;
     height:min(calc(100dvh - 48px), 100%)
-  }
-
-  .has-feature-brief .file-toolbar {
-    top:48px
-  }
-
-  .has-feature-brief :is(.change-group, .file-card) {
-    scroll-margin-top:66px
   }
 }
 
