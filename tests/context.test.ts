@@ -10,6 +10,7 @@ import { groupPreviews } from "../server/review.ts";
 import {
   createContextModel,
   contextGaps,
+  firstChange,
   initialGaps,
   gapControls,
   expandContext,
@@ -202,4 +203,13 @@ test("a gap that either direction would fill offers one button, with singular li
   assert.deepEqual(controls({ above: 0, below: 20, all: false }, false, true), [
     "below: ↓ Show more below",
   ]);
+});
+
+test("the source viewer opens a file card on the first row it changes, removed or added", () => {
+  const header = "diff --git a/f.ts b/f.ts\n--- a/f.ts\n+++ b/f.ts\n";
+  assert.deepEqual(firstChange(header + "@@ -10,4 +10,5 @@ heading\n context\n+new\n context\n"), { side: "new", line: 11 });
+  assert.deepEqual(firstChange(header + "@@ -10,4 +10,4 @@ heading\n context\n-old\n+new\n context\n"), { side: "old", line: 11 });
+  assert.deepEqual(firstChange(header + "@@ -0,0 +1,2 @@\n+a\n+b\n"), { side: "new", line: 1 });
+  assert.deepEqual(firstChange(header + "@@ -3,2 +3,2 @@\n a\n b\n@@ -18,3 +18,2 @@\n c\n d\n-e\n"), { side: "old", line: 20 });
+  assert.equal(firstChange("diff --git a/f.ts b/g.ts\nsimilarity index 100%\n"), undefined);
 });

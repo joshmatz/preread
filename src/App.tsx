@@ -23,6 +23,7 @@ import {
   Layers3,
   LoaderCircle,
   Lock,
+  Maximize2,
   MessageSquarePlus,
   MessageSquareReply,
   Music,
@@ -37,7 +38,6 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import "diff2html/bundles/css/diff2html.min.css";
 import type { Diff, Mode, Repository, StackNode } from "./types";
 import type { Collection, FilePreview, ProgressSource, Review, ReviewSection, ReviewSnapshot, SinceViewed } from "./review-types";
@@ -91,12 +91,11 @@ import {
   gapControls,
   expandContext,
   contextPatch,
+  firstChange,
   type ContextModel,
 } from "./diff-context";
-import { DefinitionDialog, definitionButtons, useDefinitionModifier, definitionModifier, lookupDefinition, type Definition } from "./DefinitionDialog";
-import { highlightDiff } from "./highlight";
-import { orderUnifiedChanges } from "./diff-order";
-import { refineWordHighlights } from "./diff-highlights";
+import { DefinitionDialog, definitionButtons, useDefinitionModifier, definitionModifier, lookupDefinition, openSourceFile, type Definition, type Side } from "./DefinitionDialog";
+import { diffRows, drawDiff, insertedRows, rowAt } from "./draw-diff";
 import "./style.css";
 
 const params = new URLSearchParams(location.search);
@@ -331,49 +330,11 @@ type DiffComments = {
   onLines?: (view: string, lines: ReadonlyMap<string, string> | null) => void;
 };
 type PlacedThread = { row: HTMLTableRowElement; spacer?: HTMLTableRowElement; mount: HTMLDivElement; observer?: ResizeObserver };
-const insertedRows = ".line-comment-row, .line-comment-spacer";
 const afterInserted = (row: Element) => {
   let last = row;
   while (last.nextElementSibling?.matches(insertedRows)) last = last.nextElementSibling;
   return last;
 };
-const lineNumber = (cell: Element | null | undefined) => {
-  const value = Number(cell?.textContent?.trim() || NaN);
-  return value > 0 ? value : 0;
-};
-function diffRows(element: HTMLElement, split: boolean) {
-  const sides = (split ? [...element.querySelectorAll(".d2h-file-side-diff")] : [element]).map((table) =>
-    [...table.querySelectorAll<HTMLTableRowElement>(".d2h-diff-tbody > tr")].filter((row) => !row.matches(insertedRows)));
-  const keyAt = (side: number, index: number): string => {
-    const row = sides[side]?.[index];
-    if (!row) return "";
-    if (!split) {
-      const next = lineNumber(row.querySelector(".line-num2"));
-      const old = lineNumber(row.querySelector(".line-num1"));
-      return next ? `new:${next}` : old ? `old:${old}` : "";
-    }
-    const cell = row.querySelector("td.d2h-code-side-linenumber");
-    if (!cell || cell.matches(".d2h-emptyplaceholder, .d2h-info") || !lineNumber(cell)) return "";
-    // Tables pair up old, new: a type change draws two files, so four tables.
-    if (side % 2) return `new:${lineNumber(cell)}`;
-    return cell.classList.contains("d2h-del") ? `old:${lineNumber(cell)}` : keyAt(side + 1, index);
-  };
-  const byKey = new Map<string, { row: HTMLTableRowElement; side: number; index: number }>();
-  sides.forEach((rows, side) => rows.forEach((row, index) => {
-    const key = keyAt(side, index);
-    // Split view shows a context line in both tables; its comments go under the new side.
-    if (key && !(split && side % 2 === 0 && key.startsWith("new:"))) byKey.set(key, { row, side, index });
-  }));
-  const keyOf = (cell: Element) => {
-    const row = cell.closest("tr");
-    for (const [side, rows] of sides.entries()) {
-      const index = rows.indexOf(row!);
-      if (index >= 0) return keyAt(side, index);
-    }
-    return "";
-  };
-  return { sides, byKey, keyOf };
-}
 function DiffView({
   preview,
   eager,
@@ -405,7 +366,7 @@ function DiffView({
   context: ContextModel | null;
   onContextChange: (context: ContextModel) => void;
 }) {
-  const [definition, setDefinition] = useState<{ side: "old" | "new"; data: Definition; id: number } | null>(null);
+  const [definition, setDefinition] = useState<{ side: Side; data: Definition; id: number } | null>(null);
   const [contextStatus, setContextStatus] = useState<{ gap: number; error?: string } | null>(
     null,
   );
@@ -579,44 +540,12 @@ function DiffView({
   useEffect(() => {
     const element = target.current;
     if (!element || !visible || !patch || preview.error) return;
-    const view = new Diff2HtmlUI(element, shown(), {
-      drawFileList: false,
-      outputFormat: split ? "side-by-side" : "line-by-line",
+    drawDiff(element, shown(), {
+      split,
+      ignoreWhitespace,
       matching: chunkIndex !== undefined || size.deferred ? "none" : "lines",
-      highlight: false,
-      synchronisedScroll: true,
-      renderNothingWhenEmpty: false,
-      fileContentToggle: false,
-      stickyFileHeaders: false,
+      decorate: !loadContext && /\.[cm]?[jt]sx?$/i.test(preview.file.path) ? definitionButtons : undefined,
     });
-    view.draw();
-    refineWordHighlights(element);
-    orderUnifiedChanges(element);
-    // Merge before syntax highlighting introduces its own nested spans.
-    for (const change of element.querySelectorAll(
-      ".d2h-code-line-ctn > ins, .d2h-code-line-ctn > del",
-    )) {
-      while (change.nextSibling) {
-        const gap = change.nextSibling;
-        const next =
-          gap.nodeType === Node.TEXT_NODE && /^\s*$/.test(gap.textContent ?? "")
-            ? gap.nextSibling
-            : gap;
-        if (!(next instanceof Element) || next.tagName !== change.tagName) break;
-        if (gap !== next) change.append(gap);
-        change.append(...next.childNodes);
-        next.remove();
-      }
-    }
-    if (ignoreWhitespace) {
-      for (const change of element.querySelectorAll(
-        ".d2h-code-line-ctn > ins, .d2h-code-line-ctn > del",
-      )) {
-        if (!change.textContent?.trim()) change.replaceWith(...change.childNodes);
-      }
-    }
-    highlightDiff(element);
-    if (!loadContext && /\.[cm]?[jt]sx?$/i.test(preview.file.path)) element.querySelectorAll(".d2h-code-line-ctn").forEach(definitionButtons);
     // A type change diffs as a deletion plus an addition, which share no context.
     const gaps =
       !expandable || preview.file.status === "T" ? [] : context ? contextGaps(context) : initialGaps(patch);
@@ -683,13 +612,7 @@ function DiffView({
       focusGap.current = null;
     }
     if (searchMatch && (chunkIndex ?? 0) === searchMatch.match.chunk) {
-      const match = searchMatch.match;
-      const sides = [...element.querySelectorAll<HTMLElement>(".d2h-file-side-diff")];
-      const cells = split
-        ? sides.filter((_, index) => index % 2 === (match.side === "old" ? 0 : 1))
-          .flatMap((side) => [...side.querySelectorAll<HTMLElement>(".d2h-code-side-linenumber")])
-        : [...element.querySelectorAll<HTMLElement>(match.side === "old" ? ".line-num1" : ".line-num2")];
-      const row = cells.find((cell) => Number(cell.textContent) === match.line)?.closest("tr");
+      const row = rowAt(element, split, searchMatch.match.side, searchMatch.match.line);
       if (row) {
         row.classList.add("search-hit");
         if (handledMatch.current !== searchMatch.version) {
@@ -776,12 +699,12 @@ function DiffView({
             const file = side === "old" ? preview.file.oldPath ?? preview.file.path : preview.file.path;
             const params = new URLSearchParams({ ...source, file, side, line, column: button.dataset.column!, name: button.textContent! });
             void lookupDefinition(params, button).then(data =>
-              data && setDefinition({ side: side as "old" | "new", data, id: Date.now() }));
+              data && setDefinition({ side: side as Side, data, id: Date.now() }));
           }}
           tabIndex={-1} aria-label={`Diff for ${preview.file.path}${chunkIndex === undefined ? "" : `, section ${chunkIndex + 1}`}`} />
       )}
       {definition && <DefinitionDialog key={definition.id} source={source} side={definition.side} initial={definition.data}
-        onClose={() => setDefinition(null)} />}
+        split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} onClose={() => setDefinition(null)} />}
       {comments && [...mounts].map(([key, mount]) => createPortal(comments.render(key), mount, key))}
     </div>
   );
@@ -1032,6 +955,12 @@ function FileCard({
   const card = useRef<HTMLElement>(null);
   const collapseButton = useRef<HTMLButtonElement>(null);
   const commentButton = useRef<HTMLButtonElement>(null);
+  const [viewer, setViewer] = useState<{ side: Side; data: Definition } | null>(null);
+  const openViewer = async (button: HTMLButtonElement) => {
+    const side = preview.file.status === "D" ? "old" : "new";
+    const data = await openSourceFile(new URLSearchParams({ ...source, side, file: preview.file.path }), button);
+    if (data) setViewer({ side, data });
+  };
   const showsLines = !preview.error && !preview.diff.tooLarge && !preview.diff.binary && !preview.diff.empty && !preview.diff.image
     && !noContentNote(preview.diff.patch);
   return (
@@ -1085,6 +1014,16 @@ function FileCard({
           {viewSaving ? <LoaderCircle size={14} className="spin" /> : null}
           {viewSaving ? "Saving viewed version…" : preview.partial ? "Blocks viewed" : "Viewed"}
         </button>
+        {!preview.diff.binary && !preview.diff.image && (
+          <button
+            className="icon-button"
+            aria-label={`Open ${preview.file.path} in the source viewer`}
+            title="Open in the source viewer"
+            onClick={(event) => void openViewer(event.currentTarget)}
+          >
+            <Maximize2 size={15} />
+          </button>
+        )}
         {comments && (
           <button
             className={`icon-button comment-button${list.length ? " has-comments" : ""}`}
@@ -1127,6 +1066,8 @@ function FileCard({
           />
         )}
       </div>
+      {viewer && <DefinitionDialog source={source} side={viewer.side} initial={viewer.data}
+        change={firstChange(preview.diff.patch)} split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} onClose={() => setViewer(null)} />}
     </article>
   );
 }

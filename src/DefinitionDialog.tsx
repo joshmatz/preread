@@ -6,6 +6,11 @@ import { SidebarResizer } from "./SidebarResizer";
 import type { ChangedFile, Mode } from "./types";
 import { BriefDialog } from "./BriefDialog";
 import { HighlightedCode } from "./HighlightedCode";
+import { diffRows, drawDiff, rowAt } from "./draw-diff";
+import { displayedPatch } from "./whitespace-diff";
+import { AUTO_RENDER_LINES, diffSize } from "./diff-size";
+import { firstChange } from "./diff-context";
+import type { DiffFile } from "diff2html/lib/types";
 
 const mac = /Mac|iPad|iPhone/.test(navigator.platform);
 export const definitionModifier = (event: { metaKey: boolean; ctrlKey: boolean }) =>
@@ -76,10 +81,11 @@ export function definitionButtons(block: Element) {
   }
 }
 
-type Side = "old" | "new";
+export type Side = "old" | "new";
 type PackageInfo = { name: string; version: string };
-type SourceFile = { file: string; code: string; editorTarget: string | null; package?: PackageInfo };
-export type Definition = SourceFile & { line: number; paths: string[]; changes: ChangedFile[] };
+type FileDiff = { patch: string; path: string; oldPath?: string };
+type SourceFile = { file: string; code: string; editorTarget: string | null; package?: PackageInfo; diff?: FileDiff };
+export type Definition = SourceFile & { line?: number; paths: string[]; changes: ChangedFile[] };
 export type DefinitionSource = { path: string; base: string; mode: Mode; version: string };
 
 // One short message beside the call, in the top layer so it also shows above the open viewer.
@@ -116,20 +122,20 @@ const cancelLookup = () => {
   pendingLookup?.abort();
   dismissHint();
 };
-export async function lookupDefinition(params: URLSearchParams, anchor: HTMLElement) {
+async function lookup(url: string, anchor: HTMLElement, waiting: string, failed: string) {
   pendingLookup?.abort();
   const controller = (pendingLookup = new AbortController());
   dismissHint();
   anchor.setAttribute("aria-busy", "true");
-  const slow = setTimeout(() => showDefinitionHint(anchor, "Finding definition…", true), 350);
+  const slow = setTimeout(() => showDefinitionHint(anchor, waiting, true), 350);
   try {
-    const response = await fetch("/api/definition?" + params, { signal: controller.signal });
+    const response = await fetch(url, { signal: controller.signal });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "No definition found.");
+    if (!response.ok) throw new Error(data.error || failed);
     dismissHint();
     return data as Definition;
   } catch (error) {
-    if (!controller.signal.aborted) showDefinitionHint(anchor, error instanceof Error ? error.message : "No definition found.");
+    if (!controller.signal.aborted) showDefinitionHint(anchor, error instanceof Error ? error.message : failed);
     return null;
   } finally {
     clearTimeout(slow);
@@ -137,6 +143,10 @@ export async function lookupDefinition(params: URLSearchParams, anchor: HTMLElem
     if (pendingLookup === controller) pendingLookup = null;
   }
 }
+export const lookupDefinition = (params: URLSearchParams, anchor: HTMLElement) =>
+  lookup("/api/definition?" + params, anchor, "Finding definition…", "No definition found.");
+export const openSourceFile = (params: URLSearchParams, anchor: HTMLElement) =>
+  lookup("/api/source-file?tree=1&" + params, anchor, "Opening the file…", "Could not open the file.");
 
 function useRead<T>(url: string) {
   const [state, setState] = useState<{ url: string; data?: T; error?: string }>();
@@ -248,7 +258,62 @@ function SourceCode({ file, line, restore, visit, scroller, onFollow }: {
   </div>;
 }
 
-type Place = { file: string; side: Side; line?: number; scrollTop?: number };
+const scripts = /\.[cm]?[jt]sx?$/i;
+
+type Row = { side: Side; line: number };
+
+function SourceDiff({ diff, displayed, target, restore, visit, scroller, split, wrap, ignoreWhitespace, onFollow }: {
+  diff: FileDiff; displayed: string | DiffFile[]; target?: Row; restore?: number; visit: number;
+  scroller: React.RefObject<HTMLDivElement | null>; split: boolean; wrap: boolean; ignoreWhitespace: boolean;
+  onFollow: (button: HTMLButtonElement, at: { file: string; side: Side; line: number }) => void;
+}) {
+  const sheet = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = sheet.current!;
+    const { plus, minus } = diffSize(diff.patch);
+    drawDiff(element, displayed, {
+      split, ignoreWhitespace, matching: plus + minus < AUTO_RENDER_LINES ? "lines" : "none",
+      decorate: scripts.test(diff.path) ? definitionButtons : undefined,
+    });
+    // The whole file is one block, so its heading would only repeat the line counts.
+    for (const heading of element.querySelectorAll("td.d2h-info")) heading.closest("tr")!.remove();
+    return () => { element.innerHTML = ""; };
+  }, [diff, displayed, split, ignoreWhitespace]);
+  useLayoutEffect(() => {
+    const pane = scroller.current!;
+    const element = sheet.current!;
+    return whenLaidOut(pane, () => {
+      for (const row of element.querySelectorAll(".source-target-row")) row.classList.remove("source-target-row");
+      const row = target && rowAt(element, split, target.side, target.line);
+      if (row) {
+        const { sides } = diffRows(element, split);
+        const table = sides.findIndex(rows => rows.includes(row));
+        const index = sides[table].indexOf(row);
+        // Reflow between removing and adding the class, so the arrival animation replays.
+        void element.offsetWidth;
+        for (const rows of split ? [sides[table], sides[table ^ 1]] : [sides[table]]) rows?.[index]?.classList.add("source-target-row");
+      }
+      const first = firstChange(diff.patch);
+      const anchor = row || (first && rowAt(element, split, first.side, first.line));
+      const top = anchor ? anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop : 0;
+      pane.scrollLeft = 0;
+      pane.scrollTop = restore ?? (anchor ? top - pane.clientHeight / 3 : 0);
+    });
+  }, [diff, displayed, target?.side, target?.line, restore, visit, split, scroller]);
+  return <div ref={scroller} className="source-scroll" onClick={event => {
+    const button = event.target instanceof Element && event.target.closest<HTMLButtonElement>(".definition-call");
+    if (!button || !(event.detail === 0 || definitionModifier(event))) return;
+    const key = diffRows(sheet.current!, split).keyOf(button);
+    if (!key) return;
+    const [at, number] = key.split(":") as [Side, string];
+    onFollow(button, { file: at === "old" ? diff.oldPath ?? diff.path : diff.path, side: at, line: Number(number) });
+  }}>
+    <div ref={sheet} className={`diff-renderer source-diff${wrap ? " wrap-lines" : ""}`} />
+  </div>;
+}
+
+// A file card opens on its first change, which can be a removed line, so it lands on a diff row rather than a line.
+type Place = { file: string; side: Side; line?: number; change?: Row; scrollTop?: number };
 const placeKey = (file: string, side: Side) => side + ":" + file;
 const explorerShown = () => {
   try {
@@ -258,12 +323,13 @@ const explorerShown = () => {
   return window.innerWidth > 580;
 };
 
-export function DefinitionDialog({ source, side, initial, onClose }: {
-  source: DefinitionSource; side: Side; initial: Definition; onClose: () => void;
+export function DefinitionDialog({ source, side, initial, change, split, wrap, ignoreWhitespace, onClose }: {
+  source: DefinitionSource; side: Side; initial: Definition; change?: Row; split: boolean; wrap: boolean; ignoreWhitespace: boolean;
+  onClose: () => void;
 }) {
   const editors = useRead<string[]>("/api/editors");
   const [showExplorer, setShowExplorer] = useState(explorerShown);
-  const [history, setHistory] = useState({ places: [{ file: initial.file, side, line: initial.line }] as Place[], index: 0, visit: 0 });
+  const [history, setHistory] = useState({ places: [{ file: initial.file, side, line: initial.line, change }] as Place[], index: 0, visit: 0 });
   const [files, setFiles] = useState(() => new Map<string, SourceFile | { error: string }>([[placeKey(initial.file, side), initial]]));
   const [installed, setInstalled] = useState<string[]>(() => initial.package ? [initial.file] : []);
   const [reveal, setReveal] = useState<Reveal>();
@@ -275,6 +341,9 @@ export function DefinitionDialog({ source, side, initial, onClose }: {
   const loaded = files.get(key);
   const current = loaded && !("error" in loaded) ? loaded : undefined;
   const params = new URLSearchParams({ ...source, side: place.side, file: place.file });
+  const displayed = useMemo(() => current?.diff && displayedPatch(current.diff.patch, ignoreWhitespace), [current?.diff, ignoreWhitespace]);
+  // With whitespace ignored, a reindented file can have no changed lines left to show.
+  const changed = typeof displayed === "string" || !!displayed?.some(file => file.blocks.some(block => block.lines.length));
 
   useEffect(() => {
     if (files.has(key)) return;
@@ -321,16 +390,14 @@ export function DefinitionDialog({ source, side, initial, onClose }: {
     if (path === place.file) return;
     go({ file: path, side: path.split("/").includes("node_modules") ? place.side : changes.get(path)?.side ?? side });
   }
-  async function follow(button: HTMLButtonElement) {
-    const target = new URLSearchParams(params);
-    target.set("name", button.textContent!);
-    target.set("line", button.dataset.line!);
-    target.set("column", button.dataset.column!);
+  async function follow(button: HTMLButtonElement, at = { file: place.file, side: place.side, line: Number(button.dataset.line) }) {
+    const target = new URLSearchParams({ ...source, file: at.file, side: at.side, line: String(at.line),
+      column: button.dataset.column!, name: button.textContent! });
     const data = await lookupDefinition(target, button);
     if (!data) return;
-    setFiles(previous => new Map(previous).set(placeKey(data.file, place.side), data));
+    setFiles(previous => new Map(previous).set(placeKey(data.file, at.side), data));
     if (data.package) setInstalled(previous => previous.includes(data.file) ? previous : [...previous, data.file]);
-    go({ file: data.file, side: place.side, line: data.line });
+    go({ file: data.file, side: at.side, line: data.line });
   }
   function toggleExplorer(show: boolean) {
     setShowExplorer(show);
@@ -361,8 +428,11 @@ export function DefinitionDialog({ source, side, initial, onClose }: {
       <SidebarResizer storageKey="sourceExplorerWidth" label="Resize Explorer" />
       <section className="source-pane">
         {current?.editorTarget === null && <p className="source-notice">Showing the reviewed version. The file on disk is different or gone.</p>}
-        {current ? <SourceCode file={current} line={place.line} restore={place.scrollTop} visit={history.visit}
-          scroller={scroller} onFollow={follow} />
+        {current?.diff && changed ? <SourceDiff diff={current.diff} displayed={displayed!}
+          target={place.line ? { side: place.side, line: place.line } : place.change} restore={place.scrollTop} visit={history.visit} scroller={scroller} split={split} wrap={wrap}
+          ignoreWhitespace={ignoreWhitespace} onFollow={follow} />
+          : current ? <SourceCode file={current} line={place.line} restore={place.scrollTop} visit={history.visit}
+            scroller={scroller} onFollow={follow} />
           : <p role="status" className="source-notice">{loaded && "error" in loaded ? loaded.error : "Loading source…"}</p>}
       </section>
     </div>

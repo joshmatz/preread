@@ -44,6 +44,7 @@ const gitExecutable = async () => {
 const executable = gitExecutable();
 export const MAX_PATCH = 2 * 1024 * 1024;
 export const MAX_IMAGE = 20 * 1024 * 1024;
+export const WHOLE_FILE = 1_000_000;
 const hash = (content: string | Buffer) => createHash("sha256").update(content).digest("hex");
 const flags = [
   "--no-optional-locks",
@@ -554,7 +555,7 @@ export async function fileContext(
   if (!version || !expectedHash || info.version !== version) throw new Error(stale);
   const current = await fileDiff(input, base, mode, name, info);
   if (current.hash !== expectedHash) throw new Error(stale);
-  const expanded = await fileDiff(input, base, mode, name, info, 1_000_000);
+  const expanded = await fileDiff(input, base, mode, name, info, WHOLE_FILE);
   if (expanded.tooLarge)
     throw new Error("This file is too large to expand here. Open it locally for the full context.");
   if (expanded.binary) throw new Error("Binary files do not have text context.");

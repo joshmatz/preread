@@ -54,6 +54,13 @@ function parse(patch: string) {
   }
   return { header, hunks };
 }
+export function firstChange(patch: string) {
+  for (const hunk of parse(patch).hunks)
+    for (const row of hunk.rows) {
+      if (row.text[0] === "+") return { side: "new" as const, line: row.next };
+      if (row.text[0] === "-") return { side: "old" as const, line: row.old };
+    }
+}
 const key = (row: Row) => `${row.old}/${row.next}/${row.text}`;
 export function createContextModel(original: string, expanded: string): ContextModel {
   const full = parse(expanded);

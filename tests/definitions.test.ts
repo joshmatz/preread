@@ -135,6 +135,47 @@ test("the Explorer colors additions, edits and deletions and opens absent files 
   assert.equal(changes.has("unchanged.ts"), false);
 });
 
+test("a changed file comes with its whole diff on each side that has it, so the viewer can show it", async t => {
+  const path = await realpath(await mkdtemp(join(tmpdir(), "source-diff-")));
+  t.after(() => rm(path, { recursive: true, force: true }));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: path, stdio: "pipe" });
+  const lines = (name: string) => Array.from({ length: 20 }, (_, i) => `export const ${name}${i} = ${i};`).join("\n") + "\n";
+  git("init", "-b", "main");
+  for (const file of ["removed.ts", "unchanged.ts"]) await writeFile(join(path, file), "export default 1;\n");
+  await writeFile(join(path, "old-name.ts"), lines("moved"));
+  await writeFile(join(path, "edited.ts"), "export function helper() {}\n" + lines("edited"));
+  await writeFile(join(path, "call.ts"), 'import { helper } from "./edited";\nhelper();\n');
+  git("add", ".");
+  git("-c", "user.name=Reader", "-c", "user.email=test@example.test", "commit", "-m", "Base");
+  git("mv", "old-name.ts", "new-name.ts");
+  await writeFile(join(path, "new-name.ts"), lines("moved").replace("moved19 = 19", "moved19 = 190"));
+  await rm(join(path, "removed.ts"));
+  await writeFile(join(path, "added.ts"), "export default 2;\n");
+  await writeFile(join(path, "edited.ts"), "export function helper() {}\n" + lines("edited").replace("edited9 = 9", "edited9 = 90"));
+  const version = (await comparison(path, "main", "working")).version;
+  const source = { path, base: "main", mode: "working" as const, version };
+  const after = await reviewSource({ ...source, side: "new" });
+  const before = await reviewSource({ ...source, side: "old" });
+  const rows = (patch = "") => patch.split("\n").filter(line => /^[ +-]/.test(line) && !/^(---|\+\+\+) /.test(line));
+
+  const edited = await after.diff("edited.ts");
+  assert.equal(edited?.path, "edited.ts");
+  assert.equal(rows(edited?.patch).length, 22, "every line of the file, not just the change and its context");
+  assert.deepEqual(await before.diff("edited.ts"), edited);
+  assert.deepEqual(rows((await after.diff("added.ts"))?.patch), ["+export default 2;"]);
+  assert.deepEqual(rows((await before.diff("removed.ts"))?.patch), ["-export default 1;"]);
+  const renamed = await before.diff("old-name.ts");
+  assert.equal(renamed?.path, "new-name.ts");
+  assert.equal(renamed?.oldPath, "old-name.ts");
+  assert.deepEqual(await after.diff("new-name.ts"), renamed);
+  for (const [side, file] of [[after, "unchanged.ts"], [after, "removed.ts"], [before, "added.ts"]] as const)
+    assert.equal(await side.diff(file), undefined, file);
+
+  const found = await functionDefinition(path, "main", "working", "new", "call.ts", 2, 0, "helper", version);
+  assert.equal(found.file, "edited.ts");
+  assert.deepEqual(found.diff, edited);
+});
+
 test("a library call opens the installed package's source, even through a repository barrel", async t => {
   const { path, click } = await worktree(t, {
     ...packages,

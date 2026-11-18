@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { comparison, git, MAX_PATCH } from "./git.ts";
+import { comparison, fileDiff, git, MAX_PATCH, WHOLE_FILE } from "./git.ts";
 import type { Mode } from "../src/types.ts";
 
 const browsable = (name: string) => name.length > 0 &&
@@ -43,5 +43,15 @@ export async function reviewSource({ path, base, mode, side, version }: {
   };
   const editorTarget = async (file: string, text: string) =>
     (await localFile(file).catch(() => null)) === text ? sourceHash(text) : null;
-  return { files, changes: source.files.filter(file => browsable(file.path)), read, localFile, editorTarget, root: source.path };
+  const changes = source.files.filter(file => browsable(file.path));
+  // A renamed file's old path shows the rename; a copy leaves its source unchanged.
+  const diff = async (file: string) => {
+    const change = changes.find(entry => side === "old"
+      ? (entry.status === "R" ? entry.oldPath : entry.path) === file && !["A", "?", "C"].includes(entry.status)
+      : entry.path === file && entry.status !== "D");
+    if (!change) return undefined;
+    const { patch, binary, tooLarge } = await fileDiff(source.path, base, mode, change.path, source, WHOLE_FILE);
+    return binary || tooLarge || !/^@@ /m.test(patch) ? undefined : { patch, path: change.path, oldPath: change.oldPath };
+  };
+  return { files, changes, read, localFile, editorTarget, diff, root: source.path };
 }

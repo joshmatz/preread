@@ -48,7 +48,7 @@ export async function functionDefinition(path: string, base: string, mode: Mode,
   file: string, line: number, column: number, name: string, version: string) {
   if (!["old", "new"].includes(side) || !supported.test(file) || !Number.isSafeInteger(line)
     || !Number.isSafeInteger(column) || line < 1 || column < 0 || !name) throw notFound(name || "this call");
-  const { files, changes, read, editorTarget, root } = await reviewSource({ path, base, mode, side, version });
+  const { files, changes, read, editorTarget, diff, root } = await reviewSource({ path, base, mode, side, version });
   let result: Location;
   if (isPackagePath(file)) {
     const { code } = readInstalledFile(root, file);
@@ -62,6 +62,7 @@ export async function functionDefinition(path: string, base: string, mode: Mode,
   return {
     ...result, paths: [...files], changes,
     editorTarget: result.package ? sourceHash(result.code) : await editorTarget(result.file, result.code),
+    diff: result.package ? undefined : await diff(result.file),
   };
 
   async function repositoryDefinition(): Promise<Location> {

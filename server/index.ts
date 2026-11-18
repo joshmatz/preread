@@ -86,13 +86,15 @@ app.get("/api/editors", async (_req, res) => res.json([...(await installedEditor
 app.get("/api/source-file", async (req, res) => {
   const source = await browserSource(req);
   const file = query(req.query.file);
+  // Opening the viewer from a review file also lists the worktree for its Explorer.
+  const tree = req.query.tree === "1" ? { paths: [...source.files], changes: source.changes } : {};
   if (isPackagePath(file)) {
     const installed = readInstalledFile(source.root, file);
-    res.json({ file, ...installed, editorTarget: sourceHash(installed.code) });
+    res.json({ file, ...installed, editorTarget: sourceHash(installed.code), ...tree });
     return;
   }
   const code = await source.read(file);
-  res.json({ file, code, editorTarget: await source.editorTarget(file, code) });
+  res.json({ file, code, editorTarget: await source.editorTarget(file, code), diff: await source.diff(file), ...tree });
 });
 app.post("/api/open-source", async (req, res) => {
   const source = await browserSource(req);
