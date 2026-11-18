@@ -1,6 +1,7 @@
 import { installedEditors, openInEditor } from "./editors.ts";
 import { reviewSource, sourceHash } from "./review-source.ts";
 import { functionDefinition } from "./definitions.ts";
+import { isPackagePath, readInstalledFile } from "./package-definitions.ts";
 import express from "express";
 import { ZodError } from "zod";
 import { createServer } from "node:http";
@@ -85,13 +86,19 @@ app.get("/api/editors", async (_req, res) => res.json([...(await installedEditor
 app.get("/api/source-file", async (req, res) => {
   const source = await browserSource(req);
   const file = query(req.query.file);
+  if (isPackagePath(file)) {
+    const installed = readInstalledFile(source.root, file);
+    res.json({ file, ...installed, editorTarget: sourceHash(installed.code) });
+    return;
+  }
   const code = await source.read(file);
   res.json({ file, code, editorTarget: await source.editorTarget(file, code) });
 });
 app.post("/api/open-source", async (req, res) => {
   const source = await browserSource(req);
   const file = query(req.query.file);
-  if (sourceHash(await source.localFile(file)) !== query(req.body?.editorTarget))
+  const current = isPackagePath(file) ? readInstalledFile(source.root, file).code : await source.localFile(file);
+  if (sourceHash(current) !== query(req.body?.editorTarget))
     throw new Error("The working file has changed since this preview opened.");
   await openInEditor(query(req.body?.editor), resolve(source.root, file), req.body?.line);
   res.json({ opened: true });

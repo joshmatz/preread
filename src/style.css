@@ -2516,6 +2516,20 @@ dialog.visual-gallery { inset: 16px; width: calc(100vw - 32px); max-width: none;
 .search-hit { scroll-margin-top: calc(var(--sticky-top) + var(--group-bar-height) + 84px); }
 .search-hit td { box-shadow: inset 0 2px var(--accent), inset 0 -2px var(--accent); }
 
+/* Stronger than the diff's green and red, so a changed file or folder stands out in a long tree. */
+:root {
+  --tree-added: #1a7f37;
+  --tree-modified: #9a6700;
+  --tree-deleted: #cf222e;
+  --tree-stuck-shadow: #1f232826;
+}
+:root[data-theme="dark"] {
+  --tree-added: #3fb950;
+  --tree-modified: #d29922;
+  --tree-deleted: #f85149;
+  --tree-stuck-shadow: #01040999;
+}
+
 :is(.diff-renderer, .definition-code) button.definition-call {
   all: unset;
   cursor: text;
@@ -2527,15 +2541,29 @@ dialog.visual-gallery { inset: 16px; width: calc(100vw - 32px); max-width: none;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+:is(.diff-renderer, .definition-code) button.definition-call[aria-busy="true"] { cursor: progress; }
 :is(.diff-renderer, .definition-code) button.definition-call:focus-visible { outline: 2px solid var(--focus); }
 
-.definition-code {
-  overflow: auto;
+.definition-hint {
+  position: fixed;
+  inset: auto;
   margin: 0;
-  padding: 16px;
-  background: var(--subtle);
-  line-height: 1.6;
-  tab-size: 2;
+  max-width: min(440px, calc(100vw - 16px));
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: 0 8px 28px #15203a24;
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+/* The page behind the viewer keeps its place: wheel scrolling never reaches it. */
+html:has(dialog.source-dialog[open]) {
+  overflow: hidden;
+  scrollbar-gutter: stable;
 }
 dialog.source-dialog {
   position: fixed;
@@ -2550,86 +2578,228 @@ dialog.source-dialog {
   border: 0;
   border-radius: 0;
   overflow: hidden;
+  background: var(--canvas);
 }
 dialog.source-dialog[open] { display: flex; flex-direction: column; }
 .source-dialog .brief-dialog-heading {
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-height: 44px;
   margin: 0;
-  padding: 6px 10px;
+  padding: 6px 10px 6px 8px;
   border-bottom: 1px solid var(--border);
 }
-.source-dialog .brief-dialog-heading h2 {
+.source-history { display: flex; align-items: center; gap: 2px; flex: none; }
+.source-path {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: 500 12px/1.5 ui-monospace, monospace;
-  letter-spacing: normal;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+.source-path ol {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  font: 12px/1.5 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+.source-path li { display: flex; align-items: center; min-width: 3ch; color: var(--secondary); }
+.source-path li:last-child { flex: none; min-width: 0; }
+.source-path li > svg { opacity: 0.6; }
+.source-dialog .source-path button {
+  display: block;
+  min-width: 0;
+  min-height: 26px;
+  padding: 3px 4px;
+  overflow: hidden;
+  border-radius: 4px;
+  color: inherit;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.source-path .source-file-name { color: var(--text); font-weight: 600; }
+.source-line { color: var(--secondary); font-weight: 400; }
+.package-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.package-chip span { opacity: 0.75; }
 .source-dialog .editor-launch { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 6px; }
 .source-dialog .editor-launch > button { padding: 4px 8px; min-height: 26px; }
 .editor-launch > button:nth-child(2) { border-left: 1px solid var(--border); border-radius: 0 5px 5px 0; }
 .editor-choice { width: 100%; padding: 7px 10px; justify-content: start; }
+
 .source-browser {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: min(var(--sidebar-width, 240px), 50%) minmax(0, 1fr);
+  grid-template-columns: min(var(--sidebar-width, 320px), 50%) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
 .source-browser.explorer-hidden { grid-template-columns: 0 minmax(0, 1fr); }
-.source-browser > .sidebar-resizer { display: block; position: relative; z-index: 1; height: 100%; }
+.source-browser > .sidebar-resizer { display: block; position: relative; z-index: 2; height: 100%; }
 .source-browser.explorer-hidden > :is(.source-explorer, .sidebar-resizer) { display: none; }
-.source-pane { grid-area: 1 / 2; display: flex; flex-direction: column; min-width: 0; }
-.source-notice { padding: 8px 16px; color: var(--secondary); }
-.source-pane .definition-code { flex: 1; background: var(--canvas); }
-.definition-code > code {
-  display: block;
-  padding: 0;
-  line-height: inherit;
+.source-pane { grid-area: 1 / 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.source-notice { margin: 0; padding: 8px 16px; color: var(--secondary); font-size: 12px; border-bottom: 1px solid var(--border); }
+
+.source-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.source-sheet {
+  --source-pad: 12px;
+  --source-line: 20px;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   min-width: max-content;
-  background: linear-gradient(var(--selected), var(--selected))
-    0 calc(var(--definition-row, -1) * 1lh) / 100% 1lh no-repeat;
+  min-height: 100%;
+  font: 12px/var(--source-line) "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
+.source-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: calc(var(--digits) * 1ch + 30px);
+  padding: var(--source-pad) 12px var(--source-pad) 14px;
+  background: var(--canvas);
+  color: color-mix(in srgb, var(--secondary) 75%, transparent);
+  text-align: right;
+  white-space: pre;
+  user-select: none;
+}
+.source-numbers { position: relative; }
+.definition-code {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: var(--source-pad) 32px var(--source-pad) 10px;
+  overflow: visible;
+  background: transparent;
+  font: inherit;
+  white-space: pre;
+  tab-size: 2;
+}
+.definition-code > code { display: block; padding: 0; font: inherit; background: transparent; }
+.source-target {
+  position: absolute;
+  inset: calc(var(--source-pad) + var(--target-row) * var(--source-line)) 0 auto;
+  height: var(--source-line);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  pointer-events: none;
+  animation: source-arrive 1.6s ease-out;
+}
+.source-gutter .source-target {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 2px 0 var(--accent);
+}
+@keyframes source-arrive {
+  from { background-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .source-target { animation: none; }
+}
+
 .source-explorer {
+  --tree-row: 24px;
+  --tree-guide: color-mix(in srgb, var(--secondary) 24%, transparent);
   grid-area: 1 / 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  isolation: isolate;
   background: var(--subtle);
   border-right: 1px solid var(--border);
 }
-.source-explorer h3 {
-  margin: 0;
-  padding: 12px 14px 9px;
-  color: var(--secondary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+.source-explorer [role=tree] {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 0 0 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
-.source-explorer [role=tree] { overflow: auto; padding-bottom: 8px; }
-.source-explorer [role=treeitem] {
-  display: flex;
-  align-items: center;
+.tree-row {
+  position: relative;
   justify-content: start;
-  gap: 5px;
+  gap: 4px;
   width: 100%;
-  height: 25px;
-  padding-right: 10px;
-  font-size: 12px;
+  height: var(--tree-row);
+  padding: 0 10px 0 calc(4px + (var(--level) - 1) * 12px);
   border-radius: 0;
+  background: var(--subtle);
+  font-size: 13px;
   text-align: left;
+  white-space: nowrap;
+  scroll-margin-top: calc((var(--level) - 1) * var(--tree-row));
 }
-.source-explorer [aria-selected=true] { background: var(--selected); }
-.source-explorer [role=treeitem]:focus-visible { outline-offset: -2px; }
-.tree-indent { width: 13px; flex: none; }
-.tree-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.source-explorer [data-change=A] { color: var(--green); }
-.source-explorer [data-change=M] { color: var(--warning-text); }
-.source-explorer [data-change=D] { color: var(--red); }
-.source-explorer [data-change=D] .tree-name { text-decoration: line-through; }
-.source-explorer b { margin-left: auto; font: 600 11px ui-monospace, monospace; }
+.tree-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 11px;
+  width: calc((var(--level) - 1) * 12px);
+  background: repeating-linear-gradient(to right, var(--tree-guide) 0 1px, transparent 1px 12px);
+  pointer-events: none;
+}
+/* Open folders pin under their parents, so the folders above stay in view in a long list. */
+.tree-branch > .tree-row {
+  position: sticky;
+  top: calc((var(--level) - 1) * var(--tree-row));
+  z-index: calc(40 - var(--level));
+}
+.tree-row[data-stuck]::after {
+  content: "";
+  position: absolute;
+  inset: 100% 0 auto;
+  height: 6px;
+  background: linear-gradient(var(--tree-stuck-shadow), transparent);
+  pointer-events: none;
+}
+.tree-row:focus-visible { outline-offset: -2px; }
+.tree-twisty { display: flex; justify-content: center; width: 14px; flex: none; color: var(--secondary); }
+.tree-icon { color: var(--secondary); }
+.tree-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tree-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 18px;
+  height: 17px;
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--change) 16%, transparent);
+  color: var(--change);
+  font: 700 10.5px/1 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+.tree-row[data-change=A] { --change: var(--tree-added); }
+.tree-row[data-change=M] { --change: var(--tree-modified); }
+.tree-row[data-change=D] { --change: var(--tree-deleted); }
+.tree-row[data-change] :is(.tree-name, .tree-icon) { color: var(--change); }
+.tree-row[data-change] .tree-name { font-weight: 500; }
+.tree-row[data-change=D]:not([aria-expanded]) .tree-name { text-decoration: line-through; }
+.tree-row[data-installed] { color: var(--secondary); }
+.tree-row[data-holds-file] .tree-name { font-weight: 600; }
+.tree-row[data-holds-file] .tree-icon { color: var(--accent); }
+.tree-row[data-holds-file][aria-expanded=false],
+.tree-row[aria-selected=true] {
+  background: color-mix(in srgb, var(--accent) 16%, var(--subtle));
+  box-shadow: inset 2px 0 var(--accent);
+}
+.tree-row[data-holds-file][aria-expanded=false] { background: color-mix(in srgb, var(--accent) 9%, var(--subtle)); }
+.tree-row[aria-selected=true] .tree-name { font-weight: 600; }
+.tree-row:is([aria-selected=true], [data-holds-file][aria-expanded=false]):hover {
+  background: color-mix(in srgb, var(--accent) 22%, var(--subtle));
+}

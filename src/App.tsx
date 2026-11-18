@@ -93,7 +93,7 @@ import {
   contextPatch,
   type ContextModel,
 } from "./diff-context";
-import { DefinitionDialog, definitionButtons, useDefinitionModifier, definitionModifier } from "./DefinitionDialog";
+import { DefinitionDialog, definitionButtons, useDefinitionModifier, definitionModifier, lookupDefinition, type Definition } from "./DefinitionDialog";
 import { highlightDiff } from "./highlight";
 import { orderUnifiedChanges } from "./diff-order";
 import { refineWordHighlights } from "./diff-highlights";
@@ -405,7 +405,7 @@ function DiffView({
   context: ContextModel | null;
   onContextChange: (context: ContextModel) => void;
 }) {
-  const [definition, setDefinition] = useState<{ name: string; url: string } | null>(null);
+  const [definition, setDefinition] = useState<{ side: "old" | "new"; data: Definition; id: number } | null>(null);
   const [contextStatus, setContextStatus] = useState<{ gap: number; error?: string } | null>(
     null,
   );
@@ -774,13 +774,14 @@ function DiffView({
             if (!key) return;
             const [side, line] = key.split(":");
             const file = side === "old" ? preview.file.oldPath ?? preview.file.path : preview.file.path;
-            const name = button.textContent!;
-            const params = new URLSearchParams({ ...source, file, side, line, column: button.dataset.column!, name });
-            setDefinition({ name, url: "/api/definition?" + params });
+            const params = new URLSearchParams({ ...source, file, side, line, column: button.dataset.column!, name: button.textContent! });
+            void lookupDefinition(params, button).then(data =>
+              data && setDefinition({ side: side as "old" | "new", data, id: Date.now() }));
           }}
           tabIndex={-1} aria-label={`Diff for ${preview.file.path}${chunkIndex === undefined ? "" : `, section ${chunkIndex + 1}`}`} />
       )}
-      {definition && <DefinitionDialog key={definition.url} {...definition} onClose={() => setDefinition(null)} />}
+      {definition && <DefinitionDialog key={definition.id} source={source} side={definition.side} initial={definition.data}
+        onClose={() => setDefinition(null)} />}
       {comments && [...mounts].map(([key, mount]) => createPortal(comments.render(key), mount, key))}
     </div>
   );

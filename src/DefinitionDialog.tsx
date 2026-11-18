@@ -1,14 +1,15 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ExternalLink, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ExternalLink, Package, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Popover } from "./Popover";
-import { SourceExplorer, explorerChanges } from "./SourceExplorer";
+import { SourceExplorer, explorerChanges, whenLaidOut, type Reveal } from "./SourceExplorer";
 import { SidebarResizer } from "./SidebarResizer";
-import type { ChangedFile } from "./types";
+import type { ChangedFile, Mode } from "./types";
 import { BriefDialog } from "./BriefDialog";
 import { HighlightedCode } from "./HighlightedCode";
 
+const mac = /Mac|iPad|iPhone/.test(navigator.platform);
 export const definitionModifier = (event: { metaKey: boolean; ctrlKey: boolean }) =>
-  /Mac|iPad|iPhone/.test(navigator.platform) ? event.metaKey : event.ctrlKey;
+  mac ? event.metaKey : event.ctrlKey;
 
 export function useDefinitionModifier() {
   useEffect(() => {
@@ -75,8 +76,67 @@ export function definitionButtons(block: Element) {
   }
 }
 
-type SourceFile = { file: string; code: string; editorTarget: string | null };
-type Definition = SourceFile & { line: number; paths: string[]; changes: ChangedFile[] };
+type Side = "old" | "new";
+type PackageInfo = { name: string; version: string };
+type SourceFile = { file: string; code: string; editorTarget: string | null; package?: PackageInfo };
+export type Definition = SourceFile & { line: number; paths: string[]; changes: ChangedFile[] };
+export type DefinitionSource = { path: string; base: string; mode: Mode; version: string };
+
+// One short message beside the call, in the top layer so it also shows above the open viewer.
+let dismissHint = () => {};
+export const hideDefinitionHint = () => dismissHint();
+function showDefinitionHint(anchor: Element, text: string, busy = false) {
+  dismissHint();
+  if (!anchor.isConnected) return;
+  const hint = document.createElement("div");
+  hint.className = "definition-hint";
+  hint.setAttribute("popover", "manual");
+  hint.setAttribute("role", "status");
+  document.body.append(hint);
+  hint.showPopover();
+  hint.textContent = text;
+  const bounds = anchor.getBoundingClientRect();
+  const below = bounds.bottom + 8 + hint.offsetHeight <= innerHeight - 8;
+  hint.style.left = `${Math.max(8, Math.min(bounds.left - 4, innerWidth - hint.offsetWidth - 8))}px`;
+  hint.style.top = `${below ? bounds.bottom + 6 : Math.max(8, bounds.top - hint.offsetHeight - 6)}px`;
+  const close = () => dismissHint();
+  const timer = busy ? undefined : setTimeout(close, 4000);
+  const events = ["pointerdown", "keydown", "wheel"];
+  if (!busy) for (const type of events) addEventListener(type, close, { capture: true, passive: true });
+  dismissHint = () => {
+    clearTimeout(timer);
+    for (const type of events) removeEventListener(type, close, { capture: true });
+    hint.remove();
+    dismissHint = () => {};
+  };
+}
+
+let pendingLookup: AbortController | null = null;
+const cancelLookup = () => {
+  pendingLookup?.abort();
+  dismissHint();
+};
+export async function lookupDefinition(params: URLSearchParams, anchor: HTMLElement) {
+  pendingLookup?.abort();
+  const controller = (pendingLookup = new AbortController());
+  dismissHint();
+  anchor.setAttribute("aria-busy", "true");
+  const slow = setTimeout(() => showDefinitionHint(anchor, "Finding definition…", true), 350);
+  try {
+    const response = await fetch("/api/definition?" + params, { signal: controller.signal });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "No definition found.");
+    dismissHint();
+    return data as Definition;
+  } catch (error) {
+    if (!controller.signal.aborted) showDefinitionHint(anchor, error instanceof Error ? error.message : "No definition found.");
+    return null;
+  } finally {
+    clearTimeout(slow);
+    anchor.removeAttribute("aria-busy");
+    if (pendingLookup === controller) pendingLookup = null;
+  }
+}
 
 function useRead<T>(url: string) {
   const [state, setState] = useState<{ url: string; data?: T; error?: string }>();
@@ -127,91 +187,184 @@ function EditorButton({ editors, url, target, line }: { editors: string[]; url: 
   </>;
 }
 
-function SourceCode({ file, line, onFollow }: { file: SourceFile; line?: number; onFollow: (button: HTMLButtonElement) => void }) {
-  const pre = useRef<HTMLPreElement>(null);
-  useLayoutEffect(() => {
-    const element = pre.current!;
-    element.scrollTop = ((line ?? 1) - 1) * parseFloat(getComputedStyle(element).lineHeight);
-    element.scrollLeft = 0;
-  }, [file, line]);
-  const ext = file.file.split(".").at(-1) ?? "";
-  const lang = /^[cm]?tsx?$/.test(ext) ? "typescript" : /^[cm]?jsx?$/.test(ext) ? "javascript" : ext;
-  return <pre ref={pre} className="definition-code" aria-label={file.file}
-    style={line ? { "--definition-row": line - 1 } as React.CSSProperties : undefined}
-    onClick={event => {
-      const button = event.target instanceof Element && event.target.closest<HTMLButtonElement>(".definition-call");
-      if (button && (event.detail === 0 || definitionModifier(event))) onFollow(button);
-    }}>
-    <HighlightedCode code={file.code} language={file.code.length > 100_000 ? "plaintext" : lang}
-      decorate={lang === "typescript" || lang === "javascript" ? definitionButtons : undefined} />
-  </pre>;
+function SourcePath({ path, line, pkg, onReveal }: {
+  path: string; line?: number; pkg?: PackageInfo; onReveal: (path: string, folder: boolean) => void;
+}) {
+  const parts = path.split("/");
+  return <nav className="source-path" aria-label="File path">
+    <ol>
+      {parts.map((part, i) => {
+        const folder = i < parts.length - 1;
+        const target = parts.slice(0, i + 1).join("/");
+        return <li key={target}>
+          {i > 0 && <ChevronRight size={12} aria-hidden="true" />}
+          <button type="button" className={folder ? undefined : "source-file-name"} aria-current={folder ? undefined : "page"}
+            title={folder ? "Show " + target + " in the Explorer" : "Show in the Explorer"} onClick={() => onReveal(target, folder)}>
+            {part}{!folder && line ? <span className="source-line">:{line}</span> : null}
+          </button>
+        </li>;
+      })}
+    </ol>
+    {pkg && <span className="package-chip" title="Installed in this worktree. It is not part of the review.">
+      <Package size={13} />{pkg.name}{pkg.version && <span>{pkg.version}</span>}
+    </span>}
+  </nav>;
 }
 
-export function DefinitionDialog({ name, url, onClose }: { name: string; url: string; onClose: () => void }) {
-  const definition = useRead<Definition>(url);
-  const editors = useRead<string[]>("/api/editors");
-  const [selected, setSelected] = useState("");
-  const [showExplorer, setShowExplorer] = useState(() => window.innerWidth > 580);
-  const [jump, setJump] = useState<{ file: Definition; side: string }>();
-  const [notice, setNotice] = useState("");
-  const pending = useRef<AbortController | null>(null);
-  useEffect(() => () => pending.current?.abort(), []);
-  const entry = jump?.file ?? definition?.data;
-  const changes = useMemo(() => explorerChanges(entry?.changes ?? []), [entry]);
-  const currentPath = selected || entry?.file || "";
-  const atDefinition = currentPath === entry?.file;
-  const params = new URL(url, location.href).searchParams;
-  params.set("file", currentPath);
-  const entrySide = jump?.side ?? params.get("side")!;
-  const side = atDefinition ? entrySide : changes.get(currentPath)?.side ?? entrySide;
-  params.set("side", side);
-  const otherFile = useRead<SourceFile>(selected && !atDefinition ? "/api/source-file?" + params : "");
-  const current = atDefinition ? entry : otherFile?.data;
-  const line = atDefinition && entry ? entry.line : 1;
-  function selectFile(path: string) {
-    pending.current?.abort();
-    setNotice("");
-    setSelected(path);
-  }
+const LINE = 20;
+const lineCount = (code: string) => Math.max(1, code.split("\n").length - (code.endsWith("\n") ? 1 : 0));
 
-  async function follow(button: HTMLButtonElement) {
-    pending.current?.abort();
+function SourceCode({ file, line, restore, visit, scroller, onFollow }: {
+  file: SourceFile; line?: number; restore?: number; visit: number;
+  scroller: React.RefObject<HTMLDivElement | null>; onFollow: (button: HTMLButtonElement) => void;
+}) {
+  const count = useMemo(() => lineCount(file.code), [file.code]);
+  const numbers = useMemo(() => Array.from({ length: count }, (_, i) => i + 1).join("\n"), [count]);
+  useLayoutEffect(() => {
+    const pane = scroller.current!;
+    return whenLaidOut(pane, () => {
+      pane.scrollLeft = 0;
+      // A third of the way down leaves room for the comment above a definition.
+      pane.scrollTop = restore ?? (line ? (line - 1) * LINE - pane.clientHeight / 3 : 0);
+    });
+  }, [file, line, restore, visit, scroller]);
+  const ext = file.file.split(".").at(-1) ?? "";
+  const lang = /^[cm]?tsx?$/.test(ext) ? "typescript" : /^[cm]?jsx?$/.test(ext) ? "javascript" : ext;
+  return <div ref={scroller} className="source-scroll" onClick={event => {
+    const button = event.target instanceof Element && event.target.closest<HTMLButtonElement>(".definition-call");
+    if (button && (event.detail === 0 || definitionModifier(event))) onFollow(button);
+  }}>
+    <div className="source-sheet" style={{ "--digits": String(count).length, "--target-row": (line ?? 0) - 1 } as React.CSSProperties}>
+      <div className="source-gutter" aria-hidden="true">
+        {line ? <span key={visit} className="source-target" /> : null}
+        <span className="source-numbers">{numbers}</span>
+      </div>
+      {line ? <span key={visit} className="source-target" aria-hidden="true" /> : null}
+      <pre className="definition-code" aria-label={file.file}>
+        <HighlightedCode code={file.code} language={file.code.length > 100_000 ? "plaintext" : lang}
+          decorate={lang === "typescript" || lang === "javascript" ? definitionButtons : undefined} />
+      </pre>
+    </div>
+  </div>;
+}
+
+type Place = { file: string; side: Side; line?: number; scrollTop?: number };
+const placeKey = (file: string, side: Side) => side + ":" + file;
+const explorerShown = () => {
+  try {
+    const saved = localStorage.getItem("preread-source-explorer");
+    if (saved) return saved === "shown";
+  } catch { /* Optional preference. */ }
+  return window.innerWidth > 580;
+};
+
+export function DefinitionDialog({ source, side, initial, onClose }: {
+  source: DefinitionSource; side: Side; initial: Definition; onClose: () => void;
+}) {
+  const editors = useRead<string[]>("/api/editors");
+  const [showExplorer, setShowExplorer] = useState(explorerShown);
+  const [history, setHistory] = useState({ places: [{ file: initial.file, side, line: initial.line }] as Place[], index: 0, visit: 0 });
+  const [files, setFiles] = useState(() => new Map<string, SourceFile | { error: string }>([[placeKey(initial.file, side), initial]]));
+  const [installed, setInstalled] = useState<string[]>(() => initial.package ? [initial.file] : []);
+  const [reveal, setReveal] = useState<Reveal>();
+  const scroller = useRef<HTMLDivElement>(null);
+  const changes = useMemo(() => explorerChanges(initial.changes), [initial]);
+  const paths = useMemo(() => [...initial.paths, ...installed], [initial, installed]);
+  const place = history.places[history.index];
+  const key = placeKey(place.file, place.side);
+  const loaded = files.get(key);
+  const current = loaded && !("error" in loaded) ? loaded : undefined;
+  const params = new URLSearchParams({ ...source, side: place.side, file: place.file });
+
+  useEffect(() => {
+    if (files.has(key)) return;
     const controller = new AbortController();
-    pending.current = controller;
+    fetch("/api/source-file?" + params, { signal: controller.signal }).then(async response => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not read the source.");
+      return data as SourceFile;
+    }).then(
+      data => setFiles(previous => new Map(previous).set(key, data)),
+      error => { if (!controller.signal.aborted) setFiles(previous => new Map(previous).set(key, { error: error.message })); },
+    );
+    return () => controller.abort();
+  }, [key]);
+  useEffect(() => cancelLookup, []);
+
+  // Moving on drops a lookup still in flight, so a slow answer can't pull the reader back.
+  function go(next: Place | number) {
+    cancelLookup();
+    const scrollTop = scroller.current?.scrollTop;
+    setHistory(({ places, index, visit }) => {
+      const kept = places.map((p, i) => i === index ? { ...p, scrollTop } : p);
+      if (typeof next === "number") {
+        const to = index + next;
+        return to < 0 || to >= kept.length ? { places, index, visit } : { places: kept, index: to, visit: visit + 1 };
+      }
+      const trail = kept.slice(0, index + 1);
+      return { places: [...trail, next], index: trail.length, visit: visit + 1 };
+    });
+  }
+  const step = useRef(go);
+  step.current = go;
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      if (!definitionModifier(event) || event.shiftKey || event.altKey || (event.key !== "[" && event.key !== "]")) return;
+      event.preventDefault();
+      step.current(event.key === "[" ? -1 : 1);
+    };
+    addEventListener("keydown", keys);
+    return () => removeEventListener("keydown", keys);
+  }, []);
+
+  function selectFile(path: string) {
+    if (path === place.file) return;
+    go({ file: path, side: path.split("/").includes("node_modules") ? place.side : changes.get(path)?.side ?? side });
+  }
+  async function follow(button: HTMLButtonElement) {
     const target = new URLSearchParams(params);
     target.set("name", button.textContent!);
     target.set("line", button.dataset.line!);
     target.set("column", button.dataset.column!);
-    setNotice("Locating definition…");
-    try {
-      const response = await fetch("/api/definition?" + target, { signal: controller.signal });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not read the definition.");
-      if (controller.signal.aborted) return;
-      setJump({ file: data, side });
-      setSelected("");
-      setNotice("");
-    } catch (error) {
-      if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : "Could not read the definition.");
-    }
+    const data = await lookupDefinition(target, button);
+    if (!data) return;
+    setFiles(previous => new Map(previous).set(placeKey(data.file, place.side), data));
+    if (data.package) setInstalled(previous => previous.includes(data.file) ? previous : [...previous, data.file]);
+    go({ file: data.file, side: place.side, line: data.line });
+  }
+  function toggleExplorer(show: boolean) {
+    setShowExplorer(show);
+    try { localStorage.setItem("preread-source-explorer", show ? "shown" : "hidden"); } catch { /* Optional preference. */ }
   }
 
+  const back = mac ? "⌘[" : "Ctrl+[";
+  const forward = mac ? "⌘]" : "Ctrl+]";
   const toggleLabel = showExplorer ? "Hide Explorer" : "Show Explorer";
   const ToggleIcon = showExplorer ? PanelLeftClose : PanelLeftOpen;
-  return <BriefDialog title={currentPath ? currentPath + ":" + line : name} fullscreen onClose={onClose}
-    leading={entry && <button title={toggleLabel} aria-label={toggleLabel} aria-controls="worktree-explorer"
-      aria-expanded={showExplorer} onClick={() => setShowExplorer(!showExplorer)}><ToggleIcon size={17}/></button>}
-    actions={current?.editorTarget && editors?.data?.length ? <EditorButton key={currentPath} editors={editors.data}
-      url={"/api/open-source?" + params} target={current.editorTarget} line={line} /> : null}>
-    {entry ? <div className={"source-browser" + (showExplorer ? "" : " explorer-hidden")}>
-      <SourceExplorer paths={entry.paths} changes={changes} file={currentPath} onSelect={selectFile} />
+  return <BriefDialog title={place.file + (place.line ? ":" + place.line : "")} fullscreen onClose={onClose}
+    closeLabel="Close the source viewer"
+    leading={<div className="source-history">
+      <button title={toggleLabel} aria-label={toggleLabel} aria-controls="worktree-explorer"
+        aria-expanded={showExplorer} onClick={() => toggleExplorer(!showExplorer)}><ToggleIcon size={17} /></button>
+      <button title={`Back (${back})`} aria-label="Back" disabled={history.index === 0} onClick={() => go(-1)}><ArrowLeft size={16} /></button>
+      <button title={`Forward (${forward})`} aria-label="Forward" disabled={history.index === history.places.length - 1}
+        onClick={() => go(1)}><ArrowRight size={16} /></button>
+    </div>}
+    heading={<SourcePath path={place.file} line={place.line} pkg={current?.package} onReveal={(path, folder) => {
+      toggleExplorer(true);
+      setReveal({ path, folder });
+    }} />}
+    actions={current?.editorTarget && editors?.data?.length ? <EditorButton key={place.file} editors={editors.data}
+      url={"/api/open-source?" + params} target={current.editorTarget} line={place.line ?? 1} /> : null}>
+    <div className={"source-browser" + (showExplorer ? "" : " explorer-hidden")}>
+      <SourceExplorer paths={paths} changes={changes} file={place.file} reveal={reveal} onSelect={selectFile} />
       <SidebarResizer storageKey="sourceExplorerWidth" label="Resize Explorer" />
       <section className="source-pane">
-        {notice && <p role="status" className="source-notice">{notice}</p>}
-        {current?.editorTarget === null && <p className="source-notice">Viewing the reviewed version. The file on disk differs or has been removed.</p>}
-        {current ? <SourceCode file={current} onFollow={follow} line={atDefinition ? line : undefined} /> :
-          <p role="status" className="source-notice">{otherFile?.error || "Loading source…"}</p>}
+        {current?.editorTarget === null && <p className="source-notice">Showing the reviewed version. The file on disk is different or gone.</p>}
+        {current ? <SourceCode file={current} line={place.line} restore={place.scrollTop} visit={history.visit}
+          scroller={scroller} onFollow={follow} />
+          : <p role="status" className="source-notice">{loaded && "error" in loaded ? loaded.error : "Loading source…"}</p>}
       </section>
-    </div> : <p role="status" className="source-notice">{definition?.error || "Locating definition…"}</p>}
+    </div>
   </BriefDialog>;
 }

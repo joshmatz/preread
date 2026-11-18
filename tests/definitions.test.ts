@@ -1,14 +1,49 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { test } from "node:test";
-import { explorerChanges } from "../src/SourceExplorer.tsx";
+import { dirname, join } from "node:path";
+import { test, type TestContext } from "node:test";
+import { explorerChanges, folderChanges, folderMark } from "../src/SourceExplorer.tsx";
 import { functionDefinition } from "../server/definitions.ts";
+import { readInstalledFile } from "../server/package-definitions.ts";
 import { reviewSource, sourceHash } from "../server/review-source.ts";
 import { comparison } from "../server/git.ts";
-import type { Mode } from "../src/types.ts";
+import type { ChangedFile, Mode } from "../src/types.ts";
+
+// A committed worktree with packages installed but ignored, as a real checkout has them.
+async function worktree(t: TestContext, files: Record<string, string>) {
+  const path = await realpath(await mkdtemp(join(tmpdir(), "package-definition-")));
+  t.after(() => rm(path, { recursive: true, force: true }));
+  for (const [file, text] of Object.entries({ ".gitignore": "node_modules/\n", ...files })) {
+    await mkdir(dirname(join(path, file)), { recursive: true });
+    await writeFile(join(path, file), text);
+  }
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: path, stdio: "pipe" });
+  git("init", "-b", "main");
+  git("add", ".");
+  git("-c", "user.name=Reader", "-c", "user.email=test@example.test", "commit", "-m", "Base");
+  const version = (await comparison(path, "main", "working")).version;
+  // Clicks `name` where it appears inside the first line containing `context`.
+  const click = (file: string, context: string, name: string) => {
+    const lines = files[file].split("\n");
+    const line = lines.findIndex(text => text.includes(context));
+    assert.notEqual(line, -1, `${context} is in ${file}`);
+    const column = lines[line].indexOf(context) + context.indexOf(name);
+    return functionDefinition(path, "main", "working", "new", file, line + 1, column, name, version);
+  };
+  return { path, click };
+}
+
+const packages = {
+  "node_modules/typed/package.json": '{"name":"typed","version":"1.2.3","types":"index.d.ts"}',
+  "node_modules/typed/index.d.ts": '/// <reference path="./common.d.ts" />\ndeclare const typed: typed.Static;\nexport = typed;\n',
+  "node_modules/typed/common.d.ts": "declare namespace typed {\n  interface Static {\n    pick(value: string): string;\n  }\n}\n",
+  "node_modules/plain/package.json": '{"name":"plain","version":"0.1.0","main":"lib/index.js"}',
+  "node_modules/plain/lib/index.js": "function helper() {\n  return 1;\n}\nexports.run = function run() {\n  return helper();\n};\n",
+  "node_modules/typed-db/package.json": '{"name":"typed-db","version":"2.0.0","types":"index.d.ts"}',
+  "node_modules/typed-db/index.d.ts": "export interface Query {\n  where(column: string): Query;\n  select(): Query;\n}\nexport default function connect(): Query;\n",
+};
 
 test("follow an aliased call through a barrel in the selected version, respecting local shadowing", async t => {
   const path = await realpath(await mkdtemp(join(tmpdir(), "definition-test-")));
@@ -98,4 +133,98 @@ test("the Explorer colors additions, edits and deletions and opens absent files 
     assert.match(await (side === "old" ? before : after).read(file), /export default/);
   }
   assert.equal(changes.has("unchanged.ts"), false);
+});
+
+test("a library call opens the installed package's source, even through a repository barrel", async t => {
+  const { path, click } = await worktree(t, {
+    ...packages,
+    "barrel.ts": 'export { run } from "plain";\n',
+    "call.ts": 'import { pick } from "typed";\nimport _ from "typed";\nimport { run } from "./barrel";\nimport { gone } from "missing-package";\npick("a");\n_.pick("b");\nrun();\ngone();\n',
+  });
+  const pick = await click("call.ts", 'pick("a")', "pick");
+  assert.equal(pick.file, "node_modules/typed/common.d.ts");
+  assert.equal(pick.line, 3);
+  assert.deepEqual(pick.package, { name: "typed", version: "1.2.3" });
+  assert.equal(pick.editorTarget, sourceHash(pick.code));
+  assert.equal((await click("call.ts", '_.pick("b")', "pick")).file, "node_modules/typed/common.d.ts");
+  const run = await click("call.ts", "run();", "run");
+  assert.equal(run.file, "node_modules/plain/lib/index.js");
+  assert.equal(run.line, 4);
+  assert.deepEqual(run.package, { name: "plain", version: "0.1.0" });
+  await assert.rejects(click("call.ts", "gone();", "gone"), /“gone” comes from missing-package, which isn't installed/);
+
+  const version = (await comparison(path, "main", "working")).version;
+  const inside = await functionDefinition(path, "main", "working", "new", "node_modules/plain/lib/index.js", 5, 9, "helper", version);
+  assert.equal(inside.file, "node_modules/plain/lib/index.js");
+  assert.equal(inside.line, 1);
+});
+
+test("a method call resolves through types to the package or repository file that declares it", async t => {
+  const { click } = await worktree(t, {
+    ...packages,
+    "db.js": 'import connect from "typed-db";\nfunction create() {\n  return connect();\n}\nexport const db = create();\n',
+    "box.ts": "export const box = { /* TypeScript also breaks lines at \u2028 */\n  open() {\n    return 1;\n  },\n};\n",
+    "query.ts": 'import { db } from "./db";\nimport { box } from "./box";\ndb.where("a").select();\nbox.open();\nObject.keys(box);\n',
+  });
+  const select = await click("query.ts", "select()", "select");
+  assert.equal(select.file, "node_modules/typed-db/index.d.ts");
+  assert.equal(select.line, 3);
+  assert.deepEqual(select.package, { name: "typed-db", version: "2.0.0" });
+  assert.equal((await click("query.ts", 'where("a")', "where")).line, 2);
+  const open = await click("query.ts", "box.open()", "open");
+  assert.equal(open.file, "box.ts");
+  assert.equal(open.line, 2);
+  assert.equal(open.package, undefined);
+  await assert.rejects(click("query.ts", "Object.keys", "keys"), /No definition found for “keys”/);
+});
+
+test("installed files must stay inside the worktree's node_modules", async t => {
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "outside-package-")));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await writeFile(join(outside, "package.json"), '{"name":"escape","types":"index.d.ts"}');
+  await writeFile(join(outside, "index.d.ts"), "export declare function leak(): void;\n");
+  const { path, click } = await worktree(t, { ...packages, "call.ts": 'import { leak } from "escape";\nleak();\n' });
+  await symlink(outside, join(path, "node_modules/escape"));
+  await assert.rejects(click("call.ts", "leak();", "leak"), /“leak” comes from escape, which isn't installed/);
+  assert.throws(() => readInstalledFile(path, "node_modules/escape/index.d.ts"), /can't be previewed/);
+  assert.throws(() => readInstalledFile(path, "node_modules/../call.ts"), /outside the comparison/);
+  assert.throws(() => readInstalledFile(path, "call.ts"), /outside the comparison/);
+  const typed = readInstalledFile(path, "node_modules/typed/common.d.ts");
+  assert.match(typed.code, /pick\(value: string\)/);
+  assert.deepEqual(typed.package, { name: "typed", version: "1.2.3" });
+});
+
+test("a folder takes the color of what changed inside it", () => {
+  const file = (path: string, status: string) => ({ path, status, additions: 0, deletions: 0, binary: false }) as ChangedFile;
+  const folders = folderChanges(explorerChanges([
+    file("src/a.ts", "A"), file("src/b.ts", "M"), file("src/new/c.ts", "A"),
+    file("docs/old.md", "D"), file("lib/x.ts", "A"), file("lib/y.ts", "D"),
+  ]));
+  assert.deepEqual(folders.get("src"), { A: 2, M: 1, D: 0 });
+  assert.deepEqual(folders.get("src/new"), { A: 1, M: 0, D: 0 });
+  assert.equal(folders.has("src/a.ts"), false);
+  assert.equal(folderMark(folders.get("src")!), "M");
+  assert.equal(folderMark(folders.get("src/new")!), "A");
+  assert.equal(folderMark(folders.get("docs")!), "D");
+  assert.equal(folderMark(folders.get("lib")!), "M");
+});
+
+test("a workspace package resolves to its source in the review, and its link never reads other worktree files", async t => {
+  const { path, click } = await worktree(t, {
+    ".gitignore": "node_modules/\n.env\n",
+    "packages/shared/package.json": '{"name":"@org/shared","main":"src/index.ts"}',
+    "packages/shared/src/index.ts": "/* Shared helpers\u2028for every app */\nexport function helper() {\n  return 1;\n}\n",
+    "packages/shared/.env": "SECRET=hunter2\n",
+    "apps/web/call.ts": 'import { helper } from "@org/shared";\nhelper();\n',
+  });
+  await mkdir(join(path, "node_modules/@org"), { recursive: true });
+  await symlink("../../packages/shared", join(path, "node_modules/@org/shared"));
+  await symlink("..", join(path, "node_modules/self"));
+  const helper = await click("apps/web/call.ts", "helper();", "helper");
+  assert.equal(helper.file, "packages/shared/src/index.ts");
+  assert.equal(helper.line, 2);
+  assert.equal(helper.package, undefined);
+  assert.throws(() => readInstalledFile(path, "node_modules/@org/shared/.env"), /can't be previewed/);
+  assert.throws(() => readInstalledFile(path, "node_modules/@org/shared/package.json"), /can't be previewed/);
+  assert.throws(() => readInstalledFile(path, "node_modules/self/.git/config"), /can't be previewed/);
 });
