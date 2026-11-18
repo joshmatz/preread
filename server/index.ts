@@ -1,3 +1,6 @@
+import { installedEditors, openInEditor } from "./editors.ts";
+import { reviewSource, sourceHash } from "./review-source.ts";
+import { functionDefinition } from "./definitions.ts";
 import express from "express";
 import { ZodError } from "zod";
 import { createServer } from "node:http";
@@ -69,6 +72,30 @@ app.get("/api/diff", async (req, res) =>
     ),
   ),
 );
+app.get("/api/definition", async (req, res) => {
+  const q = req.query;
+  res.json(await functionDefinition(query(q.path), query(q.base), query(q.mode) as Mode, query(q.side),
+    query(q.file), Number(q.line), Number(q.column), query(q.name), query(q.version)));
+});
+const browserSource = (req: express.Request) => reviewSource({
+  path: query(req.query.path), base: query(req.query.base), mode: query(req.query.mode) as Mode,
+  side: query(req.query.side), version: query(req.query.version),
+});
+app.get("/api/editors", async (_req, res) => res.json([...(await installedEditors()).keys()]));
+app.get("/api/source-file", async (req, res) => {
+  const source = await browserSource(req);
+  const file = query(req.query.file);
+  const code = await source.read(file);
+  res.json({ file, code, editorTarget: await source.editorTarget(file, code) });
+});
+app.post("/api/open-source", async (req, res) => {
+  const source = await browserSource(req);
+  const file = query(req.query.file);
+  if (sourceHash(await source.localFile(file)) !== query(req.body?.editorTarget))
+    throw new Error("The working file has changed since this preview opened.");
+  await openInEditor(query(req.body?.editor), resolve(source.root, file), req.body?.line);
+  res.json({ opened: true });
+});
 app.get("/api/context", async (req, res) =>
   res.json(
     await fileContext(

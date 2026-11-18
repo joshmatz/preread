@@ -93,6 +93,7 @@ import {
   contextPatch,
   type ContextModel,
 } from "./diff-context";
+import { DefinitionDialog, definitionButtons, useDefinitionModifier, definitionModifier } from "./DefinitionDialog";
 import { highlightDiff } from "./highlight";
 import { orderUnifiedChanges } from "./diff-order";
 import { refineWordHighlights } from "./diff-highlights";
@@ -404,6 +405,7 @@ function DiffView({
   context: ContextModel | null;
   onContextChange: (context: ContextModel) => void;
 }) {
+  const [definition, setDefinition] = useState<{ name: string; url: string } | null>(null);
   const [contextStatus, setContextStatus] = useState<{ gap: number; error?: string } | null>(
     null,
   );
@@ -614,6 +616,7 @@ function DiffView({
       }
     }
     highlightDiff(element);
+    if (!loadContext && /\.[cm]?[jt]sx?$/i.test(preview.file.path)) element.querySelectorAll(".d2h-code-line-ctn").forEach(definitionButtons);
     // A type change diffs as a deletion plus an addition, which share no context.
     const gaps =
       !expandable || preview.file.status === "T" ? [] : context ? contextGaps(context) : initialGaps(patch);
@@ -758,14 +761,26 @@ function DiffView({
           preview={{ ...preview, diff: { ...preview.diff, patch: chunk } }}
           chunkIndex={index} eager={eager && index === 0} split={split} wrap={wrap}
           ignoreWhitespace={ignoreWhitespace} source={source} context={null}
-          onContextChange={onContextChange} expandable={false}
+          onContextChange={onContextChange} loadContext={loadContext} expandable={false}
           searchMatch={searchMatch?.match.chunk === index ? searchMatch : undefined}
           onSearchReady={onSearchReady} comments={comments} />)
       ) : (
         <div className={`diff-renderer ${visible ? "" : "deferred"}${commentable}`} ref={target}
-          style={!visible ? { height: retainedHeight } : undefined} onClick={comments?.onAdd ? addComment : undefined}
+          style={!visible ? { height: retainedHeight } : undefined} onClick={event => {
+            const button = event.target instanceof Element && event.target.closest<HTMLButtonElement>(".definition-call");
+            if (!button) { addComment(event); return; }
+            if (event.detail !== 0 && !definitionModifier(event)) return;
+            const key = diffRows(event.currentTarget, split).keyOf(button);
+            if (!key) return;
+            const [side, line] = key.split(":");
+            const file = side === "old" ? preview.file.oldPath ?? preview.file.path : preview.file.path;
+            const name = button.textContent!;
+            const params = new URLSearchParams({ ...source, file, side, line, column: button.dataset.column!, name });
+            setDefinition({ name, url: "/api/definition?" + params });
+          }}
           tabIndex={-1} aria-label={`Diff for ${preview.file.path}${chunkIndex === undefined ? "" : `, section ${chunkIndex + 1}`}`} />
       )}
+      {definition && <DefinitionDialog key={definition.url} {...definition} onClose={() => setDefinition(null)} />}
       {comments && [...mounts].map(([key, mount]) => createPortal(comments.render(key), mount, key))}
     </div>
   );
@@ -1259,6 +1274,7 @@ function MarkErrors({ messages }: { messages: string[] }) {
 }
 
 export default function App() {
+  useDefinitionModifier();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [collectionId, setCollectionId] = useState(params.get("collection") ?? "");
   const [reviewId, setReviewId] = useState(params.get("review") ?? "");

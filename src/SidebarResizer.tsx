@@ -1,8 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-const storageKey = "sidebarWidth";
 const minWidth = 180;
-const savedWidth = () => {
+const savedWidth = (storageKey: string) => {
   try {
     return Number(localStorage.getItem(storageKey)) || null;
   } catch {
@@ -11,10 +10,10 @@ const savedWidth = () => {
 };
 
 // Must directly follow the sidebar in the grid whose --sidebar-width it sets.
-export function SidebarResizer() {
+export function SidebarResizer({ storageKey = "sidebarWidth", label = "Resize file outline" }: { storageKey?: string; label?: string } = {}) {
   const handle = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; width: number; max: number } | null>(null);
-  const [width, setWidth] = useState(savedWidth);
+  const [width, setWidth] = useState(() => savedWidth(storageKey));
   const [dragging, setDragging] = useState(false);
   const [column, setColumn] = useState({ width: 0, max: 0 });
   const measure = () => ({
@@ -43,17 +42,17 @@ export function SidebarResizer() {
     } catch {
       /* The width lasts until reload when browser storage is disabled. */
     }
-  }, [width, dragging]);
+  }, [width, dragging, storageKey]);
   return (
     <div
       ref={handle}
       className={`sidebar-resizer${dragging ? " dragging" : ""}`}
       role="separator"
-      aria-label="Resize file outline"
+      aria-label={label}
       aria-description="Drag or use arrow keys to resize. Enter or a double-click restores the default width."
       aria-orientation="vertical"
       aria-valuenow={column.width}
-      aria-valuemin={minWidth}
+      aria-valuemin={Math.min(minWidth, column.max)}
       aria-valuemax={column.max}
       tabIndex={0}
       onPointerDown={(event) => {
