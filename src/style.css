@@ -857,8 +857,20 @@ h2 {
   margin-left: auto;
   flex-shrink: 0;
 }
+.crumbs .mark-all {
+  margin-left: 4px;
+}
+.crumbs .mark-all.is-reviewed:disabled {
+  opacity: 1;
+}
 .warning.mark-error {
   margin: 8px 0 0;
+}
+.topbar > .mark-error {
+  position: absolute;
+  inset: 100% 14px auto auto;
+  max-width: min(360px, calc(100% - 28px));
+  margin: 4px 0 0;
 }
 .changed-label {
   font-size: 10px;

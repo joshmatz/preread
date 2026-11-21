@@ -1199,14 +1199,15 @@ function ReviewOutline({ sections, worktree, hideTestFiles, reviewedCount, total
   </aside>;
 }
 
-function MarkAllButton({ count, scope, busy, disabled, onClick }: {
-  count: number; scope: "review" | "collection"; busy: boolean; disabled: boolean; onClick: () => void;
+function MarkAllButton({ count, scope, complete = false, busy, disabled, onClick }: {
+  count: number; scope: "part" | "review" | "collection"; complete?: boolean;
+  busy: boolean; disabled: boolean; onClick: () => void;
 }) {
   return (
-    <button className="review-button mark-all" disabled={disabled} onClick={onClick}
-      title={`Mark the ${count} ${count === 1 ? "group" : "groups"} left in this ${scope} viewed`}>
+    <button className={`review-button mark-all${complete ? " is-reviewed" : ""}`} disabled={disabled || complete} onClick={onClick}
+      title={complete ? `All groups in this ${scope} are viewed` : `Mark the ${count} ${count === 1 ? "group" : "groups"} left in this ${scope} viewed`}>
       {busy ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}
-      Mark {scope} viewed
+      <span aria-live="polite">{complete ? "Part viewed" : `Mark ${scope} viewed`}</span>
     </button>
   );
 }
@@ -1769,6 +1770,13 @@ export default function App() {
     : origin.review === undefined ? (collection.brief ? (origin.view ? "the feature’s feedback" : "the feature overview") : "")
     : originPart >= 0 ? `part ${originPart + 1}’s ${origin.view ?? "overview"}` : "";
   const reviewedCount = snapshot?.sections.filter((section) => section.reviewed).length ?? 0;
+  const markingReview = marking === `@review:${reviewId}`;
+  const partViewed = !!collection?.brief && reviewedCount > 0 && reviewedCount === snapshot?.sections.length;
+  const markReviewButton = review && (reviewLeft.length > 0 || markingReview || partViewed) && (
+    <MarkAllButton count={reviewLeft.length} scope={collection?.brief ? "part" : "review"}
+      complete={partViewed && !markingReview} busy={markingReview} disabled={!!marking}
+      onClick={() => markAll(`@review:${review.id}`, [{ review, groups: reviewLeft }])} />
+  );
 
   return (
     <div className={`app${collection?.brief || collection?.reviews.some((entry) => entry.brief) ? " has-feature-brief" : ""}`}>
@@ -1808,48 +1816,42 @@ export default function App() {
                 value={tab === "collection" && collection.brief ? "" : reviewId}
                 placeholder={`${collection.reviews.length} ${collection.reviews.length === 1 ? "part" : "parts"}`}
                 searchable
-                options={collection.reviews.map((entry, index) => ({
-                  value: entry.id,
-                  label: `${index + 1}. ${entry.title}`,
-                  detail: `${entry.brief ? "Overview · " : ""}${progressLabel(itemProgress[entry.id])}`,
-                  complete: itemProgress[entry.id]?.status === "reviewed",
-                  extra: entry.pullRequest && (
-                    <PullRequestLine
-                      url={entry.pullRequest}
-                      entry={pullRequests[entry.pullRequest]}
-                    />
-                  ),
-                }))}
+                options={[
+                  ...(collection.brief ? [{ value: "", label: "Feature overview" }] : []),
+                  ...collection.reviews.map((entry, index) => ({
+                    value: entry.id,
+                    label: `${index + 1}. ${entry.title}`,
+                    detail: `${entry.brief ? "Overview · " : ""}${progressLabel(itemProgress[entry.id])}`,
+                    complete: itemProgress[entry.id]?.status === "reviewed",
+                    extra: entry.pullRequest && (
+                      <PullRequestLine
+                        url={entry.pullRequest}
+                        entry={pullRequests[entry.pullRequest]}
+                      />
+                    ),
+                  })),
+                ]}
                 onOpen={recheckPullRequests}
-                onChange={(value) =>
-                  selectReview(
-                    collection,
-                    collection.reviews.find((entry) => entry.id === value)!,
-                  )
-                }
+                onChange={(value) => {
+                  if (!value) showCollection();
+                  else selectReview(collection, collection.reviews.find((entry) => entry.id === value)!);
+                }}
               />
-              <button
-                className="quiet collection-link"
-                title={collection.brief ? "Open the feature overview" : "View collection"}
-                aria-current={tab === "collection" ? "page" : undefined}
-                onClick={showCollection}
-              >
-                {collection.brief ? <><BookOpen size={14} />Feature overview</> : collectionStatus.complete ? (
-                  <>
-                    <CheckCheck size={14} />
-                    Collection reviewed
-                  </>
-                ) : (
-                  <>
-                    <span className="collection-link-text">View collection</span>
-                    <span className="pill">
-                      {collectionStatus.checkingItems
-                        ? "Checking…"
-                        : `${collectionStatus.reviewedItems}/${collectionStatus.totalItems} reviewed`}
-                    </span>
-                  </>
-                )}
-              </button>
+              {collection.brief ? (
+                tab !== "collection" && markReviewButton
+              ) : (
+                <button className="quiet collection-link" title="View collection"
+                  aria-current={tab === "collection" ? "page" : undefined} onClick={showCollection}>
+                  {collectionStatus.complete ? <><CheckCheck size={14} />Collection reviewed</> : <>
+                      <span className="collection-link-text">View collection</span>
+                      <span className="pill">
+                        {collectionStatus.checkingItems
+                          ? "Checking…"
+                          : `${collectionStatus.reviewedItems}/${collectionStatus.totalItems} reviewed`}
+                      </span>
+                    </>}
+                </button>
+              )}
             </>
           )}
         </nav>
@@ -1970,6 +1972,7 @@ export default function App() {
         >
           <Settings size={17} />
         </Popover>
+        {collection?.brief && tab !== "collection" && <MarkErrors messages={markErrors} />}
       </header>
       <main className="main">
         {tab !== "collection" && tab !== "brief" && (
@@ -1988,12 +1991,9 @@ export default function App() {
                   Selected groups
                 </span>
               )}
-              {review && (reviewLeft.length > 0 || marking === `@review:${review.id}`) && (
-                <MarkAllButton count={reviewLeft.length} scope="review" busy={marking === `@review:${review.id}`}
-                  disabled={!!marking} onClick={() => markAll(`@review:${review.id}`, [{ review, groups: reviewLeft }])} />
-              )}
+              {!collection?.brief && markReviewButton}
             </div>
-            <MarkErrors messages={markErrors} />
+            {!collection?.brief && <MarkErrors messages={markErrors} />}
             {review?.description && (
               <Description key={`description:${collectionId}/${reviewId}`} text={review.description} />
             )}

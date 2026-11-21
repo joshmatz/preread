@@ -184,6 +184,7 @@ export function Picker({
                   key={option.value}
                   id={`${id}-${index}`}
                   role="option"
+                  aria-label={option.detail || option.extra ? undefined : option.label}
                   aria-selected={option.value === value}
                   className={`picker-option ${index === active ? "focused" : ""}`}
                   onPointerMove={() => setActive(index)}

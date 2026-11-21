@@ -776,7 +776,7 @@
 /* On phones the top bar wraps to several rows, so it scrolls away instead of covering what a jump lands on. */
 @media (max-width:720px) {
   .has-feature-brief>.topbar {
-    position:static
+    position:relative
   }
 
   .brief-turn-group {
