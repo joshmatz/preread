@@ -142,7 +142,7 @@ The reader decides from the brief and opens code only to check it. Put the state
 
 The reader can select text across formatting and blocks, then choose **Comment on selection**, or press **Option+Shift+M**. Each block also has a section comment control, and the whole brief can receive a comment.
 
-Clicking a sidebar annotation opens its editor directly. Comments can include up to six PNG, JPEG, WebP, or GIF images, each up to 10 MB. Choose files, paste images, or drop them into the editor; inspect or remove previews before saving. Image-only comments are allowed. Reopening a comment preserves its attachments. Images are stored in Preread’s own data directory and served only through their saved comment; feedback exports include their absolute local paths so an agent can inspect them.
+Clicking a sidebar annotation opens its editor directly. Comments can include up to six PNG, JPEG, WebP, or GIF images, each up to 10 MB. Choose files, paste images, or drop them anywhere on the comment dialog or the dimmed page around it; inspect or remove previews before saving. Image-only comments are allowed. Reopening a comment preserves its attachments. Images are stored in Preread’s own data directory and served only through their saved comment; feedback exports include their absolute local paths so an agent can inspect them.
 
 Comments preserve the selected quote, its offsets, the rendered text baseline, and each block’s content fingerprint. Highlights appear only when the original block and text still match. A changed block retains its old feedback under **Earlier revision**; Preread never silently moves an old approval or annotation onto new content. Changing unrelated prose does not reopen a question or excerpt approval.
 

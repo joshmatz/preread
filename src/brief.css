@@ -942,6 +942,16 @@
   background:#0007
 }
 
+.brief-dialog.dropping {
+  background:var(--selected);
+  outline:2px dashed var(--accent);
+  outline-offset:-10px
+}
+
+.brief-dialog.dropping .comment-attachment-actions small {
+  color:var(--accent)
+}
+
 .brief-dialog-heading {
   display:flex;
   justify-content:space-between;

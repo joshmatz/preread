@@ -33,12 +33,11 @@ export function BriefCommentEditor({ collection, review, draft, saving, error, o
       return { kind: "local", id: crypto.randomUUID(), file, url };
     })]);
   };
-  return <BriefDialog title={draft.body || draft.attachments.length ? "Edit comment" : "Leave feedback"} busy={busy} onClose={onClose}>
+  return <BriefDialog title={draft.body || draft.attachments.length ? "Edit comment" : "Leave feedback"} busy={busy} onClose={onClose} onDropFiles={addImages}>
     <form onPaste={(event) => {
       const files = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
       if (files.length) { event.preventDefault(); addImages(files); }
-    }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
-      onDrop={(event) => { if (event.dataTransfer.files.length) { event.preventDefault(); addImages([...event.dataTransfer.files]); } }}
+    }}
       onSubmit={async (event) => {
         event.preventDefault(); if (busy || (!body.trim() && !images.length)) return;
         setPosting(true); setLocalError("");
