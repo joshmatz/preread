@@ -5,7 +5,8 @@ import type { BriefBlock, FeatureBrief } from "./brief-types.ts";
 
 export type BriefTarget = { review: string; group?: string };
 export type GroupTarget = { review: string; group: string };
-export type OutlineHeading = { key: string; block: string; index: number; level: 2 | 3; text: string };
+// `line` is the heading as the overview renders it, and `repeat` counts the earlier lines in its block that read the same.
+export type OutlineHeading = { key: string; block: string; index: number; level: 2 | 3; text: string; line: string; repeat: number };
 // A section starts at a top-level heading and ends where the next one starts; content before the first forms one too.
 // Its code panel renders after `end`, the last block it reaches.
 export type BriefSection = { heading?: OutlineHeading; start: string; end: string; groups: GroupTarget[] };
@@ -23,7 +24,7 @@ export const referencePattern = /^preread:([a-z0-9][a-z0-9-]{0,79})(?:\/([a-z0-9
 const processor = unified().use(remarkParse).use(remarkGfm);
 type Node = ReturnType<typeof processor.parse> | ReturnType<typeof processor.parse>["children"][number];
 type Parsed = {
-  headings: Array<{ index: number; level: 2 | 3; text: string }>;
+  headings: Array<{ index: number; level: 2 | 3; text: string; line: string; repeat: number }>;
   opening?: number;
   // `heading` is the index of the last top-level heading at or before the link.
   targets: Array<BriefTarget & { heading?: number }>;
@@ -45,6 +46,13 @@ export function parseMarkdown(markdown: string): Parsed {
   walk(tree, (node) => { if (node.type === "definition") definitions.set(node.identifier, node.url); });
   const headings: Parsed["headings"] = [];
   const targets: Parsed["targets"] = [];
+  const urlOf = (node: Node) => node.type === "link" ? node.url : node.type === "linkReference" ? definitions.get(node.identifier) : undefined;
+  // The overview ends each link into the review with an arrow.
+  const shown = (node: Node): string => node.type === "html" ? "" : "value" in node ? node.value
+    : childrenOf(node).map(shown).join("") + (referencePattern.test(urlOf(node) ?? "") ? " ↗" : "");
+  const linesOf = (node: Node) => node.type === "code" ? node.value.split("\n")
+    : node.type === "paragraph" || node.type === "heading" || node.type === "tableCell" ? shown(node).split("\n") : [];
+  const lines = new Map<string, number>();
   let index = -1;
   let opening: number | undefined;
   tree.children.forEach((top, position) => {
@@ -52,12 +60,13 @@ export function parseMarkdown(markdown: string): Parsed {
       index += 1;
       // An empty heading still renders, so it keeps its place in the count without a contents entry.
       const text = textOf(top).replace(/\s+/g, " ").trim();
-      if (text) headings.push({ index, level: top.depth <= 2 ? 2 : 3, text });
+      const line = shown(top);
+      if (text) headings.push({ index, level: top.depth <= 2 ? 2 : 3, text, line, repeat: lines.get(line) ?? 0 });
       if (position === 0 && text) opening = index;
     }
     walk(top, (node) => {
-      const url = node.type === "link" ? node.url : node.type === "linkReference" ? definitions.get(node.identifier) : undefined;
-      const match = url?.match(referencePattern);
+      for (const line of linesOf(node)) lines.set(line, (lines.get(line) ?? 0) + 1);
+      const match = urlOf(node)?.match(referencePattern);
       if (match) targets.push({ ...(match[2] ? { review: match[1], group: match[2] } : { review: match[1] }), ...(index >= 0 ? { heading: index } : {}) });
     });
   });

@@ -67,6 +67,7 @@ import { searchLines } from "./review-search";
 import type { SearchScope, SearchMatch } from "./review-search";
 import { diffSize } from "./diff-size";
 import { scrollToChange } from "./scroll-to-change";
+import { onScreen, reached, useScrollPlace } from "./scroll-place";
 import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { codeGroups, collectionProgress, markedFile, progressLabel, progressSource, unviewedGroups, withFileViews } from "./progress";
@@ -81,7 +82,11 @@ import { BriefTabs } from "./BriefTabs";
 import { useBrief } from "./useBrief";
 import { Markdown } from "./Markdown";
 import type { FeatureBrief as BriefDocument } from "./brief-types";
-import type { MarkTargets } from "./BriefCodeGroups";
+import { groupTitle, type MarkTargets } from "./BriefCodeGroups";
+import { BriefContents, headingCounts, type ContentsGroup } from "./BriefContents";
+import { groupReadState } from "./BriefGroupStatus";
+import { ReviewFrame, type Drawer } from "./ReviewFrame";
+import { partTree } from "./part-tree";
 import { Description } from "./Description";
 import { briefStructure } from "./brief-outline";
 import {
@@ -217,7 +222,7 @@ function Segmented<T extends string>({
 }: {
   label: string;
   value: T;
-  options: [T, string][];
+  options: [T, React.ReactNode][];
   onChange: (value: T) => void;
 }) {
   return (
@@ -1075,11 +1080,13 @@ function FileOutlineItem({
   preview,
   worktree,
   reviewed,
+  current,
   onClick,
 }: {
   preview: FilePreview;
   worktree: string;
   reviewed: boolean;
+  current?: boolean;
   onClick: () => void;
 }) {
   const size = useMemo(() => diffSize(preview.diff.patch), [preview.diff.patch]);
@@ -1098,6 +1105,7 @@ function FileOutlineItem({
   return (
     <button
       className={`file-item${done ? " file-item-viewed" : ""}`}
+      aria-current={current ? "location" : undefined}
       aria-label={`${path}, ${change.toLowerCase()}${from}${done ? ", viewed" : ""}`}
       aria-description={
         fileKindLabels[kind] +
@@ -1142,12 +1150,9 @@ function FileOutlineItem({
     </button>
   );
 }
-function ReviewOutline({ sections, worktree, hideTestFiles, reviewedCount, totalGroups, defaultViewed, onJump, onMatch }: {
-  sections: ReturnType<typeof displaySections>; worktree: string; hideTestFiles: boolean;
-  reviewedCount: number; totalGroups?: number; defaultViewed: (section: string) => boolean;
-  onJump: (section: string, file?: string) => void;
-  onMatch: (section: string, preview: FilePreview, match: SearchMatch) => void;
-}) {
+type DisplayedSections = ReturnType<typeof displaySections>;
+type MatchJump = (section: string, preview: FilePreview, match: SearchMatch) => void;
+function useOutlineSearch(sections: DisplayedSections) {
   const [filter, setFilter] = useState("");
   const [scope, setScope] = useState<SearchScope>("files");
   const documents = useMemo(() => sections.flatMap(({ section, files }) => files.map((preview) => ({
@@ -1157,46 +1162,106 @@ function ReviewOutline({ sections, worktree, hideTestFiles, reviewedCount, total
   const { results, pending, error } = useReviewSearch(documents, filter, scope);
   const matching = new Map(results.map((result) => [result.key, result]));
   const searching = !!filter.trim();
-  const missing = documents.filter((document) => document.unavailable).length;
+  return {
+    filter, setFilter, scope, setScope, searching, pending, matching,
+    status: searching ? error ?? (pending ? "Searching…" : `${results.length} matching files`) : "",
+    missing: scope === "files" ? 0 : documents.filter((document) => document.unavailable).length,
+    visible: (section: string, files: FilePreview[]) => searching ? files.filter((preview) => matching.has(`${section}:${preview.file.path}`)) : files,
+  };
+}
+type OutlineSearch = ReturnType<typeof useOutlineSearch>;
+function ScopeSelect({ search }: { search: OutlineSearch }) {
+  return <select aria-label="Search in" value={search.scope} onChange={(event) => search.setScope(event.target.value as SearchScope)}>
+    <option value="files">File names</option><option value="contents">Changed content</option><option value="all">Names and content</option>
+  </select>;
+}
+function SearchMatches({ search, section, preview, onMatch }: { search: OutlineSearch; section: string; preview: FilePreview; onMatch: MatchJump }) {
+  const result = search.searching ? search.matching.get(`${section}:${preview.file.path}`) : undefined;
+  return result?.matches.map((match, index) => <button className="search-match" key={index} onClick={() => onMatch(section, preview, match)}>
+    <small>{match.side === "old" ? "Before" : "After"} · line {match.line}{result.count > 3 && index === 2 ? ` · ${result.count - 3} more matches` : ""}</small>
+    <code>{match.text}</code>
+  </button>);
+}
+// Needs a HoverCards around it.
+function OutlineFiles({ files, worktree, reviewed, current, onFile, after }: {
+  files: FilePreview[]; worktree: string; reviewed: boolean; current?: string;
+  onFile: (preview: FilePreview) => void; after?: (preview: FilePreview) => React.ReactNode;
+}) {
+  return byFolder(files).map(({ folder, files }) => {
+    const items = files.map((preview) => <React.Fragment key={preview.file.path}>
+      <FileOutlineItem preview={preview} worktree={worktree} reviewed={reviewed} current={preview.file.path === current} onClick={() => onFile(preview)} />
+      {after?.(preview)}
+    </React.Fragment>);
+    return folder
+      ? <OutlineFolder key={`folder:${folder}`} path={folder}>{items}</OutlineFolder>
+      : <React.Fragment key="root">{items}</React.Fragment>;
+  });
+}
+function ReviewOutline({ sections, worktree, hideTestFiles, reviewedCount, totalGroups, defaultViewed, onJump, onMatch }: {
+  sections: DisplayedSections; worktree: string; hideTestFiles: boolean;
+  reviewedCount: number; totalGroups?: number; defaultViewed: (section: string) => boolean;
+  onJump: (section: string, file?: string) => void; onMatch: MatchJump;
+}) {
+  const search = useOutlineSearch(sections);
   return <aside className="files-sidebar">
     <div className="outline-head"><label className="search-field"><Search size={14} />
-      <input aria-label="Filter review outline" placeholder={scope === "files" ? "Find a file…" : "Search changed content…"}
-        value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <input aria-label="Filter review outline" placeholder={search.scope === "files" ? "Find a file…" : "Search changed content…"}
+        value={search.filter} onChange={(event) => search.setFilter(event.target.value)} />
     </label>{totalGroups !== undefined && <small>{reviewedCount}/{totalGroups} reviewed</small>}</div>
-    <label className="search-scope">Search in <select aria-label="Search in" value={scope}
-      onChange={(event) => setScope(event.target.value as SearchScope)}>
-      <option value="files">File names</option><option value="contents">Changed content</option><option value="all">Names and content</option>
-    </select></label>
-    {searching && <p className="search-status" role="status">{error ?? (pending ? "Searching…" : `${results.length} matching files`)}</p>}
-    {scope !== "files" && missing > 0 && <p className="search-status">{missing} oversized files have no searchable preview.</p>}
-    <nav aria-label="Changed files" aria-busy={pending && searching}><HoverCards>
+    <label className="search-scope">Search in <ScopeSelect search={search} /></label>
+    {search.status && <p className="search-status" role="status">{search.status}</p>}
+    {search.missing > 0 && <p className="search-status">{search.missing} oversized files have no searchable preview.</p>}
+    <nav aria-label="Changed files" aria-busy={search.pending && search.searching}><HoverCards>
       {sections.map(({ section, files }) => {
-        const visible = searching ? files.filter((preview) => matching.has(`${section.id}:${preview.file.path}`)) : files;
-        if (searching && !visible.length) return null;
+        const visible = search.visible(section.id, files);
+        if (search.searching && !visible.length) return null;
         return <OutlineGroup key={section.id} title={section.title} reviewed={section.reviewed} revision={section.fingerprint}
           hiddenUnreadCount={hideTestFiles ? section.files.filter((preview) => isTestFile(preview.file.path) && !fileViewed(markedFile(preview), defaultViewed(section.id))).length : 0}
-          filtering={searching} onJump={() => onJump(section.id)}>
-          {byFolder(visible).map(({ folder, files }) => {
-            const items = files.map((preview) => {
-              const result = matching.get(`${section.id}:${preview.file.path}`);
-              return <React.Fragment key={preview.file.path}><FileOutlineItem preview={preview} worktree={worktree}
-                reviewed={defaultViewed(section.id)} onClick={() => onJump(section.id, preview.file.path)} />
-                {searching && result?.matches.map((match, index) => <button className="search-match" key={index}
-                  onClick={() => onMatch(section.id, preview, match)}>
-                  <small>{match.side === "old" ? "Before" : "After"} · line {match.line}{result.count > 3 && index === 2 ? ` · ${result.count - 3} more matches` : ""}</small>
-                  <code>{match.text}</code>
-                </button>)}
-              </React.Fragment>;
-            });
-            return folder
-              ? <OutlineFolder key={`folder:${folder}`} path={folder}>{items}</OutlineFolder>
-              : <React.Fragment key="root">{items}</React.Fragment>;
-          })}
+          filtering={search.searching} onJump={() => onJump(section.id)}>
+          <OutlineFiles files={visible} worktree={worktree} reviewed={defaultViewed(section.id)} onFile={(preview) => onJump(section.id, preview.file.path)}
+            after={(preview) => <SearchMatches search={search} section={section.id} preview={preview} onMatch={onMatch} />} />
           {!files.length && section.files.length > 0 && <small className="index-hidden">Test files hidden</small>}
         </OutlineGroup>;
       })}
     </HoverCards></nav>
   </aside>;
+}
+function CodeSearch({ sections, worktree, defaultViewed, onJump, onMatch }: {
+  sections: DisplayedSections; worktree: string; defaultViewed: (section: string) => boolean;
+  onJump: (section: string, file?: string) => void; onMatch: MatchJump;
+}) {
+  const search = useOutlineSearch(sections);
+  const [open, setOpen] = useState(false);
+  const field = useRef<HTMLInputElement>(null);
+  const results = React.useId();
+  const shown = open && search.searching;
+  const pick = (action: () => void) => { setOpen(false); action(); };
+  // Opening on focus would reopen the results each time the window regains focus.
+  return <div className="code-search" onChange={() => setOpen(true)}
+    onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }}
+    onKeyDown={(event) => { if (event.key === "Escape" && shown) { event.stopPropagation(); field.current?.focus(); setOpen(false); } }}>
+    <div className="search-field"><Search size={14} />
+      <input ref={field} aria-label="Find in this part’s code" aria-expanded={shown} aria-controls={results}
+        placeholder={search.scope === "files" ? "Find a file…" : "Search changed content…"} value={search.filter}
+        onClick={() => setOpen(true)} onChange={(event) => search.setFilter(event.target.value)} />
+      <ScopeSelect search={search} />
+    </div>
+    {/* Keeps focus in the field, so a click on a result isn't lost to the field's blur. */}
+    {shown && <div className="code-search-results" id={results} aria-busy={search.pending} onMouseDown={(event) => event.preventDefault()}>
+      <p className="search-status" role="status">{search.status}</p>
+      {search.missing > 0 && <p className="search-status">{search.missing} oversized files have no searchable preview.</p>}
+      <HoverCards>{sections.map(({ section, files }) => {
+        const visible = search.visible(section.id, files);
+        if (!visible.length) return null;
+        return <section key={section.id}><h3>{section.title}</h3>
+          <OutlineFiles files={visible} worktree={worktree} reviewed={defaultViewed(section.id)}
+            onFile={(preview) => pick(() => onJump(section.id, preview.file.path))}
+            after={(preview) => <SearchMatches search={search} section={section.id} preview={preview}
+              onMatch={(group, file, match) => pick(() => onMatch(group, file, match))} />} />
+        </section>;
+      })}</HoverCards>
+    </div>}
+  </div>;
 }
 
 function MarkAllButton({ count, scope, complete = false, busy, disabled, onClick }: {
@@ -1246,6 +1311,12 @@ export default function App() {
   const [refresh, setRefresh] = useState(0);
   const [progressRefresh, setProgressRefresh] = useState(0);
   const [searchTarget, setSearchTarget] = useState<{ section: string; path: string; match: SearchMatch; version: number } | null>(null);
+  const [reading, setReading] = useState({ group: "", file: "" });
+  // A group or file the reader jumped to stays current while it's on screen, even when it's too near the end to reach the top.
+  const picked = useRef({ group: "", file: "" });
+  const hold = (group: string, file = "") => { picked.current = { group, file }; setReading({ group, file }); };
+  const focusPlace = (group: string, file = "") => document.getElementById(anchor(group, file))
+    ?.querySelector<HTMLElement>(file ? ".file-collapse-button" : ".group-heading h2")?.focus({ preventScroll: true });
   const [sinceViewedGroups, setSinceViewedGroups] = useState(() => new Map<string, boolean>());
   const [split, setSplit] = useState(load("split", false));
   const [wrap, setWrap] = useState(load("wrapLines", false));
@@ -1273,6 +1344,7 @@ export default function App() {
   const loadedView = useRef("");
   const collection = collections.find((entry) => entry.id === collectionId);
   const review = collection?.reviews.find((entry) => entry.id === reviewId);
+  const briefed = !!(collection?.brief || collection?.reviews.some((entry) => entry.brief));
   const collectionBrief = useBrief(collection?.brief ? { collection } : null, refresh);
   const reviewBrief = useBrief(collection && review?.brief ? { collection, review } : null, refresh);
   const codeComments = useCodeComments(collectionId, review ? reviewId : "", refresh);
@@ -1595,7 +1667,8 @@ export default function App() {
     if (!groupJump || tab !== "changes" || busy || !snapshot || groupJump.review !== reviewId) return;
     const { file: target, comment } = groupJump;
     const card = target && commentCard(groupJump.group, target.path, snapshot.sections);
-    const section = snapshot.sections.find((section) => section.id === (card ? card.group : groupJump.group));
+    const [group, file] = card ? [card.group, card.path] : [groupJump.group, ""];
+    const section = snapshot.sections.find((section) => section.id === group);
     const preview = card && section?.files.find((preview) => preview.file.path === card.path);
     if (section && preview && preparedGroupJump.current !== groupJump) {
       preparedGroupJump.current = groupJump;
@@ -1605,8 +1678,12 @@ export default function App() {
       const match = key && searchLines(preview.diff.patch).find((line) => `${line.side}:${line.line}` === key);
       if (match) setSearchTarget({ section: section.id, path: preview.file.path, match, version: Date.now() });
     }
-    const id = card ? anchor(card.group, card.path) : comment ? "unplaced-comments" : anchor(groupJump.group);
-    const frame = requestAnimationFrame(() => { scrollTo(id); setGroupJump(null); });
+    const id = card || !comment ? anchor(group, file) : "unplaced-comments";
+    const frame = requestAnimationFrame(() => {
+      scrollTo(id);
+      if (briefed && !comment) { hold(group, file); focusPlace(group, file); }
+      setGroupJump(null);
+    });
     return () => cancelAnimationFrame(frame);
   }, [groupJump, tab, busy, snapshot, reviewId, path]);
   useEffect(() => {
@@ -1614,6 +1691,28 @@ export default function App() {
     setReplyJump(false);
     if (repliedComments.length) showReply(0);
   }, [replyJump, tab, busy, snapshot, codeComments.loaded]);
+  const spying = briefed && !!review && tab === "changes" && !!snapshot;
+  useScrollPlace(spying, () => {
+    const element = (group: string, file?: string) => document.getElementById(anchor(group, file));
+    const pick = picked.current;
+    let current = pick.group && onScreen(element(pick.group, pick.file)) ? displayedSections.find(({ section }) => section.id === pick.group) : undefined;
+    let file = current ? pick.file : "";
+    if (!current) {
+      picked.current = { group: "", file: "" };
+      current = displayedSections[0];
+      for (const entry of displayedSections) {
+        if (reached(element(entry.section.id))) current = entry;
+        else break;
+      }
+    }
+    if (!current) return;
+    const group = current.section.id;
+    if (!file) for (const preview of current.files) {
+      if (reached(element(group, preview.file.path))) file = preview.file.path;
+      else break;
+    }
+    setReading((previous) => previous.group === group && previous.file === file ? previous : { group, file });
+  }, () => { picked.current = { group: "", file: "" }; }, [displayedSections]);
   const openPath = (next: string) => {
     setCollectionId("");
     setReviewId("");
@@ -1731,6 +1830,8 @@ export default function App() {
     for (const entry of collection.reviews) add(entry.brief, entry.id);
     return mentions;
   }, [collection]);
+  const partBrief = reviewBrief.snapshot?.brief ?? review?.brief;
+  const partStructure = useMemo(() => partBrief && briefStructure(partBrief), [partBrief]);
   const openBriefAt = (owner: string | undefined, place: string, group: string) => {
     if (!collection) return;
     const target = collection.reviews.find((entry) => entry.id === owner);
@@ -1777,9 +1878,300 @@ export default function App() {
       complete={partViewed && !markingReview} busy={markingReview} disabled={!!marking}
       onClick={() => markAll(`@review:${review.id}`, [{ review, groups: reviewLeft }])} />
   );
+  const codeTab = tab === "changes" || tab === "commits" || tab === "stack";
+  const framed = briefed && codeTab && !!collection && !!review;
+  const showMatch: MatchJump = (section, preview, match) => {
+    setSinceViewedGroups((current) => new Map(current).set(section, false));
+    setFilesCollapsed(path, [markedFile(preview)], false);
+    setSearchTarget({ section, path: preview.file.path, match, version: Date.now() });
+    jump(section, preview.file.path);
+  };
+  const goTo = (section: string, file = "") => { hold(section, file); jump(section, file); focusPlace(section, file); };
+  const goToMatch: MatchJump = (section, preview, match) => {
+    hold(section, preview.file.path);
+    showMatch(section, preview, match);
+    focusPlace(section, preview.file.path);
+  };
+
+  const partIndex = collection && review ? collection.reviews.findIndex((entry) => entry.id === review.id) : -1;
+  const comparisonChip = repo && (
+    <Popover
+      label="Comparison"
+      className="comparison-chip"
+      width={340}
+      panel={(close) => (
+        <ComparisonForm
+          repo={repo}
+          base={base}
+          mode={mode}
+          inCollection={!!review}
+          untracked={!!comparison?.files.some((file) => file.untracked)}
+          onCompare={(nextBase, nextMode) => {
+            close();
+            compare(nextBase, nextMode);
+          }}
+        />
+      )}
+    >
+      <GitBranch size={14} />
+      <strong>{repo.branch || repo.head.slice(0, 8)}</strong>
+      <span>{comparisonSummary(mode, base)}</span>
+      <ChevronDown size={13} />
+    </Popover>
+  );
+  const notices = <>
+    {error && (
+      <div className="error" role="alert">
+        {error}
+        <button className="secondary" onClick={() => setRefresh((value) => value + 1)}>
+          Retry
+        </button>
+      </div>
+    )}
+    {comparison?.warnings.map((warning) => (
+      <p className="warning" key={warning}>
+        {warning}
+      </p>
+    ))}
+    {tab === "changes" && codeComments.error && !codeComments.loaded && (
+      <p className="warning" role="alert">Comments on this review’s code could not be loaded. {codeComments.error}</p>
+    )}
+  </>;
+  const loading = (busy || repoBusy) && !snapshot && !error && <Loading>Reading local changes…</Loading>;
+  const feed = snapshot && (
+    <div className={`review-feed${wrap ? " wrap-lines" : ""}${review ? " has-group-bars" : ""}`}>
+      {codeComments.enabled && repliedComments.length > 0 && <p className="agent-replies-notice" role="status">
+        <MessageSquareReply size={14} aria-hidden="true" />
+        <span>Your agent replied to {repliedComments.length === 1 ? "a comment" : `${repliedComments.length} comments`} in this review.</span>
+        <button onClick={() => showReply(replyTurn)}>{repliedComments.length === 1 ? "Show it" : "Show next"}</button>
+      </p>}
+      {codeComments.enabled && <UnplacedComments comments={placedComments.unplaced} threads={codeComments.threads} scope={`${collectionId}/${reviewId}`}
+        groupTitle={review ? groupTitleIn(review) : () => undefined} saving={codeComments.saving}
+        send={(comment) => (command) => codeComments.save({ ...command, entry: comment.id })}
+        onRemove={(comment) => codeComments.save({ kind: "delete", id: comment.id })} />}
+      {!comparison?.files.length && (
+        <div className="empty-state">
+          <CheckCheck size={28} />
+          <h2>No changes in this comparison</h2>
+          <p>Choose a different base or include local edits.</p>
+        </div>
+      )}
+      {displayedSections.map(({ section, files }, index) => {
+        const sinceViewed = sinceViewedGroups.get(section.id) ?? section.changedSinceReview;
+        const mention = review ? briefMentions.get(`${review.id}/${section.id}`) : undefined;
+        const number = String(index + 1).padStart(2, "0");
+        const markState = { section, busy: marking === section.id, disabled: !!marking || (!section.canReview && !section.reviewed) };
+        return <section className="change-group" id={anchor(section.id)} key={section.id}>
+          <header className="group-header">
+            <div className="group-heading">
+              <span className="group-number">{number}</span>
+              <div>
+                <h2 tabIndex={-1}>{section.title}</h2>
+                {mention && <button className="group-brief-link" onClick={() => openBriefAt(mention.review, mention.target, section.id)}
+                  title={mention.review ? "Open where this part’s overview explains this group" : "Open where the feature overview explains this group"}>
+                  <BookOpen size={12} />{mention.review ? "Part overview" : "Feature overview"}{mention.heading && <>: {mention.heading}</>}</button>}
+              </div>
+            </div>
+            <div className="group-actions">
+              {review && <GroupReviewButton {...markState} onClick={() => void mark(section)} />}
+              {(section.changedSinceReview || sinceViewed) && (
+                <button className="changed-label"
+                  aria-pressed={sinceViewed}
+                  onClick={() => setSinceViewedGroups((current) => new Map(current).set(section.id, !sinceViewed))}>
+                  {sinceViewed ? "Show full review" : "Changed since review"}
+                </button>
+              )}
+            </div>
+          </header>
+          {review && <GroupBar number={number} title={section.title} onTitle={() => jump(section.id)}>
+            <GroupReviewButton {...markState} tabIndex={-1}
+              onClick={() => void markFromBar(section, displayedSections[index + 1]?.section.id)} />
+          </GroupBar>}
+          {section.description && <div className="group-description"><Markdown>{section.description}</Markdown></div>}
+          {review?.groups.some((group) => group.id === section.id) &&
+            <ReviewVisuals key={`${collectionId}/${reviewId}/${section.id}`}
+              collection={collectionId} review={reviewId} group={section.id}
+              visuals={section.visuals} />}
+          {section.warnings.map((warning) => (
+            <p className="warning" key={warning}>
+              {warning}
+            </p>
+          ))}
+          {files.map((preview) => (
+            <FileCard
+              key={`${scope}:${section.id}:${preview.file.path}`}
+              preview={preview}
+              eager={initialJump?.eager.has(anchor(section.id, preview.file.path)) ?? false}
+              section={section.id}
+              split={split}
+              wrap={wrap}
+              ignoreWhitespace={ignoreWhitespace}
+              reviewed={section.reviewed}
+              defaultViewed={defaultViewed(section.id)}
+              source={{ path, base, mode, version: snapshot!.comparison.version,
+                ...(review ? { collection: collectionId, review: reviewId } : {}) }}
+              onViewedSaved={(viewed) => {
+                const savedPath = snapshot!.comparison.path ?? path;
+                const savedHash = preview.viewHash;
+                setSnapshot((current) => !current || (current.comparison.path ?? path) !== savedPath ? current : {
+                  ...current,
+                  sections: current.sections.map((group) => ({
+                    ...group,
+                    files: group.files.map((file) => file.file.path === preview.file.path && file.viewHash === savedHash ? { ...file, viewed } : file),
+                  })),
+                });
+              }}
+              onViewedAdvance={advanceViewed}
+              onSearchReady={onSearchReady}
+              searchMatch={searchTarget?.section === section.id && searchTarget.path === preview.file.path ? searchTarget : undefined}
+              sinceViewed={sinceViewed && !!preview.lastViewed?.hasText}
+              comments={codeComments.enabled ? {
+                list: placedComments.cards.get(cardKey(section.id, preview.file.path)) ?? [],
+                threads: codeComments.threads, scope: `${collectionId}/${reviewId}`,
+                saving: codeComments.saving, save: codeComments.save,
+              } : undefined}
+            />
+          ))}
+          {!files.length && (
+            <p className="empty-file">
+              {section.files.length > 0
+                ? "Test files hidden. Turn off Hide test files in Display settings to see them."
+                : "No matching changes in this group."}
+            </p>
+          )}
+        </section>;
+      })}
+      <footer className="feed-end">
+        End of changes · {comparison?.files.length}{" "}
+        {comparison?.files.length === 1 ? "file" : "files"}
+        {hiddenTestCount > 0 && (
+          <>
+            {" "}· {hiddenTestCount} test {hiddenTestCount === 1 ? "file" : "files"} hidden
+          </>
+        )}
+      </footer>
+    </div>
+  );
+  const commitsView = tab === "commits" && snapshot && (
+    <div className="section-content">
+      <h2>Commits in this comparison</h2>
+      {comparison?.commits.map((commit) => (
+        <div className="commit-row" key={commit.sha}>
+          <GitCommitHorizontal size={18} />
+          <div>
+            <strong>{commit.subject}</strong>
+            <small>
+              {commit.author} · {new Date(commit.date).toLocaleDateString()}
+            </small>
+          </div>
+          <code>{commit.sha.slice(0, 8)}</code>
+        </div>
+      ))}
+      {!comparison?.commits.length && <p className="muted">No commits in this comparison.</p>}
+      {(comparison?.commitCount ?? 0) > 100 && <p>Showing the latest 100 commits.</p>}
+    </div>
+  );
+  const stackView = tab === "stack" && (
+    <div className="section-content">
+      <h2>Git ancestry</h2>
+      <p className="muted">
+        The actual branch relationships, independent of how reviews are grouped in a
+        collection.
+      </p>
+      {!stack ? (
+        <Loading>Reading branch relationships…</Loading>
+      ) : (
+        stack.map((node) => (
+          <div className={`stack-row ${node.relation}`} key={node.path}>
+            <GitBranch size={18} />
+            <div>
+              <strong>{node.branch || node.head.slice(0, 8)}</strong>
+              <small>
+                {node.relation === "current"
+                  ? "This worktree"
+                  : `${node.distance} commits ${node.relation === "ancestor" ? "behind" : "ahead"}`}
+              </small>
+            </div>
+            <code>{node.head.slice(0, 8)}</code>
+            {node.path !== path && (
+              <button className="secondary" onClick={() => openPath(node.path)}>
+                Open
+              </button>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+  const codeRail = ({ onClose, shut }: Drawer) => {
+    if (!collection || !review) return null;
+    const shown = new Map(displayedSections.map((entry) => [entry.section.id, entry]));
+    const ids = snapshot?.sections.map((section) => section.id) ?? progressSources[review.id]?.sections.map((section) => section.id)
+      ?? review.groups.map((group) => group.id);
+    const inChanges = tab === "changes";
+    const groups = new Map(ids.map((id): [string, ContentsGroup] => {
+      const entry = shown.get(id);
+      return [id, {
+        id, title: entry?.section.title ?? groupTitle(review, id),
+        state: groupReadState({ group: id, source: progressSources[review.id], progress: itemProgress[review.id] }),
+        files: spying && entry && id === reading.group ? <HoverCards><div className="brief-contents-files">
+          <OutlineFiles files={entry.files} worktree={path} reviewed={defaultViewed(id)} current={reading.file}
+            onFile={(preview) => { shut(); goTo(id, preview.file.path); }} />
+          {!entry.files.length && entry.section.files.length > 0 && <small className="index-hidden">Test files hidden</small>}
+        </div></HoverCards> : undefined,
+      }];
+    }));
+    const brief = reviewBrief.snapshot;
+    return <BriefContents collection={collection} review={review} outline={partStructure?.outline ?? []} active=""
+      counts={brief && partStructure ? headingCounts(brief, partStructure) : {}}
+      progress={itemProgress} attention={(brief ?? collectionBrief.snapshot)?.attention} onClose={onClose}
+      code={{ tree: partTree(review.id, ids, partStructure ?? { outline: [], sections: [] }), groups, current: spying ? reading.group : undefined,
+        onGroup: (id) => { shut(); if (inChanges) goTo(id); else { setTab("changes"); setGroupJump({ review: review.id, group: id }); } } }}
+      onHeading={(heading) => { shut(); openBriefAt(review.id, heading.key, reading.group || ids[0]); }}
+      onFeature={() => { shut(); showCollection(); }}
+      onReview={(id) => { shut(); if (id === review.id) window.scrollTo(0, 0); else openReviewEntry(id); }} />;
+  };
+  const codeFrame = framed && collection && review && (
+    <ReviewFrame className="code-frame" eyebrow={`Part ${partIndex + 1} of ${collection.reviews.length}`} title={review.title}
+      summary={review.description && <Description key={`description:${collectionId}/${reviewId}`} className="feature-brief-summary" text={review.description} />}
+      tabs={review.brief && <BriefTabs label="Part views" current="code"
+        feedback={reviewFeedback ? openThreads(reviewFeedback) : "…"} replies={reviewFeedback?.person}
+        code={itemProgress[review.id] ? codeGroups([review], progressSources).remaining.length : "…"}
+        onBrief={() => openReviewBrief("brief")} onCode={() => setTab("changes")} onFeedback={() => openReviewBrief("feedback")} />}
+      rail={codeRail}>
+      {repo && <div className="code-toolbar">
+        <Segmented label="Code views" value={tab as "changes" | "commits" | "stack"} onChange={setTab} options={[
+          ["changes", <>Changes <span className="pill">{comparison?.files.length ?? "–"}</span></>],
+          ["commits", <>Commits{!!comparison?.commitCount && <span className="pill">{comparison.commitCount}</span>}</>],
+          ["stack", "Git ancestry"],
+        ]} />
+        {tab === "changes" && snapshot && <CodeSearch key={`${collectionId}/${reviewId}|${scope}`} sections={displayedSections}
+          worktree={path} defaultViewed={defaultViewed} onJump={goTo}
+          onMatch={goToMatch} />}
+        <div className="review-meta">
+          {repo.dirty && <span className="pill">Local edits</span>}
+          {review.scope === "groups" && <span className="pill" title="Only changes assigned to the named groups are included in this review and its totals.">Selected groups</span>}
+          {comparisonChip}
+          {comparison && <LineCounts files={comparison.files} />}
+        </div>
+      </div>}
+      <div className="code-extras">
+        {!collection.brief && markReviewButton}
+        {!collection.brief && <MarkErrors messages={markErrors} />}
+        <ReviewVisuals key={`visuals:${collectionId}/${reviewId}`} collection={collectionId} review={reviewId} visuals={review.visuals} />
+        {review.pullRequest && <PullRequest url={review.pullRequest} entry={pullRequests[review.pullRequest]} comparison={comparison}
+          mode={review.mode} onRefresh={() => refreshPullRequest(review.id)} />}
+      </div>
+      {notices}
+      {loading}
+      {tab === "changes" && feed}
+      {commitsView}
+      {stackView}
+    </ReviewFrame>
+  );
 
   return (
-    <div className={`app${collection?.brief || collection?.reviews.some((entry) => entry.brief) ? " has-feature-brief" : ""}`}>
+    <div className={`app${briefed ? " has-feature-brief" : ""}`}>
       <header className="topbar">
         <a href="/" className="brand">
           <span className="brand-icon">
@@ -1975,11 +2367,8 @@ export default function App() {
         {collection?.brief && tab !== "collection" && <MarkErrors messages={markErrors} />}
       </header>
       <main className="main">
-        {tab !== "collection" && tab !== "brief" && (
+        {codeTab && !framed && (
           <section className="review-header">
-            {collection && review && (collection.brief || review.brief) && <div className="brief-eyebrow">
-              Part {collection.reviews.findIndex((entry) => entry.id === review.id) + 1} of {collection.reviews.length}
-            </div>}
             <div className="title-row">
               <h1>
                 {review?.title ||
@@ -1991,17 +2380,11 @@ export default function App() {
                   Selected groups
                 </span>
               )}
-              {!collection?.brief && markReviewButton}
+              {markReviewButton}
             </div>
             {!collection?.brief && <MarkErrors messages={markErrors} />}
             {review?.description && (
               <Description key={`description:${collectionId}/${reviewId}`} text={review.description} />
-            )}
-            {review?.brief && (
-              <BriefTabs label="Review views" current="code"
-                feedback={reviewFeedback ? openThreads(reviewFeedback) : "…"} replies={reviewFeedback?.person}
-                code={itemProgress[review.id] ? codeGroups([review], progressSources).remaining.length : "…"}
-                onBrief={() => openReviewBrief("brief")} onCode={() => setTab("changes")} onFeedback={() => openReviewBrief("feedback")} />
             )}
             {review && <ReviewVisuals key={`visuals:${collectionId}/${reviewId}`}
               collection={collectionId} review={reviewId} visuals={review.visuals} />}
@@ -2046,51 +2429,14 @@ export default function App() {
                   </button>
                 </nav>
                 <div className="review-meta">
-                  <Popover
-                    label="Comparison"
-                    className="comparison-chip"
-                    width={340}
-                    panel={(close) => (
-                      <ComparisonForm
-                        repo={repo}
-                        base={base}
-                        mode={mode}
-                        inCollection={!!review}
-                        untracked={!!comparison?.files.some((file) => file.untracked)}
-                        onCompare={(nextBase, nextMode) => {
-                          close();
-                          compare(nextBase, nextMode);
-                        }}
-                      />
-                    )}
-                  >
-                    <GitBranch size={14} />
-                    <strong>{repo.branch || repo.head.slice(0, 8)}</strong>
-                    <span>{comparisonSummary(mode, base)}</span>
-                    <ChevronDown size={13} />
-                  </Popover>
+                  {comparisonChip}
                   {comparison && <LineCounts files={comparison.files} />}
                 </div>
               </div>
             )}
           </section>
         )}
-        {error && (
-          <div className="error" role="alert">
-            {error}
-            <button className="secondary" onClick={() => setRefresh((value) => value + 1)}>
-              Retry
-            </button>
-          </div>
-        )}
-        {comparison?.warnings.map((warning) => (
-          <p className="warning" key={warning}>
-            {warning}
-          </p>
-        ))}
-        {tab === "changes" && codeComments.error && !codeComments.loaded && (
-          <p className="warning" role="alert">Comments on this review’s code could not be loaded. {codeComments.error}</p>
-        )}
+        {!framed && notices}
         {!repo && !busy && !repoBusy && !collectionId && !error && (
           <div className="welcome">
             <p>Compare changes, describe the decisions, and review them here.</p>
@@ -2100,131 +2446,16 @@ export default function App() {
             </button>
           </div>
         )}
-        {tab !== "collection" && tab !== "brief" && (busy || repoBusy) && !snapshot && !error && <Loading>Reading local changes…</Loading>}
-        {tab === "changes" && snapshot && (
+        {codeTab && !framed && loading}
+        {framed && codeFrame}
+        {tab === "changes" && snapshot && !framed && (
           <div className="changes-layout">
             <ReviewOutline key={`${collectionId}/${reviewId}|${scope}`} sections={displayedSections}
               worktree={path} hideTestFiles={hideTestFiles} reviewedCount={reviewedCount}
               totalGroups={review ? snapshot.sections.length : undefined} defaultViewed={defaultViewed}
-              onJump={jump} onMatch={(section, preview, match) => {
-                setSinceViewedGroups((current) => new Map(current).set(section, false));
-                setFilesCollapsed(path, [markedFile(preview)], false);
-                setSearchTarget({ section, path: preview.file.path, match, version: Date.now() });
-                jump(section, preview.file.path);
-              }} />
+              onJump={jump} onMatch={showMatch} />
             <SidebarResizer />
-            <div className={`review-feed${wrap ? " wrap-lines" : ""}${review ? " has-group-bars" : ""}`}>
-              {codeComments.enabled && repliedComments.length > 0 && <p className="agent-replies-notice" role="status">
-                <MessageSquareReply size={14} aria-hidden="true" />
-                <span>Your agent replied to {repliedComments.length === 1 ? "a comment" : `${repliedComments.length} comments`} in this review.</span>
-                <button onClick={() => showReply(replyTurn)}>{repliedComments.length === 1 ? "Show it" : "Show next"}</button>
-              </p>}
-              {codeComments.enabled && <UnplacedComments comments={placedComments.unplaced} threads={codeComments.threads} scope={`${collectionId}/${reviewId}`}
-                groupTitle={review ? groupTitleIn(review) : () => undefined} saving={codeComments.saving}
-                send={(comment) => (command) => codeComments.save({ ...command, entry: comment.id })}
-                onRemove={(comment) => codeComments.save({ kind: "delete", id: comment.id })} />}
-              {!comparison?.files.length && (
-                <div className="empty-state">
-                  <CheckCheck size={28} />
-                  <h2>No changes in this comparison</h2>
-                  <p>Choose a different base or include local edits.</p>
-                </div>
-              )}
-              {displayedSections.map(({ section, files }, index) => {
-                const sinceViewed = sinceViewedGroups.get(section.id) ?? section.changedSinceReview;
-                const mention = review ? briefMentions.get(`${review.id}/${section.id}`) : undefined;
-                const number = String(index + 1).padStart(2, "0");
-                const markState = { section, busy: marking === section.id, disabled: !!marking || (!section.canReview && !section.reviewed) };
-                return <section className="change-group" id={anchor(section.id)} key={section.id}>
-                  <header className="group-header">
-                    <div className="group-heading">
-                      <span className="group-number">{number}</span>
-                      <div>
-                        <h2>{section.title}</h2>
-                        {mention && <button className="group-brief-link" onClick={() => openBriefAt(mention.review, mention.target, section.id)}
-                          title={mention.review ? "Open where this part’s overview explains this group" : "Open where the feature overview explains this group"}>
-                          <BookOpen size={12} />{mention.review ? "Part overview" : "Feature overview"}{mention.heading && <>: {mention.heading}</>}</button>}
-                      </div>
-                    </div>
-                    <div className="group-actions">
-                      {review && <GroupReviewButton {...markState} onClick={() => void mark(section)} />}
-                      {(section.changedSinceReview || sinceViewed) && (
-                        <button className="changed-label"
-                          aria-pressed={sinceViewed}
-                          onClick={() => setSinceViewedGroups((current) => new Map(current).set(section.id, !sinceViewed))}>
-                          {sinceViewed ? "Show full review" : "Changed since review"}
-                        </button>
-                      )}
-                    </div>
-                  </header>
-                  {review && <GroupBar number={number} title={section.title} onTitle={() => jump(section.id)}>
-                    <GroupReviewButton {...markState} tabIndex={-1}
-                      onClick={() => void markFromBar(section, displayedSections[index + 1]?.section.id)} />
-                  </GroupBar>}
-                  {section.description && <div className="group-description"><Markdown>{section.description}</Markdown></div>}
-                  {review?.groups.some((group) => group.id === section.id) &&
-                    <ReviewVisuals key={`${collectionId}/${reviewId}/${section.id}`}
-                      collection={collectionId} review={reviewId} group={section.id}
-                      visuals={section.visuals} />}
-                  {section.warnings.map((warning) => (
-                    <p className="warning" key={warning}>
-                      {warning}
-                    </p>
-                  ))}
-                  {files.map((preview) => (
-                    <FileCard
-                      key={`${scope}:${section.id}:${preview.file.path}`}
-                      preview={preview}
-                      eager={initialJump?.eager.has(anchor(section.id, preview.file.path)) ?? false}
-                      section={section.id}
-                      split={split}
-                      wrap={wrap}
-                      ignoreWhitespace={ignoreWhitespace}
-                      reviewed={section.reviewed}
-                      defaultViewed={defaultViewed(section.id)}
-                      source={{ path, base, mode, version: snapshot!.comparison.version,
-                        ...(review ? { collection: collectionId, review: reviewId } : {}) }}
-                      onViewedSaved={(viewed) => {
-                        const savedPath = snapshot!.comparison.path ?? path;
-                        const savedHash = preview.viewHash;
-                        setSnapshot((current) => !current || (current.comparison.path ?? path) !== savedPath ? current : {
-                          ...current,
-                          sections: current.sections.map((group) => ({
-                            ...group,
-                            files: group.files.map((file) => file.file.path === preview.file.path && file.viewHash === savedHash ? { ...file, viewed } : file),
-                          })),
-                        });
-                      }}
-                      onViewedAdvance={advanceViewed}
-                      onSearchReady={onSearchReady}
-                      searchMatch={searchTarget?.section === section.id && searchTarget.path === preview.file.path ? searchTarget : undefined}
-                      sinceViewed={sinceViewed && !!preview.lastViewed?.hasText}
-                      comments={codeComments.enabled ? {
-                        list: placedComments.cards.get(cardKey(section.id, preview.file.path)) ?? [],
-                        threads: codeComments.threads, scope: `${collectionId}/${reviewId}`,
-                        saving: codeComments.saving, save: codeComments.save,
-                      } : undefined}
-                    />
-                  ))}
-                  {!files.length && (
-                    <p className="empty-file">
-                      {section.files.length > 0
-                        ? "Test files hidden. Turn off Hide test files in Display settings to see them."
-                        : "No matching changes in this group."}
-                    </p>
-                  )}
-                </section>;
-              })}
-              <footer className="feed-end">
-                End of changes · {comparison?.files.length}{" "}
-                {comparison?.files.length === 1 ? "file" : "files"}
-                {hiddenTestCount > 0 && (
-                  <>
-                    {" "}· {hiddenTestCount} test {hiddenTestCount === 1 ? "file" : "files"} hidden
-                  </>
-                )}
-              </footer>
-            </div>
+            {feed}
           </div>
         )}
         {tab === "collection" && collection?.brief && <FeatureBrief key={collection.id} collection={collection} brief={collectionBrief}
@@ -2315,57 +2546,8 @@ export default function App() {
             </div>
           </div>
         )}
-        {tab === "commits" && snapshot && (
-          <div className="section-content">
-            <h2>Commits in this comparison</h2>
-            {comparison?.commits.map((commit) => (
-              <div className="commit-row" key={commit.sha}>
-                <GitCommitHorizontal size={18} />
-                <div>
-                  <strong>{commit.subject}</strong>
-                  <small>
-                    {commit.author} · {new Date(commit.date).toLocaleDateString()}
-                  </small>
-                </div>
-                <code>{commit.sha.slice(0, 8)}</code>
-              </div>
-            ))}
-            {!comparison?.commits.length && <p className="muted">No commits in this comparison.</p>}
-            {(comparison?.commitCount ?? 0) > 100 && <p>Showing the latest 100 commits.</p>}
-          </div>
-        )}
-        {tab === "stack" && (
-          <div className="section-content">
-            <h2>Git ancestry</h2>
-            <p className="muted">
-              The actual branch relationships, independent of how reviews are grouped in a
-              collection.
-            </p>
-            {!stack ? (
-              <Loading>Reading branch relationships…</Loading>
-            ) : (
-              stack.map((node) => (
-                <div className={`stack-row ${node.relation}`} key={node.path}>
-                  <GitBranch size={18} />
-                  <div>
-                    <strong>{node.branch || node.head.slice(0, 8)}</strong>
-                    <small>
-                      {node.relation === "current"
-                        ? "This worktree"
-                        : `${node.distance} commits ${node.relation === "ancestor" ? "behind" : "ahead"}`}
-                    </small>
-                  </div>
-                  <code>{node.head.slice(0, 8)}</code>
-                  {node.path !== path && (
-                    <button className="secondary" onClick={() => openPath(node.path)}>
-                      Open
-                    </button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        )}
+        {!framed && commitsView}
+        {!framed && stackView}
       </main>
       <dialog ref={folderDialog} onCancel={() => setOpen(false)}>
         <form

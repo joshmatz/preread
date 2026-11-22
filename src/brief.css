@@ -10,16 +10,26 @@
   border:0
 }
 
-/* Auto margins in the column flex parent would size the brief to its widest content, past a phone screen. */
+/* Left-aligned rather than centered, so the rail stays put when Code takes the full width. */
 .feature-brief {
   display:grid;
-  grid-template-columns:220px minmax(0,1fr);
+  grid-template-columns:min(var(--sidebar-width,240px),50%) minmax(0,1fr);
   column-gap:40px;
   align-items:start;
   width:100%;
-  max-width:1520px;
-  margin:0 auto;
   padding:40px 40px 64px 24px
+}
+
+.feature-brief>.brief-contents {
+  grid-area:1/1
+}
+
+.feature-brief>.brief-body {
+  grid-area:1/2
+}
+
+.feature-brief:not(.code-frame)>.brief-body {
+  max-width:1196px
 }
 
 .feature-brief-loading {
@@ -763,10 +773,6 @@
   background:transparent
 }
 
-.review-header>.brief-tabs {
-  margin:12px 0 0
-}
-
 .has-feature-brief>.topbar {
   position:sticky;
   top:0;
@@ -798,6 +804,15 @@
     top:48px;
     height:min(calc(100dvh - 48px), 100%)
   }
+}
+
+/* Must follow the code sidebar's resizer rule above, which it overrides. */
+.feature-brief>.sidebar-resizer {
+  grid-area:1/1;
+  justify-self:end;
+  top:72px;
+  height:calc(100dvh - 88px);
+  margin-right:-24px
 }
 
 .brief-code-source {
@@ -1460,6 +1475,7 @@
 
 .brief-chapters {
   display:grid;
+  grid-template-columns:minmax(0,1fr);
   gap:2px
 }
 
@@ -1468,7 +1484,7 @@
   border-left:1px solid var(--border)
 }
 
-.brief-contents-headings button {
+.brief-contents-headings>li>button {
   display:flex;
   align-items:baseline;
   gap:6px;
@@ -1484,26 +1500,105 @@
   color:var(--secondary)
 }
 
-.brief-contents-headings .level-3 button {
+.brief-contents-headings>.level-3>button {
   padding-left:24px;
   font-size:11.5px
 }
 
-.brief-contents-headings button>span:first-child {
+.brief-contents-headings>li>button>span:first-child {
   flex:1;
   min-width:0;
   overflow-wrap:anywhere
 }
 
-.brief-contents-headings button:hover {
+.brief-contents-headings>li>button:hover {
   background:var(--hover);
   color:var(--text)
 }
 
-.brief-contents-headings button[aria-current=location] {
+.brief-contents-headings>li>button[aria-current=location] {
   border-left-color:var(--accent);
   color:var(--text);
   font-weight:600
+}
+
+.brief-contents-groups {
+  list-style:none;
+  margin:0;
+  padding:0
+}
+
+.brief-contents-groups>li>button {
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:7px;
+  width:calc(100% + 1px);
+  min-height:26px;
+  margin-left:-1px;
+  padding:4px 6px 4px 22px;
+  border-left:2px solid transparent;
+  border-radius:0 5px 5px 0;
+  text-align:left;
+  font-size:11.5px;
+  line-height:1.4;
+  color:var(--secondary)
+}
+
+.brief-contents-lead>.brief-contents-groups>li>button {
+  padding-left:12px
+}
+
+.brief-contents-groups>li>button>span:last-child {
+  flex:1;
+  min-width:0;
+  overflow-wrap:anywhere
+}
+
+.brief-contents-groups>li>button:hover {
+  background:var(--hover);
+  color:var(--text)
+}
+
+.brief-contents-groups>li>button[aria-current=location] {
+  border-left-color:var(--accent);
+  color:var(--text);
+  font-weight:600
+}
+
+.brief-contents-groups .brief-group-status {
+  flex:none;
+  margin:0;
+  padding:0;
+  border:0;
+  background:none
+}
+
+.brief-contents-groups .brief-group-status::after {
+  content:none
+}
+
+.brief-contents-other>span {
+  display:block;
+  padding:10px 6px 4px 12px;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:1.2px;
+  text-transform:uppercase;
+  color:var(--secondary)
+}
+
+.brief-contents-files {
+  padding:1px 0 6px 22px
+}
+
+.brief-contents-files .file-item {
+  min-height:26px;
+  border-radius:5px
+}
+
+.brief-contents-files .file-item[aria-current=location] {
+  background:var(--selected)
 }
 
 .contents-question {
@@ -1572,6 +1667,134 @@
 
 .brief-contents-backdrop {
   display:none
+}
+
+.code-frame .brief-tabs {
+  margin-bottom:16px
+}
+
+.code-frame .feature-brief-heading:not(:has(.brief-tabs)) {
+  margin-bottom:24px
+}
+
+.code-toolbar {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:10px 16px;
+  margin-bottom:8px
+}
+
+.code-toolbar .segmented button {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:28px;
+  padding:3px 10px;
+  font-size:12px
+}
+
+.code-toolbar .segmented .pill {
+  padding:0 5px;
+  font-variant-numeric:tabular-nums
+}
+
+.code-search {
+  position:relative;
+  flex:1 1 220px;
+  max-width:380px
+}
+
+.code-search .search-field {
+  min-height:32px;
+  padding-right:2px
+}
+
+.code-search .search-field input {
+  font-size:12px
+}
+
+.code-search select {
+  flex:none;
+  max-width:132px;
+  padding:4px;
+  border:0;
+  border-left:1px solid var(--border);
+  border-radius:0;
+  background:transparent;
+  color:var(--secondary);
+  font-size:11px
+}
+
+.code-search-results {
+  position:absolute;
+  z-index:30;
+  top:calc(100% + 6px);
+  left:0;
+  right:0;
+  max-height:min(60dvh,520px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  padding:6px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--raised);
+  box-shadow:var(--shadow)
+}
+
+.code-search-results .search-status {
+  margin:4px 8px 6px
+}
+
+.code-search-results h3 {
+  margin:10px 8px 2px;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:1.2px;
+  text-transform:uppercase;
+  color:var(--secondary);
+  overflow-wrap:anywhere
+}
+
+.code-search-results .file-item {
+  border-radius:5px
+}
+
+.code-toolbar .review-meta {
+  flex-wrap:wrap;
+  gap:8px 14px
+}
+
+@media (max-width:720px) {
+  .code-toolbar .review-meta {
+    order:0;
+    margin-left:0
+  }
+}
+
+.code-extras:empty {
+  display:none
+}
+
+.code-extras {
+  display:grid;
+  justify-items:start;
+  gap:8px;
+  margin:4px 0 8px
+}
+
+.code-extras>.review-visuals {
+  margin:0
+}
+
+.code-frame .review-feed {
+  --feed-gutter:0px;
+  padding:16px 0 24px
+}
+
+.code-frame .section-content {
+  padding:16px 0 24px;
+  overflow:visible
 }
 
 .brief-section-code {
@@ -1872,15 +2095,13 @@
   flex:none
 }
 
-.review-header>.brief-eyebrow {
-  margin-bottom:8px
-}
-
 @media (max-width:1179px) {
   .feature-brief {
     display:block;
-    max-width:1264px;
     padding:40px 40px 64px
+  }
+  .feature-brief>.sidebar-resizer {
+    display:none
   }
   .brief-contents {
     position:fixed;

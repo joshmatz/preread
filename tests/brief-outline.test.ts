@@ -13,12 +13,13 @@ test("contents entries are the headings the page renders at the top level, in th
     "Underlined", "==========", "", "##", "", "> ## Quoted", "", "- ## In a list", "", "##No space", "", "~~~~", "# Fenced", "~~~~", "", "### Last ###",
   ].join("\n");
   assert.deepEqual(parseMarkdown(source).headings, [
-    { index: 0, level: 2, text: "Where it stands" }, { index: 1, level: 2, text: "Save a filter with canSaveFilters" },
-    { index: 2, level: 3, text: "The billing words" }, { index: 3, level: 2, text: "Indented up to three spaces" },
-    { index: 4, level: 2, text: "Underlined" }, { index: 6, level: 3, text: "Last" },
+    { index: 0, level: 2, text: "Where it stands", line: "Where it stands", repeat: 0 }, { index: 1, level: 2, text: "Save a filter with canSaveFilters", line: "Save a filter with canSaveFilters", repeat: 0 },
+    { index: 2, level: 3, text: "The billing words", line: "The billing ↗ words", repeat: 0 }, { index: 3, level: 2, text: "Indented up to three spaces", line: "Indented up to three spaces", repeat: 0 },
+    { index: 4, level: 2, text: "Underlined", line: "Underlined", repeat: 0 }, { index: 6, level: 3, text: "Last", line: "Last", repeat: 0 },
   ]);
   assert.deepEqual(briefOutline(brief([markdown("a", "## One\n\n### Two"), { id: "q", kind: "question", question: "Q?", options: [{ id: "x", label: "X" }, { id: "y", label: "Y" }] }, markdown("b", "## Three")])),
-    [{ key: "a:0", block: "a", index: 0, level: 2, text: "One" }, { key: "a:1", block: "a", index: 1, level: 3, text: "Two" }, { key: "b:0", block: "b", index: 0, level: 2, text: "Three" }]);
+    [{ key: "a:0", block: "a", index: 0, level: 2, text: "One", line: "One", repeat: 0 }, { key: "a:1", block: "a", index: 1, level: 3, text: "Two", line: "Two", repeat: 0 },
+      { key: "b:0", block: "b", index: 0, level: 2, text: "Three", line: "Three", repeat: 0 }]);
 });
 
 test("code links come from rendered links, including reference links, and never from code", () => {

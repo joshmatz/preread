@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal, flushSync } from "react-dom";
-import { ArrowLeft, ArrowRight, Check, CheckCheck, ListTree, LoaderCircle, MessageSquare, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ArrowLeft, ArrowRight, Check, CheckCheck, LoaderCircle, MessageSquare, X } from "lucide-react";
 import type { Collection, ProgressSource, Review, ReviewProgress } from "./review-types";
 import type { BriefAnchor, BriefBlock, BriefFeedback, BriefReference } from "./brief-types";
 import { anchorQuote, blockTitle, feedbackBody, feedbackCurrent, feedbackTitle, groupTitleIn } from "./brief-feedback";
@@ -20,11 +20,14 @@ import { HighlightedCode } from "./HighlightedCode";
 import { CallTree } from "./CallTree";
 import { BriefCommentEditor, type BriefCommentDraft } from "./BriefCommentEditor";
 import { BriefGroupStatus, groupReadState, type GroupReadState } from "./BriefGroupStatus";
-import { BriefContents, PartStatus, type HeadingCounts } from "./BriefContents";
+import { BriefContents, headingCounts, PartStatus, type ContentsGroup } from "./BriefContents";
 import { BriefCodeGroups, groupTitle, type MarkGroups } from "./BriefCodeGroups";
 import { briefStructure, type BriefStructure, type OutlineHeading } from "./brief-outline";
 import { codeGroups } from "./progress";
 import { Description } from "./Description";
+import { partTree } from "./part-tree";
+import { ReviewFrame } from "./ReviewFrame";
+import { onScreen, reached, useScrollPlace } from "./scroll-place";
 import "./brief.css";
 
 type Comment = Extract<BriefFeedback, { kind: "comment" }>;
@@ -60,10 +63,8 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   const [modal, setModal] = useState<Modal | null>(null);
   const [notice, setNotice] = useState("");
   const [active, setActive] = useState("");
-  const [contentsOpen, setContentsOpen] = useState(false);
-  const [offsets, setOffsets] = useState<Record<string, number>>({});
+  const [offsets, setOffsets] = useState<Record<string, number>>();
   const text = useRef<HTMLElement>(null);
-  const toggle = useRef<HTMLButtonElement>(null);
   const placed = useRef(false);
   const initialTarget = useRef(initialBlock ?? "");
   const annotations = useBriefAnnotations(text, snapshot, view === "brief", !!modal);
@@ -86,29 +87,13 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     const anchor = annotations.selection?.anchor ?? captureBriefSelection(text.current, snapshot);
     if (anchor) comment(anchor); else setNotice("Select a passage, then add your comment.");
   };
-  // The page stays inert until the closed drawer renders, and focus() on an inert element silently does nothing.
-  const shut = () => { if (contentsOpen) flushSync(() => setContentsOpen(false)); };
-  const closeContents = () => { shut(); toggle.current?.focus({ preventScroll: true }); };
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.altKey && event.shiftKey && event.code === "KeyM" && !modal) { event.preventDefault(); selectedComment(); }
-      if (!contentsOpen) return;
-      if (event.key === "Escape") closeContents();
-      if (event.key === "Tab") trapFocus(event);
     };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
-  }, [snapshot, modal, annotations.selection, contentsOpen]);
-  useEffect(() => {
-    const rail = contentsOpen ? document.getElementById("brief-contents") : null;
-    if (!rail) return;
-    const item = ["[aria-current=location]", "[aria-current=page]", "button"].map((selector) => rail.querySelector<HTMLElement>(selector)).find(Boolean);
-    item?.focus();
-    const wide = window.matchMedia("(min-width: 1180px)");
-    const change = () => { if (wide.matches) setContentsOpen(false); };
-    wide.addEventListener("change", change);
-    return () => wide.removeEventListener("change", change);
-  }, [contentsOpen]);
+  }, [snapshot, modal, annotations.selection]);
   const groupExists = (reference: BriefReference) =>
     !!collection.reviews.find((entry) => entry.id === reference.review)?.groups.some((group) => group.id === reference.group)
     || !!sources[reference.review]?.sections.some((section) => section.id === reference.group);
@@ -162,12 +147,11 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   };
   const jump = (id: string) => reveal(positionOf(id));
   const jumpHeading = (heading: OutlineHeading) => {
-    shut();
     reveal(positionOf(heading.key));
     chosen.current = heading.key;
     setActive(heading.key);
   };
-  const toTop = () => { shut(); reveal(() => { window.scrollTo(0, 0); text.current?.focus({ preventScroll: true }); }); };
+  const toTop = () => reveal(() => { window.scrollTo(0, 0); text.current?.focus({ preventScroll: true }); });
   const locate = (entry: BriefFeedback) => {
     if (entry.kind !== "comment" || !snapshot) return;
     const anchor = entry.anchor;
@@ -216,51 +200,31 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     group.querySelector<HTMLElement>(":scope > summary, .brief-feedback-item")?.focus({ preventScroll: true });
     return () => hold.current();
   }, [view, !!snapshot, feedbackRequest, codeLoading]);
-  useEffect(() => {
-    if (view !== "brief" || !outline.length) { setActive(""); return; }
-    let frame = 0;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        // A heading near the end can't reach the top, so the one the reader picked stays current while it's on screen.
-        const picked = chosen.current && outline.find((heading) => heading.key === chosen.current);
-        const pickedTop = picked ? headingElement(picked)?.getBoundingClientRect().top : undefined;
-        if (pickedTop !== undefined && pickedTop >= 0 && pickedTop < window.innerHeight) { setActive(chosen.current); return; }
-        chosen.current = "";
-        const atEnd = window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
-        let current = outline[0].key;
-        for (const heading of outline) {
-          const top = headingElement(heading)?.getBoundingClientRect().top;
-          if (top === undefined) continue;
-          if (top <= 140 || (atEnd && top < window.innerHeight - 80)) current = heading.key;
-          else break;
-        }
-        setActive(current);
-      });
-    };
-    const release = () => { chosen.current = ""; };
-    const inputs = ["wheel", "touchmove", "keydown"] as const;
-    update();
-    inputs.forEach((name) => window.addEventListener(name, release, { passive: true }));
-    window.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    return () => {
-      cancelAnimationFrame(frame);
-      inputs.forEach((name) => window.removeEventListener(name, release));
-      window.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, [view, outline]);
+  const following = view === "brief" && outline.length > 0;
+  useEffect(() => { if (!following) setActive(""); }, [following]);
+  useScrollPlace(following, () => {
+    const picked = chosen.current && outline.find((heading) => heading.key === chosen.current);
+    if (picked && onScreen(headingElement(picked))) { setActive(picked.key); return; }
+    chosen.current = "";
+    let current = outline[0].key;
+    for (const heading of outline) {
+      const element = headingElement(heading);
+      if (!element) continue;
+      if (reached(element)) current = heading.key;
+      else break;
+    }
+    setActive(current);
+  }, () => { chosen.current = ""; }, [outline]);
   // Selections store offsets into a block's text, so each heading's offset there says which heading a comment falls under.
   useLayoutEffect(() => {
-    if (view !== "brief") return;
+    if (view !== "brief") { setOffsets(undefined); return; }
     const next: Record<string, number> = {};
     for (const heading of outline) {
       const element = headingElement(heading);
       const root = element?.closest<HTMLElement>("[data-brief-text]");
       if (element && root) next[heading.key] = textOffset(root, element, 0);
     }
-    setOffsets((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+    setOffsets((previous) => previous && JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
   }, [view, outline]);
   if (!snapshot) return <div className="feature-brief feature-brief-loading">{error
     ? <div className="brief-error" role="alert">{error}<button onClick={retry}>Try again</button></div>
@@ -287,26 +251,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     const count = (snapshot.attention?.reviews[entry.id]?.threads.person ?? 0) + (snapshot.attention?.code?.[entry.id]?.person ?? 0);
     return count ? [{ review: entry, count }] : [];
   });
-  const counts: HeadingCounts = {};
-  const ownerAt = (block: string, offset?: number) => {
-    let owner = structure.owners.get(block);
-    for (const heading of offset === undefined ? [] : structure.headings.get(block) ?? []) {
-      const at = offsets[heading.key];
-      if (at !== undefined && at <= offset!) owner = heading.key;
-    }
-    return owner;
-  };
-  const count = (owner: string | undefined, field: "comments" | "questions") => {
-    if (!owner) return;
-    counts[owner] ??= { comments: 0, questions: 0 };
-    counts[owner][field] += 1;
-  };
-  for (const entry of openNotes) {
-    if (!feedbackCurrent(entry, snapshot)) continue;
-    if (entry.anchor.kind === "block") count(ownerAt(entry.anchor.block), "comments");
-    else if (entry.anchor.kind === "selection") count(ownerAt(entry.anchor.segments[0].block, entry.anchor.segments[0].start), "comments");
-  }
-  for (const block of unanswered) count(ownerAt(block.id), "questions");
+  const counts = headingCounts(snapshot, structure, offsets);
   const partAttention = review ? [] : collection.reviews.flatMap((entry, index) => {
     const value = snapshot.attention?.reviews[entry.id];
     return value ? [{ review: entry, index, ...value }] : [];
@@ -327,8 +272,13 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     const entry = collection.reviews.find((candidate) => candidate.id === target.review);
     return entry ? [{ review: entry, group: target.group }] : [];
   });
-  const partRows = review
-    ? (sources[review.id]?.sections.map((section) => section.id) ?? review.groups.map((group) => group.id)).map((group) => ({ review, group })) : [];
+  const partGroups = review ? sources[review.id]?.sections.map((section) => section.id) ?? review.groups.map((group) => group.id) : [];
+  const partRows = review ? partGroups.map((group) => ({ review, group })) : [];
+  const contentsCode = review && {
+    tree: partTree(review.id, partGroups, structure),
+    groups: new Map(partGroups.map((group): [string, ContentsGroup] => [group, { id: group, title: groupTitle(review, group), state: referenceState({ review: review.id, group }) }])),
+    onGroup: (group: string) => openCode({ review: review.id, group }),
+  };
   const previous = review ? (partIndex > 0 ? collection.reviews[partIndex - 1] : collection.brief ? "feature" as const : null) : null;
   const next = review ? (partIndex < collection.reviews.length - 1 ? collection.reviews[partIndex + 1] : collection.brief ? "feature" as const : null)
     : collection.reviews[0] ?? null;
@@ -364,22 +314,16 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
       }
     }
   };
-  return <div className={`feature-brief${contentsOpen ? " contents-open" : ""}`}>
-    <BriefContents collection={collection} review={review} outline={outline} active={active} counts={counts} progress={progress}
-      attention={snapshot.attention} onHeading={jumpHeading} onClose={contentsOpen ? closeContents : undefined}
-      onFeature={() => { if (review) onFeature(); else toTop(); }}
-      onReview={(id) => { if (id !== review?.id) onReview(id); else toTop(); }} />
-    {contentsOpen && <div className="brief-contents-backdrop" aria-hidden="true" onClick={closeContents} />}
-    <div className="brief-body" inert={contentsOpen || undefined}>
-      <header className="feature-brief-heading">
-        <button className="brief-contents-toggle" ref={toggle} aria-expanded={contentsOpen} aria-controls="brief-contents" onClick={() => setContentsOpen((value) => !value)}><ListTree size={15} />Contents</button>
-        <div className="brief-eyebrow">{review ? `Part ${partIndex + 1} of ${collection.reviews.length}` : "Feature overview"}</div>
-        <h1>{title}</h1>
-        {summary && <Description key={readingKey} className="feature-brief-summary" text={summary} />}
-        <BriefTabs label={review ? "Part views" : "Feature views"} current={view} code={checking ? "…" : remaining.length}
-          feedback={openThreads(own)} replies={own.person}
-          onBrief={() => setView("brief")} onCode={openCodeTab} onFeedback={() => setView("feedback")} />
-      </header>
+  return <><ReviewFrame eyebrow={review ? `Part ${partIndex + 1} of ${collection.reviews.length}` : "Feature overview"} title={title}
+    summary={summary && <Description key={readingKey} className="feature-brief-summary" text={summary} />}
+    tabs={<BriefTabs label={review ? "Part views" : "Feature views"} current={view} code={checking ? "…" : remaining.length}
+      feedback={openThreads(own)} replies={own.person}
+      onBrief={() => setView("brief")} onCode={openCodeTab} onFeedback={() => setView("feedback")} />}
+    rail={({ onClose, shut }) => <BriefContents collection={collection} review={review} outline={outline} active={active} counts={counts} progress={progress}
+      attention={snapshot.attention} onClose={onClose} code={contentsCode && { ...contentsCode, onGroup: (group) => { shut(); contentsCode.onGroup(group); } }}
+      onHeading={(heading) => { shut(); jumpHeading(heading); }}
+      onFeature={() => { shut(); if (review) onFeature(); else toTop(); }}
+      onReview={(id) => { shut(); if (id !== review?.id) onReview(id); else toTop(); }} />}>
       {notice && <p className="brief-notice" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")}><X size={13} /></button></p>}
       {error && modal?.kind !== "comment" && <div className="brief-error" role="alert">{error}<button onClick={retry}>Refresh overview</button></div>}
       <div className="brief-layout">
@@ -474,7 +418,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
           <p className="brief-attention-note">Answers, approvals, and comments stay with this {subject}. Reading doesn’t mark code reviewed; Mark reviewed does, the same as in the code.</p>
         </aside>
       </div>
-    </div>
+    </ReviewFrame>
     {view === "brief" && annotations.selection && !modal && createPortal(<div className="brief-selection-tools" role="toolbar" aria-label="Selected passage" style={{ left: annotations.selection.x, top: annotations.selection.y }} onPointerDown={(event) => event.preventDefault()}>
       <button onClick={selectedComment}><MessageSquare size={14} /> Comment on selection</button><button aria-label="Dismiss selection comment" onClick={() => { window.getSelection()?.removeAllRanges(); annotations.clearSelection(); }}><X size={14} /></button>
     </div>, document.body)}
@@ -489,7 +433,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
           send={(command) => send({ ...command, entry: entry.id })} onRemove={() => send({ kind: "delete", id: entry.id })}
           onEdit={edit} collection={collection.id} review={review?.id} />)}</div>
     </BriefDialog>}
-  </div>;
+  </>;
 }
 
 const clip = (text: string) => text.length > 160 ? `${text.slice(0, 157).trimEnd()}…` : text;
@@ -513,17 +457,6 @@ function ApproveExcerpt({ approved, replies, saving, onToggle }: { approved: boo
   return <button ref={button} className={`brief-approve${approved ? " approved" : ""}`} aria-pressed={approved} disabled={saving}
     onClick={() => { if (approved && replies) setConfirming(true); else void onToggle(); }}>
     {approved && <Check size={14} />}{approved ? "Excerpt approved" : "Approve this excerpt"}</button>;
-}
-
-function trapFocus(event: KeyboardEvent) {
-  const rail = document.getElementById("brief-contents");
-  const items = [...rail?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? []];
-  if (!rail || !items.length) return;
-  const first = items[0];
-  const last = items[items.length - 1];
-  const inside = rail.contains(document.activeElement);
-  if (!inside || (event.shiftKey && document.activeElement === first)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
-  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 }
 
 function readingPlace(article: HTMLElement | null): ReadingPlace | undefined {
