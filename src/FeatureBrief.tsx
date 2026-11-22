@@ -17,6 +17,7 @@ import { BriefTabs } from "./BriefTabs";
 import { BriefVisual } from "./BriefVisual";
 import { Markdown, type BriefLink } from "./Markdown";
 import { HighlightedCode } from "./HighlightedCode";
+import { CallTree } from "./CallTree";
 import { BriefCommentEditor, type BriefCommentDraft } from "./BriefCommentEditor";
 import { BriefGroupStatus, groupReadState, type GroupReadState } from "./BriefGroupStatus";
 import { BriefContents, PartStatus, type HeadingCounts } from "./BriefContents";
@@ -175,7 +176,9 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     reveal(() => {
       if (!text.current) return;
       const range = rangeForSegment(text.current, anchor.segments[0]);
-      const node = range?.startContainer.parentElement;
+      // A call tree hides source text behind its labels and inside folded steps; scroll to what shows.
+      let node = range?.startContainer.parentElement;
+      while (node && !node.getClientRects().length) node = node.parentElement;
       if (node) { node.scrollIntoView({ block: "center" }); text.current.focus({ preventScroll: true }); }
     });
   };
@@ -270,6 +273,8 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   const notes = snapshot.feedback.filter((entry): entry is Comment => entry.kind === "comment");
   const resolved = (entry: BriefFeedback) => threadState(entry, snapshot.threads[entry.id]).turn === "resolved";
   const openNotes = notes.filter((entry) => !resolved(entry));
+  const marksIn = (block: string) => openNotes.flatMap((entry) => entry.anchor.kind === "selection" && feedbackCurrent(entry, snapshot)
+    ? entry.anchor.segments.flatMap((segment): Array<[number, number]> => segment.block === block ? [[segment.start, segment.end]] : []) : []);
   const codeFeedback = review && codeComments ? codeComments : undefined;
   const own = threadCounts(snapshot.feedback, snapshot.threads, codeFeedback ? threadCounts(codeFeedback.comments, codeFeedback.threads) : noThreads());
   const lastAgentWord = (events: ThreadEvent[] = []) => events.filter((event) => event.author === "agent").at(-1)?.body ?? "";
@@ -331,18 +336,23 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
   const renderBlock = (block: BriefBlock) => {
     const revision = snapshot.fingerprints[block.id];
     switch (block.kind) {
-      case "markdown": return <div data-brief-text={block.id}><Markdown onReference={openLink} referenceState={linkState}>{block.markdown}</Markdown></div>;
+      case "markdown": return <div data-brief-text={block.id}><Markdown onReference={openLink} referenceState={linkState} marks={marksIn(block.id)}>{block.markdown}</Markdown></div>;
       case "visual": return <BriefVisual collection={collection.id} review={review?.id} block={block.id} visual={block.visual} />;
       case "question": return <BriefQuestion key={revision} block={block} revision={revision} saving={saving} onSave={save} subject={subject}
         saved={current.find((entry): entry is Extract<BriefFeedback, { kind: "answer" }> => entry.kind === "answer" && entry.block.id === block.id)} />;
       case "code": {
         const approval = current.find((entry) => entry.kind === "approval" && entry.block.id === block.id);
         const approved = !!approval;
-        return <section className="brief-code"><div className="brief-code-heading"><span>{block.title || "Code excerpt"}</span><small>{block.language}</small></div>
+        const callTree = block.language === "call-tree";
+        return <section className="brief-code">
+          {callTree
+            // An approval covers every line, so none starts folded.
+            ? <CallTree code={block.code} textId={block.id} heading={block.title || "Call tree"} marks={block.approval ? [[0, block.code.length]] : marksIn(block.id)} />
+            : <div className="brief-code-heading"><span>{block.title || "Code excerpt"}</span><small>{block.language}</small></div>}
           {block.reference?.file && <button className="brief-code-source" onClick={() => block.reference && openCode(block.reference)}>
             {block.reference.file.path}:{block.reference.file.start}{block.reference.file.end !== block.reference.file.start ? `–${block.reference.file.end}` : ""}<ArrowRight size={13} />
           </button>}
-          <pre data-brief-text={block.id}><HighlightedCode code={block.code} language={block.language} /></pre>
+          {!callTree && <pre data-brief-text={block.id}><HighlightedCode code={block.code} language={block.language} /></pre>}
           {(block.approval || block.reference) && <div className="brief-code-actions">
             {block.approval && <ApproveExcerpt approved={approved} saving={saving}
               replies={!!approval && (snapshot.threads[approval.id] ?? []).some((event) => event.body !== undefined)}
@@ -530,15 +540,18 @@ function restoreReadingPlace(reading: ReadingPlace) {
 function holdPosition(article: HTMLElement | null, position: () => void) {
   position();
   if (!article) return () => {};
-  // Visuals finish loading after this and resize the blocks around the place, so it is set again until the reader moves.
+  // Visuals finish loading after this, and call trees open the steps comments are on, resizing the blocks around the place, so it is set again until the reader moves.
   const until = performance.now() + 3000;
   const settle = () => { if (performance.now() < until) position(); };
+  const resized = new ResizeObserver(settle);
   const inputs = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
   const release = () => {
     article.removeEventListener("load", settle, true);
+    resized.disconnect();
     inputs.forEach((name) => window.removeEventListener(name, release));
   };
   article.addEventListener("load", settle, true);
+  resized.observe(article);
   inputs.forEach((name) => window.addEventListener(name, release, { passive: true }));
   return release;
 }

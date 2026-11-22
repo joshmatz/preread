@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { hljs } from "diff2html/lib/ui/js/highlight.js-slim.js";
+import { hljs } from "./highlight";
 
 export function HighlightedCode({ code, language, decorate }: {
   code: string; language: string; decorate?: (block: Element) => void;

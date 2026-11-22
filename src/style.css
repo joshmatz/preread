@@ -40,20 +40,21 @@
   --code-number: #0859ad;
   --code-title: #6851ac;
   --code-comment: #7b8494;
+  --code-symbol: #23764a;
   color: var(--text);
   background: var(--canvas);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #17191f;
-  --subtle: #1c1f27;
-  --raised: #20232c;
+  --canvas: #0c0e13;
+  --subtle: #11141a;
+  --raised: #161921;
   --text: #e0e4ec;
   --secondary: #a0a8b9;
-  --border: #343945;
+  --border: #2b303b;
   --accent: #b2a1f0;
   --selected: #302b46;
-  --hover: #2a2f3a;
+  --hover: #1f242e;
   --green: #84d7a0;
   --red: #ff99a3;
   --focus: #bdacf8;
@@ -71,11 +72,12 @@
   --warning-text: #e3c47b;
   --error-bg: #3b252a;
   --shadow: 0 18px 70px #0008;
-  --code-keyword: #ff9dae;
-  --code-string: #a3cff8;
-  --code-number: #8bc6ff;
-  --code-title: #c9b6fc;
-  --code-comment: #a5afbf;
+  --code-keyword: #f67591;
+  --code-string: #4dc3dd;
+  --code-number: #75aef5;
+  --code-title: #b794fc;
+  --code-comment: #838d9c;
+  --code-symbol: #59c886;
 }
 * {
   box-sizing: border-box;
@@ -1761,7 +1763,159 @@ fieldset {
 }
 .hljs-symbol,
 .hljs-bullet {
-  color: var(--green);
+  color: var(--code-symbol);
+}
+.language-call-tree .hljs-section {
+  color: inherit;
+  font-weight: 600;
+}
+.call-tree {
+  --call-tree-flash: var(--selected);
+}
+:root[data-theme="dark"] .call-tree {
+  --secondary: #838d9c;
+  color: #cdd1d9;
+}
+.markdown .call-tree {
+  margin: 16px 0;
+  overflow: hidden;
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.call-tree-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  min-height: 41px;
+  padding: 6px 8px 6px 16px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.call-tree-heading {
+  overflow-wrap: anywhere;
+}
+.call-tree-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.call-tree-tools > button {
+  padding: 3px 8px;
+  color: var(--secondary);
+  font-size: 11px;
+}
+.call-tree-tools > button:hover {
+  color: var(--text);
+}
+.call-tree-bar button[data-label]::before {
+  content: attr(data-label);
+}
+.call-tree-outline,
+.call-tree-text {
+  padding: 12px 16px;
+  font: 12px/1.75 "SFMono-Regular", Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.call-tree-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  border-radius: 4px;
+}
+.call-tree-toggle {
+  height: 1lh;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--secondary);
+}
+.call-tree-toggle::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateX(-1px) rotate(-45deg);
+  transition: transform 120ms ease-out;
+}
+.call-tree-toggle[aria-expanded="true"]::before {
+  transform: translateY(-1px) rotate(45deg);
+}
+.call-tree-code {
+  padding-left: 2ch;
+  text-indent: -2ch;
+  white-space: pre-wrap;
+}
+.call-tree-step.root > .call-tree-row > .call-tree-code {
+  font-weight: 600;
+}
+.call-tree-children {
+  margin-left: 7px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+.call-tree-detail {
+  color: var(--secondary);
+  font-weight: 400;
+}
+.call-tree-mark,
+.call-tree .call-tree-link,
+.call-tree .call-tree-more {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 0 6px;
+  vertical-align: 1px;
+  color: var(--secondary);
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: 500 10.5px/16px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-indent: 0;
+  white-space: nowrap;
+}
+.call-tree-mark.changed {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 35%, var(--border));
+}
+.call-tree .call-tree-link {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.call-tree .call-tree-more {
+  margin-left: 8px;
+  background: var(--hover);
+  border-color: transparent;
+}
+.call-tree .call-tree-link::before,
+.call-tree .call-tree-more::before {
+  content: attr(data-label);
+}
+.call-tree .call-tree-link:hover {
+  background: var(--selected);
+}
+.call-tree .call-tree-more:hover {
+  color: var(--text);
+  background: var(--border);
+}
+.call-tree-line {
+  min-height: 1lh;
+  padding-left: calc((var(--indent) + 4) * 1ch);
+  text-indent: calc((var(--indent) + 4) * -1ch);
+  white-space: pre-wrap;
+}
+@media (max-width: 720px) {
+  .call-tree-outline,
+  .call-tree-text {
+    padding: 12px;
+    font-size: 11px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-tree-toggle::before {
+    transition: none;
+  }
 }
 @media (min-width: 1700px) {
   .changes-layout {

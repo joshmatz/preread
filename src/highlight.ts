@@ -1,5 +1,9 @@
 import { hljs } from "diff2html/lib/ui/js/highlight.js-slim.js";
 import { getLanguage, mergeStreams, nodeStream } from "diff2html/lib/ui/js/highlight.js-helpers.js";
+import { callTree } from "./call-tree-language";
+
+hljs.registerLanguage("call-tree", callTree);
+export { hljs };
 
 type Run = { line: HTMLElement; shown: boolean }[];
 const blockComments = new Map<string, boolean>();

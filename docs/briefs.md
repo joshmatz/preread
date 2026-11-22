@@ -93,6 +93,35 @@ A question has two to eight options, with at most one recommendation. The reader
 
 Code fences and excerpts use syntax highlighting for their declared language, with plain text for unsupported languages. An ordinary code fence explains code without asking for approval. Use a code block with `approval: true` when the reader should approve that exact excerpt. Its approval covers the shown text and reference, independently of the group’s Viewed state. Approval is never permission to publish.
 
+### Call trees
+
+A call tree shows what a change runs, one call per line, in the order it runs:
+
+```call-tree
+createTodo(input) (the service)
+  findAccount(id) (existing)
+    -> else not-found "Account not found"
+  insertTodo(row) (PR 1 todo-record; changed: also stores the due date)
+    insertTodoEvent({ todoId }) (below)
+  if todo.assignee: notifyAssignee(todo) (see insertTodo)
+
+insertTodoEvent({ todoId })
+  db.insert(todoEvents)
+```
+
+Give it the language `call-tree`, on a code block or a fence, and the reader sees an outline. Each step folds the steps under it, notes become labels, and `(below)` and `(see …)` are links that jump to the step they name. The outline opens each tree’s first level, then as many more levels as fit in about 60 lines, plus every step a comment is on. **Text** shows the source with code colors. A comment stays on its passage in either view.
+
+- Indent two spaces per level, and put each step on one line. The outline wraps long lines, so never wrap one by hand. A line at the left margin starts another tree.
+- Write calls as code, returns as `-> value`, a branch as `if condition: step`, and a failure as `-> else <code> "<message>"`. Use plain words where code would say less.
+- A note is a parenthesis after a space that starts with one of these words. Any other parenthesis stays part of the step.
+  - `(existing)`: the code was there before this change.
+  - `(changed)`: this change edits it.
+  - `(the service)`: the entry point that other code calls.
+  - `(PR 5 todo-api)`: another pull request in the stack adds it.
+  - `(above)` or `(below)`: the call before the note shows its own steps elsewhere in this tree, in that direction.
+  - `(see name)`: the step in this tree that makes the call `name` and shows its steps.
+- Add detail after a colon, as in `(changed: also stores the due date)`, and separate notes with `;`, as in `(PR 1 todo-record; changed)`.
+
 ## Write for a person
 
 The reader decides from the brief and opens code only to check it. Put the state of the work and the decisions on the first screen.
