@@ -100,7 +100,7 @@ import {
   type ContextModel,
 } from "./diff-context";
 import { DefinitionDialog, definitionButtons, useDefinitionModifier, definitionModifier, lookupDefinition, openSourceFile, type Definition, type Side } from "./DefinitionDialog";
-import { diffRows, drawDiff, insertedRows, rowAt } from "./draw-diff";
+import { changeFrom, diffRows, drawDiff, insertedRows, rowAt } from "./draw-diff";
 import "./style.css";
 
 const params = new URLSearchParams(location.search);
@@ -960,11 +960,14 @@ function FileCard({
   const card = useRef<HTMLElement>(null);
   const collapseButton = useRef<HTMLButtonElement>(null);
   const commentButton = useRef<HTMLButtonElement>(null);
-  const [viewer, setViewer] = useState<{ side: Side; data: Definition } | null>(null);
+  const [viewer, setViewer] = useState<{ side: Side; data: Definition; change?: { side: Side; line: number } } | null>(null);
   const openViewer = async (button: HTMLButtonElement) => {
     const side = preview.file.status === "D" ? "old" : "new";
+    // Read before the file loads, while the card still shows where the reader is.
+    const change = changeFrom(card.current!, split, button.closest(".file-toolbar")!.getBoundingClientRect().bottom, sinceViewed)
+      ?? firstChange(preview.diff.patch);
     const data = await openSourceFile(new URLSearchParams({ ...source, side, file: preview.file.path }), button);
-    if (data) setViewer({ side, data });
+    if (data) setViewer({ side, data, change });
   };
   const showsLines = !preview.error && !preview.diff.tooLarge && !preview.diff.binary && !preview.diff.empty && !preview.diff.image
     && !noContentNote(preview.diff.patch);
@@ -1072,7 +1075,7 @@ function FileCard({
         )}
       </div>
       {viewer && <DefinitionDialog source={source} side={viewer.side} initial={viewer.data}
-        change={firstChange(preview.diff.patch)} split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} onClose={() => setViewer(null)} />}
+        change={viewer.change} split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} onClose={() => setViewer(null)} />}
     </article>
   );
 }

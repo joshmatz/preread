@@ -93,3 +93,23 @@ export function rowAt(element: HTMLElement, split: boolean, side: "old" | "new",
     : [...element.querySelectorAll<HTMLElement>(side === "old" ? ".line-num1" : ".line-num2")];
   return cells.find((cell) => Number(cell.textContent) === line)?.closest("tr") ?? undefined;
 }
+
+// The first changed line not scrolled above `top`, else the last one above it. Since viewed, old line
+// numbers count the viewed text rather than the base, so only added lines count.
+export function changeFrom(element: HTMLElement, split: boolean, top: number, newOnly = false) {
+  const gutter = split ? "td.d2h-code-side-linenumber" : "td.d2h-code-linenumber";
+  let below: { cell: HTMLElement; top: number } | undefined;
+  let above: typeof below;
+  for (const cell of element.querySelectorAll<HTMLElement>(`${gutter}:is(.d2h-ins${newOnly ? "" : ", .d2h-del"})`)) {
+    const box = cell.getBoundingClientRect();
+    if (!box.height) continue;
+    if (box.bottom > top) {
+      if (!below || box.top < below.top) below = { cell, top: box.top };
+    } else if (!above || box.top > above.top) above = { cell, top: box.top };
+  }
+  const cell = (below ?? above)?.cell;
+  if (!cell) return;
+  const side = cell.classList.contains("d2h-del") ? "old" as const : "new" as const;
+  const line = lineNumber(split ? cell : cell.querySelector(side === "old" ? ".line-num1" : ".line-num2"));
+  return line ? { side, line } : undefined;
+}

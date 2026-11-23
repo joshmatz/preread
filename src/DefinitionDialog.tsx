@@ -325,7 +325,7 @@ function SourceDiff({ diff, displayed, target, restore, visit, scroller, split, 
   </div>;
 }
 
-// A file card opens on its first change, which can be a removed line, so it lands on a diff row rather than a line.
+// A file card opens on the change the reader is at, which can be a removed line, so it lands on a diff row rather than a line.
 type Place = { file: string; side: Side; line?: number; change?: Row; scrollTop?: number };
 const placeKey = (file: string, side: Side) => side + ":" + file;
 const explorerShown = () => {
