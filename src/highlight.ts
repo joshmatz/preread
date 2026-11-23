@@ -5,6 +5,9 @@ import { callTree } from "./call-tree-language";
 hljs.registerLanguage("call-tree", callTree);
 export { hljs };
 
+// The language the diff highlights a file in.
+export const pathLanguage = (path: string) => getLanguage(/\.([^./]+)$/.exec(path)?.[1] ?? "");
+
 type Run = { line: HTMLElement; shown: boolean }[];
 const blockComments = new Map<string, boolean>();
 const commentLine = /^\s*\*(?:\s|\/|$)/;

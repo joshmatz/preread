@@ -1039,11 +1039,8 @@ h2 {
   overflow-x: auto;
 }
 .code-comment-body {
-  margin: 0;
   font-size: 13px;
   line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 .code-comment footer,
 .legacy-note footer {
@@ -1130,8 +1127,6 @@ h2 {
   margin: 2px 0 0;
   font-size: 13px;
   line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 .thread-resolved-tag {
   display: inline-flex;
@@ -1764,6 +1759,12 @@ fieldset {
 .hljs-symbol,
 .hljs-bullet {
   color: var(--code-symbol);
+}
+.hljs-addition {
+  color: var(--green);
+}
+.hljs-deletion {
+  color: var(--red);
 }
 .language-call-tree .hljs-section {
   color: inherit;

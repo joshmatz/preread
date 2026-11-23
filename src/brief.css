@@ -369,6 +369,47 @@
   font-size:15px
 }
 
+.comment-markdown p,.comment-markdown ul,.comment-markdown ol,.comment-markdown blockquote,.comment-markdown pre {
+  margin:8px 0
+}
+
+.comment-markdown p,.comment-markdown ul,.comment-markdown ol {
+  color:inherit
+}
+
+/* Comments written before Markdown keep their line breaks. */
+.comment-markdown p {
+  white-space:pre-line
+}
+
+.comment-markdown ul,.comment-markdown ol {
+  padding-left:20px
+}
+
+.comment-markdown li {
+  margin:2px 0
+}
+
+.comment-markdown :is(h1,h2,h3,h4,h5,h6) {
+  margin:12px 0 4px;
+  font-size:1em;
+  letter-spacing:0
+}
+
+.comment-markdown pre {
+  padding:8px 12px;
+  line-height:1.6
+}
+
+.comment-markdown blockquote {
+  padding:0 12px;
+  color:var(--secondary)
+}
+
+.comment-markdown hr {
+  margin:12px 0
+}
+
 .brief-attention {
   position:sticky;
   top:84px;
@@ -1233,18 +1274,23 @@
   padding-top:0
 }
 
-.brief-feedback-item h3 {
+.brief-feedback-item>h3 {
   font-size:15px;
   font-weight:600;
   line-height:1.6;
   margin:6px 0 12px
 }
 
-.brief-feedback-item p,.brief-note-detail>p {
+.brief-feedback-item>p {
   font-size:14px;
   line-height:1.8;
   white-space:pre-wrap;
   overflow-wrap:anywhere
+}
+
+.brief-feedback-text {
+  font-size:14px;
+  line-height:1.8
 }
 
 .brief-feedback-kind {
@@ -1296,7 +1342,7 @@
   cursor:pointer
 }
 
-.brief-feedback-item pre {
+.brief-feedback-item>pre,.brief-feedback-item>details>pre {
   overflow:auto;
   background:var(--subtle);
   padding:16px;
@@ -1328,18 +1374,6 @@
   color:var(--secondary);
   line-height:1.8;
   margin-top:12px
-}
-
-.brief-note-detail {
-  padding-bottom:20px;
-  margin-bottom:20px;
-  border-bottom:1px solid var(--border)
-}
-
-.brief-note-detail:last-child {
-  border-bottom:0;
-  margin-bottom:0;
-  padding-bottom:0
 }
 
 .brief-contents {

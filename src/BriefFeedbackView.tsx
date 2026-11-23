@@ -6,6 +6,8 @@ import { codeCommentPlace, lineText, sortCodeComments, type CodeComment } from "
 import { useRemoval } from "./CodeComments";
 import { BriefDialog } from "./BriefDialog";
 import { CommentImages, savedCommentImages } from "./CommentImages";
+import { pathLanguage } from "./highlight";
+import { CommentText } from "./Markdown";
 import { ReplyBox, ThreadButtons, ThreadEvents, useThread, type SendThread, type ThreadControls } from "./Thread";
 import { threadState, type ThreadEvent, type ThreadTurn, type Threads } from "./threads";
 
@@ -49,7 +51,7 @@ export function BriefItem({ entry, snapshot, events, scope, saving, send, onEdit
     <div className="brief-feedback-kind">{entry.kind === "answer" ? "Question answered" : entry.kind === "approval" ? "Code approval" : "Comment"}{!current && <span className="brief-earlier">Earlier revision</span>}</div>
     <h3>{feedbackTitle(entry)}</h3>
     {entry.kind === "comment" && anchorQuote(entry.anchor) && <blockquote className="brief-quote">{anchorQuote(entry.anchor)}</blockquote>}
-    <p>{feedbackBody(entry)}</p>
+    {entry.kind === "comment" ? <CommentText className="brief-feedback-text">{entry.body}</CommentText> : <p>{feedbackBody(entry)}</p>}
     {entry.kind === "comment" && <CommentImages images={savedCommentImages(collection, entry.id, entry.attachments, review)} />}
     {entry.kind === "approval" && <details><summary>Approved excerpt</summary><pre><code>{entry.block.code}</code></pre></details>}
     <ThreadEvents events={events} />
@@ -65,12 +67,13 @@ function CodeItem({ comment, code, scope }: { comment: CodeComment; code: CodeFe
   const thread = useThread(`${scope}/${comment.id}`, comment, events, code.send(comment));
   const removal = useRemoval(() => code.onRemove(comment));
   const group = code.groupTitle(comment.group);
+  const language = pathLanguage(comment.path);
   return <section className={`brief-feedback-item turn-${thread.state.turn}`} tabIndex={-1}>
     <div className="brief-feedback-kind">Code comment{group && <span className="brief-feedback-group">{group}</span>}</div>
     <h3 className="brief-code-place">{codeCommentPlace(comment)}</h3>
     {comment.line && <pre className="brief-code-line"><code>{lineText(comment.line)}</code></pre>}
-    <p>{comment.body}</p>
-    <ThreadEvents events={events} />
+    <CommentText className="brief-feedback-text" language={language}>{comment.body}</CommentText>
+    <ThreadEvents events={events} language={language} />
     <ItemFooter thread={thread} saving={code.saving} removal={removal} noun="comment" replies={events.length > 0}>
       <button onClick={() => code.onShow(comment)}>Show in code</button>
     </ItemFooter>

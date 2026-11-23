@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { Check, RotateCcw } from "lucide-react";
 import { threadState, type ThreadCommand, type ThreadEvent, type ThreadRoot, type ThreadState } from "./threads";
+import { CommentText } from "./Markdown";
 
 export type SendThread = (command: ThreadCommand) => Promise<{ error?: string }>;
 type ReplyDraft = { id: string; text: string };
@@ -34,7 +35,7 @@ export function threadLabel(state: ThreadState, events: number) {
   return events ? "Waiting on your agent" : "For your agent";
 }
 
-export function ThreadEvents({ events }: { events: ThreadEvent[] }) {
+export function ThreadEvents({ events, language }: { events: ThreadEvent[]; language?: string }) {
   if (!events.length) return null;
   return <ol className="thread-events">{events.map((event) => event.body === undefined
     ? <li key={event.id} className="thread-event thread-change">
@@ -44,7 +45,7 @@ export function ThreadEvents({ events }: { events: ThreadEvent[] }) {
     : <li key={event.id} className={`thread-event thread-reply from-${event.author}`}>
       <div className="thread-author"><strong>{who(event)}</strong><Time value={event.createdAt} />
         {event.resolved && <span className="thread-resolved-tag"><Check size={11} aria-hidden="true" />Resolved</span>}</div>
-      <p className="thread-body">{event.body}</p>
+      <CommentText className="thread-body" language={language}>{event.body}</CommentText>
     </li>)}</ol>;
 }
 

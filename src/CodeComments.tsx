@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { codeCommentPlace, lineText, sortCodeComments, type CodeComment, type CodeLine } from "./code-comments";
+import { pathLanguage } from "./highlight";
+import { CommentText, plainText } from "./Markdown";
 import { ReplyBox, ThreadButtons, ThreadEvents, useThread, type SendThread } from "./Thread";
 import type { ThreadEvent, Threads } from "./threads";
 
@@ -68,13 +70,14 @@ function CommentCard({ comment, place, events, send, draftKey, saving, onEdit, o
     {place}
     <button ref={thread.focusRef("toggle")} className="thread-summary" aria-expanded="false" onClick={() => { thread.focusNext("hide"); setExpanded(true); }}>
       <Check size={13} aria-hidden="true" /><span className="thread-summary-label">{thread.label}</span>
-      <span className="thread-summary-text">{comment.body}</span><span className="thread-summary-show">Show</span>
+      <span className="thread-summary-text">{plainText(comment.body)}</span><span className="thread-summary-show">Show</span>
     </button>
   </article>;
+  const language = pathLanguage(comment.path);
   return <article className={`code-comment${thread.state.turn === "person" ? " agent-replied" : ""}${resolved ? " resolved-comment" : ""}`}>
     {place}
-    <p className="code-comment-body">{comment.body}</p>
-    <ThreadEvents events={events} />
+    <CommentText className="code-comment-body" language={language}>{comment.body}</CommentText>
+    <ThreadEvents events={events} language={language} />
     {thread.replying && <ReplyBox thread={thread} saving={saving} />}
     {(removal.error || thread.error) && <p className="code-comment-error" role="alert">{removal.error || thread.error}</p>}
     <footer>{removal.confirming ? <>
@@ -121,7 +124,7 @@ export function FileComments({ comments, stray, strayDrafts, drafts, actions, li
       hint={lineHint ? `${agentNote} To comment on one line, click its number.` : agentNote} />}
     {note && <div className="legacy-note">
       <div className="code-comment-place">Private note from before comments · only in this browser</div>
-      <p className="code-comment-body">{note}</p>
+      <CommentText className="code-comment-body">{note}</CommentText>
       {actions.error("note") && <p className="code-comment-error" role="alert">{actions.error("note")}</p>}
       <footer>{deleting ? <>
         <span>Delete this note? It can’t be restored.</span>

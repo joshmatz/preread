@@ -15,7 +15,7 @@ import { noThreads, openThreads, threadCounts, threadState, type ThreadEvent, ty
 import { BriefQuestion } from "./BriefQuestion";
 import { BriefTabs } from "./BriefTabs";
 import { BriefVisual } from "./BriefVisual";
-import { Markdown, type BriefLink } from "./Markdown";
+import { Markdown, plainText, type BriefLink } from "./Markdown";
 import { HighlightedCode } from "./HighlightedCode";
 import { CallTree } from "./CallTree";
 import { BriefCommentEditor, type BriefCommentDraft } from "./BriefCommentEditor";
@@ -241,7 +241,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     ? entry.anchor.segments.flatMap((segment): Array<[number, number]> => segment.block === block ? [[segment.start, segment.end]] : []) : []);
   const codeFeedback = review && codeComments ? codeComments : undefined;
   const own = threadCounts(snapshot.feedback, snapshot.threads, codeFeedback ? threadCounts(codeFeedback.comments, codeFeedback.threads) : noThreads());
-  const lastAgentWord = (events: ThreadEvent[] = []) => events.filter((event) => event.author === "agent").at(-1)?.body ?? "";
+  const lastAgentWord = (events: ThreadEvent[] = []) => plainText(events.filter((event) => event.author === "agent").at(-1)?.body ?? "");
   const replies = [
     ...snapshot.feedback.filter((entry) => threadState(entry, snapshot.threads[entry.id]).turn === "person").map((entry) => lastAgentWord(snapshot.threads[entry.id])),
     ...(codeFeedback ? sortCodeComments(codeFeedback.comments).filter((comment) => threadState(comment, codeFeedback.threads[comment.id]).turn === "person")
@@ -411,7 +411,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
           </div>
           <div className="brief-code-progress"><div><span>Code groups reviewed</span><span>{checking ? "…" : `${groups.length - remaining.length} / ${groups.length}`}</span></div><progress aria-label="Named code groups reviewed" max={groups.length || 1} value={checking ? undefined : groups.length - remaining.length} /></div>
           {notes.length > 0 && <section className="brief-recent-notes"><h3>Your comments <span className="pill">{openNotes.length}</span></h3>{openNotes.map((entry) => <button className="brief-note-preview" key={entry.id} onClick={() => setModal({ kind: "notes", ids: [entry.id] })}>
-            <q>{anchorQuote(entry.anchor) || feedbackTitle(entry)}</q><span>{entry.body || `${entry.attachments.length} attached ${entry.attachments.length === 1 ? "image" : "images"}`}</span>{!feedbackCurrent(entry, snapshot) && <small>Earlier revision</small>}
+            <q>{anchorQuote(entry.anchor) || feedbackTitle(entry)}</q><span>{plainText(entry.body) || `${entry.attachments.length} attached ${entry.attachments.length === 1 ? "image" : "images"}`}</span>{!feedbackCurrent(entry, snapshot) && <small>Earlier revision</small>}
             {threadState(entry, snapshot.threads[entry.id]).turn === "person" && <small className="brief-note-replied">Your agent replied</small>}
           </button>)}
             {notes.length > openNotes.length && <button className="brief-note-resolved" onClick={() => showFeedback("resolved")}>{notes.length - openNotes.length} resolved</button>}</section>}

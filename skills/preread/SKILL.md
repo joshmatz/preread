@@ -220,5 +220,5 @@ pnpm feedback reply <collection-id> --file /tmp/replies.json
 - An item stays in the output until you reply. Add `--resolve` once the change is made or nothing more is needed, and say in the reply what you did. For an answer or an approval, say how you applied it.
 - Leave the item open when you answer a question, ask one, disagree, or haven't finished the work. The person replies or resolves it.
 - For several items, write a JSON array of `{ "id", "body", "resolve"? }` outside every repository and pass it with `--file`. Every reply is checked before any is written. When an ID matches items in more than one place, add `"review": "<review-id>"` or `"feature": true` (`--review` or `--feature` on the command line). Feedback from before replies existed counts as waiting on you; resolve what is already handled in one batch.
-- The person reads replies in the app within a second. Write each one to them in plain words, without process notes.
+- The person reads replies in the app within a second. Write each one to them in plain words, without process notes. Replies render Markdown: put names in backticks and code in fenced blocks that name their language.
 - Never write, edit or delete the person's comments, answers or approvals, and never reply or reopen as them.
