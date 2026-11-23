@@ -63,6 +63,19 @@ export function placeComments(comments: CodeComment[], sections: ReadonlyArray<C
   }
   return { cards, unplaced };
 }
+type ShownFiles = { sections: ReadonlyArray<{ id: string; files: ReadonlyArray<{ path: string }> }> };
+export function reviewsShowing<TReview extends { id: string }>(path: string, reviews: ReadonlyArray<TReview>,
+  sources: Readonly<Record<string, ShownFiles>>) {
+  return reviews.flatMap((review) => {
+    const group = sources[review.id]?.sections.find((section) => section.files.some((file) => file.path === path))?.id;
+    return group ? [{ review, group }] : [];
+  });
+}
+export function sourceLine(line: CodeLine, code: string) {
+  const lines = new Map(code.split("\n").map((text, index) => [lineKey({ side: line.side, number: index + 1 }), text.replace(/\r$/, "")]));
+  const key = anchorLine(line, lines);
+  return key ? Number(key.split(":")[1]) : line.number;
+}
 
 // Context lines are keyed on the new side only, so a line has one key whichever column was clicked.
 // A CRLF file's lines keep their CR here, but diff2html drops it, so the text is stored without it.

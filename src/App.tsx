@@ -44,7 +44,7 @@ import type { Collection, FilePreview, ProgressSource, Review, ReviewSection, Re
 import { displayedLines, displayedPatch } from "./whitespace-diff";
 import { useFileState, useFileStateVersion, fileViewed, setFilesCollapsed } from "./useFileState";
 import { useNote } from "./notes";
-import { anchorLine, cardKey, clipLine, commentCard, lineKey, patchLines, placeComments, type CodeComment, type CodeCommentCommand, type CodeJump, type CodeLine } from "./code-comments";
+import { anchorLine, cardKey, clipLine, commentCard, lineKey, patchLines, placeComments, reviewsShowing, type CodeComment, type CodeCommentCommand, type CodeJump, type CodeLine } from "./code-comments";
 import { openThreads, threadCounts, threadState, type Threads } from "./threads";
 import { loadDrafts, saveDrafts } from "./code-drafts";
 import { editKey, FileComments, LineThread, UnplacedComments, type CodeDraft, type CommentActions } from "./CodeComments";
@@ -104,7 +104,7 @@ import { diffRows, drawDiff, insertedRows, rowAt } from "./draw-diff";
 import "./style.css";
 
 const params = new URLSearchParams(location.search);
-type Origin = { collection: string; review?: string; view?: "feedback" };
+type Origin = { collection: string; review?: string; view?: "feedback" | "code" };
 type PageState = { origin?: Origin; group?: CodeJump; view?: "feedback" };
 const pageState = (): PageState => (history.state as { preread?: PageState } | null)?.preread ?? {};
 const load = <T,>(key: string, fallback: T): T => {
@@ -1650,6 +1650,16 @@ export default function App() {
     follow({ group: reference, origin: { collection: collection.id, ...(tab === "brief" ? { review: reviewId } : {}), ...feedback } });
     showCode(collection, target, reference);
   };
+  // Back returns to the comment, in the part that no longer shows its file.
+  const openCommentFile = (comment: CodeComment, target: Review, group: string) => {
+    if (!collection) return;
+    const line = comment.line?.number ?? 1;
+    const at = (review: string, group: string): CodeJump =>
+      ({ review, group, file: { path: comment.path, start: line, end: line }, comment: { line: comment.line } });
+    history.replaceState({ ...history.state, preread: { ...pageState(), group: at(reviewId, comment.group) } }, "", location.href);
+    follow({ group: at(target.id, group), origin: { collection: collection.id, review: reviewId, view: "code" } });
+    showCode(collection, target, at(target.id, group));
+  };
   const openReviewEntry = (id: string, block?: string, open?: "feedback" | "replies") => {
     const target = collection?.reviews.find((entry) => entry.id === id);
     if (!collection || !target) return;
@@ -1938,6 +1948,7 @@ export default function App() {
     )}
   </>;
   const loading = (busy || repoBusy) && !snapshot && !error && <Loading>Reading local changes…</Loading>;
+  const viewerSource = { path, base, mode, version: snapshot?.comparison.version ?? "", ...(review ? { collection: collectionId, review: reviewId } : {}) };
   const feed = snapshot && (
     <div className={`review-feed${wrap ? " wrap-lines" : ""}${review ? " has-group-bars" : ""}`}>
       {codeComments.enabled && repliedComments.length > 0 && <p className="agent-replies-notice" role="status">
@@ -1948,7 +1959,11 @@ export default function App() {
       {codeComments.enabled && <UnplacedComments comments={placedComments.unplaced} threads={codeComments.threads} scope={`${collectionId}/${reviewId}`}
         groupTitle={review ? groupTitleIn(review) : () => undefined} saving={codeComments.saving}
         send={(comment) => (command) => codeComments.save({ ...command, entry: comment.id })}
-        onRemove={(comment) => codeComments.save({ kind: "delete", id: comment.id })} />}
+        onRemove={(comment) => codeComments.save({ kind: "delete", id: comment.id })}
+        partsShowing={(comment) => !collection ? []
+          : reviewsShowing(comment.path, collection.reviews.filter((entry) => entry.id !== reviewId), progressSources).map(({ review: part, group }) =>
+            ({ id: part.id, label: `Part ${collection.reviews.indexOf(part) + 1}: ${part.title}`, open: () => openCommentFile(comment, part, group) }))}
+        source={viewerSource} split={split} wrap={wrap} ignoreWhitespace={ignoreWhitespace} />}
       {!comparison?.files.length && (
         <div className="empty-state">
           <CheckCheck size={28} />
@@ -2008,8 +2023,7 @@ export default function App() {
               ignoreWhitespace={ignoreWhitespace}
               reviewed={section.reviewed}
               defaultViewed={defaultViewed(section.id)}
-              source={{ path, base, mode, version: snapshot!.comparison.version,
-                ...(review ? { collection: collectionId, review: reviewId } : {}) }}
+              source={viewerSource}
               onViewedSaved={(viewed) => {
                 const savedPath = snapshot!.comparison.path ?? path;
                 const savedHash = preview.viewHash;

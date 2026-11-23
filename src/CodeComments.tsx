@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
-import { codeCommentPlace, lineText, sortCodeComments, type CodeComment, type CodeLine } from "./code-comments";
+import { Check, Code2 } from "lucide-react";
+import { codeCommentPlace, lineText, sortCodeComments, sourceLine, type CodeComment, type CodeLine } from "./code-comments";
+import { DefinitionDialog, openSourceFile, type Definition, type DefinitionSource, type Side } from "./DefinitionDialog";
 import { pathLanguage } from "./highlight";
 import { CommentText, plainText } from "./Markdown";
 import { ReplyBox, ThreadButtons, ThreadEvents, useThread, type SendThread } from "./Thread";
@@ -149,19 +150,39 @@ export function useRemoval(remove: () => Promise<{ error?: string }>) {
   } };
 }
 
-export function UnplacedComments({ comments, threads, scope, groupTitle, saving, send, onRemove }: {
+export type PartLink = { id: string; label: string; open: () => void };
+
+export function UnplacedComments({ comments, threads, scope, groupTitle, saving, send, onRemove, partsShowing, source, split, wrap, ignoreWhitespace }: {
   comments: CodeComment[]; threads: Threads; scope: string; groupTitle: (group: string) => string | undefined; saving: boolean;
   send: (comment: CodeComment) => SendThread; onRemove: (comment: CodeComment) => Promise<{ error?: string }>;
+  partsShowing: (comment: CodeComment) => PartLink[];
+  source: DefinitionSource & { collection?: string; review?: string }; split: boolean; wrap: boolean; ignoreWhitespace: boolean;
 }) {
+  const [viewer, setViewer] = useState<{ side: Side; data: Definition } | null>(null);
   if (!comments.length) return null;
+  const showCode = async (comment: CodeComment, button: HTMLButtonElement) => {
+    const side = comment.line?.side ?? "new";
+    const data = await openSourceFile(new URLSearchParams({ ...source, side, file: comment.path }), button);
+    if (data) setViewer({ side, data: { ...data, line: comment.line && sourceLine(comment.line, data.code) } });
+  };
   return <section className="unplaced-comments" id="unplaced-comments" aria-labelledby="unplaced-comments-title">
     <h2 id="unplaced-comments-title">Comments on files no longer in this review</h2>
     <p>Your agent still reads these with the review’s feedback. Resolve or remove any that no longer apply.</p>
     {sortCodeComments(comments).map((comment) => {
       const group = groupTitle(comment.group);
+      const at = comment.line ? ` at line ${comment.line.number}` : "";
       return <CommentCard key={comment.id} comment={comment} events={threads[comment.id] ?? []} send={send(comment)} draftKey={`${scope}/${comment.id}`}
         saving={saving} onRemove={() => onRemove(comment)}
-        place={<div className="code-comment-place">{codeCommentPlace(comment)}{group && ` · ${group}`}{comment.line && <code>{lineText(comment.line)}</code>}</div>} />;
+        place={<div className="code-comment-place">
+          <div className="unplaced-comment-place">
+            <span><button className="unplaced-comment-file" title={`Open ${comment.path}${at} in the source viewer`}
+              onClick={(event) => void showCode(comment, event.currentTarget)}>{codeCommentPlace(comment)}</button>{group && ` · ${group}`}</span>
+            <span className="unplaced-comment-parts">{partsShowing(comment).map((part) => <button key={part.id} className="group-brief-link"
+              title={`Open ${comment.path} in ${part.label}`} onClick={part.open}><Code2 size={12} aria-hidden="true" /><span>{part.label}</span></button>)}</span>
+          </div>
+          {comment.line && <code>{lineText(comment.line)}</code>}</div>} />;
     })}
+    {viewer && <DefinitionDialog source={source} side={viewer.side} initial={viewer.data} split={split} wrap={wrap}
+      ignoreWhitespace={ignoreWhitespace} onClose={() => setViewer(null)} />}
   </section>;
 }

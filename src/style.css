@@ -1041,6 +1041,45 @@ h2 {
   white-space: pre;
   overflow-x: auto;
 }
+.unplaced-comment-place {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.unplaced-comment-place > span:first-child {
+  min-width: 0;
+}
+.unplaced-comment-file {
+  display: inline;
+  padding: 0;
+  border-radius: 0;
+  color: var(--text);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.unplaced-comment-file:not(:disabled):hover {
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.unplaced-comment-parts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+}
+.unplaced-comment-parts .group-brief-link {
+  max-width: 100%;
+  min-height: 0;
+  margin-top: 0;
+  padding: 0;
+}
+.unplaced-comment-parts .group-brief-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .code-comment-body {
   font-size: 13px;
   line-height: 1.6;

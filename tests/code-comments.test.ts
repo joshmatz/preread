@@ -11,7 +11,7 @@ import { briefSnapshot, saveBriefFeedback } from "../server/briefs.ts";
 import { codeComments, readCodeComments, saveCodeComment } from "../server/code-comments.ts";
 import { feedbackText } from "../server/feedback.ts";
 import { putCollection } from "../server/collections.ts";
-import { anchorLine, cardKey, clipLine, commentCard, patchLines, placeComments, type CodeComment } from "../src/code-comments.ts";
+import { anchorLine, cardKey, clipLine, commentCard, patchLines, placeComments, reviewsShowing, sourceLine, type CodeComment } from "../src/code-comments.ts";
 import { exportFeedback, groupTitleIn } from "../src/brief-feedback.ts";
 import { readerStamp } from "../src/threads.ts";
 import { shownLines } from "../src/whitespace-diff.ts";
@@ -132,6 +132,22 @@ test("comments follow a file into another group or to a new name, and gather apa
   ]);
   assert.deepEqual(unplaced, [left]);
   assert.equal(commentCard("saving", "src/deleted.ts", sections), undefined);
+});
+test("a comment whose file left its review finds each part that shows the file now", () => {
+  const sources = {
+    index: { sections: [{ id: "mapping", files: [{ path: "src/config.js" }, { path: "src/view.ts" }] }] },
+    search: { sections: [{ id: "fields", files: [{ path: "src/search.ts" }] }] },
+    tests: { sections: [{ id: "other", files: [{ path: "src/other.ts" }] }, { id: "view", files: [{ path: "src/view.ts" }] }] },
+  };
+  const reviews = [{ id: "index" }, { id: "search" }, { id: "tests" }, { id: "checking" }];
+  assert.deepEqual(reviewsShowing("src/view.ts", reviews, sources), [{ review: reviews[0], group: "mapping" }, { review: reviews[2], group: "view" }]);
+  assert.deepEqual(reviewsShowing("src/gone.ts", reviews, sources), []);
+});
+test("the source viewer opens a comment at its line's text, which may have moved", () => {
+  const code = "import a;\r\nconst fields = [];\r\n}\n";
+  assert.equal(sourceLine({ side: "new", number: 2, text: "const fields = [];" }, code), 2);
+  assert.equal(sourceLine({ side: "new", number: 9, text: "const fields = [];" }, code), 2, "lines above it moved");
+  assert.equal(sourceLine({ side: "old", number: 5, text: "gone();" }, code), 5, "with no match, the saved number stands");
 });
 test("feedback includes each review's code comments, with or without a brief, and attention counts them", async () => {
   const id = "comment-feedback";
