@@ -80,7 +80,7 @@ import { FeatureBrief } from "./FeatureBrief";
 import { GroupBar, GroupReviewButton } from "./GroupBar";
 import { BriefTabs } from "./BriefTabs";
 import { useBrief } from "./useBrief";
-import { Markdown } from "./Markdown";
+import { Markdown, plainText } from "./Markdown";
 import type { FeatureBrief as BriefDocument } from "./brief-types";
 import { groupTitle, type MarkTargets } from "./BriefCodeGroups";
 import { BriefContents, headingCounts, type ContentsGroup } from "./BriefContents";
@@ -2522,7 +2522,7 @@ export default function App() {
                     <span className="card-order">{String(index + 1).padStart(2, "0")}</span>
                     <div>
                       <h3>{entry.title}</h3>
-                      <p>{entry.description || "No description yet."}</p>
+                      <p>{plainText(entry.description) || "No description yet."}</p>
                       <div
                         className={`item-progress status-${itemProgress[entry.id]?.status ?? "checking"}`}
                         title={itemProgress[entry.id]?.error}

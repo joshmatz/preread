@@ -106,8 +106,8 @@ Write the manifest outside every reviewed repository, for example in a temporary
 - IDs use lowercase letters, digits, and hyphens, up to 80 characters. `other-changes` is reserved for group IDs.
 - `path` is the absolute path to the worktree.
 - Every review needs a `base`. `branch` and `all` need a real ref; `working` and `staged` compare with HEAD, so give them `""`.
-- Descriptions say what the change does, why, and what needs the reader's attention. Don't restate the file list.
-- Group descriptions support Markdown and have room for paragraphs, examples, headings, and lists. Give each group one behavior or decision; small code selections can need a substantial explanation. Say what to inspect and why it matters. Always put tests in a separate group from the implementation.
+- Descriptions say what the change does, why, and what needs the reader's attention. Don't restate the file list. Every description renders Markdown.
+- Group descriptions have room for paragraphs, examples, headings, and lists. Give each group one behavior or decision; small code selections can need a substantial explanation. Say what to inspect and why it matters. Always put tests in a separate group from the implementation.
 - Target paths are exact and repository-relative. Omit `ranges` to include the whole file.
 - A range uses one-based diff line numbers on the `new` side, or `old` for deleted lines. It selects every complete hunk that has a changed line inside the range; hunks are never split.
 - Give each intended hunk to one group. With group-only scope, anything unassigned is outside the review; verify that no intended change was omitted. With comparison scope, anything unassigned appears under Other changes.

@@ -289,17 +289,20 @@ h1 {
   max-width: 1050px;
   margin-top: 6px;
 }
-.review-description p {
+.description-text {
   color: var(--secondary);
   line-height: 1.6;
-  white-space: pre-wrap;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   line-clamp: 3;
   overflow: hidden;
 }
-.review-description.expanded p {
+/* Descriptions written as plain text before Markdown keep their line breaks. */
+.description-text .markdown p {
+  white-space: pre-line;
+}
+.review-description.expanded .description-text {
   display: block;
   overflow: visible;
   line-clamp: none;
@@ -1985,7 +1988,7 @@ fieldset {
   h1 {
     font-size: 18px;
   }
-  .review-description p {
+  .description-text {
     font-size: 12px;
   }
   .review-bar {

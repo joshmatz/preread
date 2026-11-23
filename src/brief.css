@@ -63,7 +63,7 @@
   margin-top:16px
 }
 
-.feature-brief-summary p {
+.feature-brief-summary .description-text {
   font-size:15px;
   line-height:1.7;
   -webkit-line-clamp:4;
@@ -2216,7 +2216,7 @@
   .feature-brief-summary {
     margin-top:12px
   }
-  .feature-brief-summary p {
+  .feature-brief-summary .description-text {
     font-size:14px
   }
   .brief-tabs {

@@ -82,13 +82,13 @@ const commentComponents: Components = {
 const plugins = [remarkGfm];
 const transformUrl = (url: string) => reference.test(url) ? url : defaultUrlTransform(url);
 
+// Leaving out skipHtml shows HTML as the text it was typed as, so a placeholder such as `user:<id>:roleChangedAt` keeps its `<id>`.
 export function Markdown({ children, onReference, referenceState, marks }: { children: string } & Omit<MarkdownContext, "language">) {
   return <div className="markdown"><MarkdownContext.Provider value={{ onReference, referenceState, marks }}>
-    <ReactMarkdown remarkPlugins={plugins} skipHtml urlTransform={transformUrl} components={components}>{children}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={plugins} urlTransform={transformUrl} components={components}>{children}</ReactMarkdown>
   </MarkdownContext.Provider></div>;
 }
 
-// Unlike an overview, a comment shows HTML as the text it was typed as, so `Promise<void>` keeps its `<void>`.
 export function CommentText({ children, className, language }: { children: string; className: string; language?: string }) {
   return <div className={`markdown comment-markdown ${className}`}><MarkdownContext.Provider value={{ language }}>
     <ReactMarkdown remarkPlugins={plugins} urlTransform={transformUrl} components={commentComponents}>{children}</ReactMarkdown>

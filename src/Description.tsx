@@ -1,11 +1,12 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
+import { Markdown } from "./Markdown";
 
 export function Description({ text, className }: { text: string; className?: string }) {
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
-  const paragraph = useRef<HTMLParagraphElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const element = paragraph.current!;
+    const element = body.current!;
     if (expanded) return;
     const measure = () => setClamped(element.scrollHeight > element.clientHeight + 1);
     measure();
@@ -15,7 +16,7 @@ export function Description({ text, className }: { text: string; className?: str
   }, [text, expanded]);
   return (
     <div className={`review-description${className ? ` ${className}` : ""}${expanded ? " expanded" : ""}`}>
-      <p ref={paragraph}>{text}</p>
+      <div ref={body} className="description-text"><Markdown>{text}</Markdown></div>
       {(clamped || expanded) && (
         <button className="more-button" onClick={() => setExpanded(!expanded)}>
           {expanded ? "Show less" : "Show more"}

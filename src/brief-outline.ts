@@ -32,7 +32,7 @@ type Parsed = {
 const parsed = new Map<string, Parsed>();
 
 const childrenOf = (node: Node) => "children" in node ? node.children as Node[] : [];
-const textOf = (node: Node): string => node.type === "html" ? "" : "value" in node ? node.value : childrenOf(node).map(textOf).join("");
+const textOf = (node: Node): string => "value" in node ? node.value : childrenOf(node).map(textOf).join("");
 function walk(node: Node, visit: (node: Node) => void) {
   visit(node);
   for (const child of childrenOf(node)) walk(child, visit);
@@ -48,7 +48,7 @@ export function parseMarkdown(markdown: string): Parsed {
   const targets: Parsed["targets"] = [];
   const urlOf = (node: Node) => node.type === "link" ? node.url : node.type === "linkReference" ? definitions.get(node.identifier) : undefined;
   // The overview ends each link into the review with an arrow.
-  const shown = (node: Node): string => node.type === "html" ? "" : "value" in node ? node.value
+  const shown = (node: Node): string => "value" in node ? node.value
     : childrenOf(node).map(shown).join("") + (referencePattern.test(urlOf(node) ?? "") ? " ↗" : "");
   const linesOf = (node: Node) => node.type === "code" ? node.value.split("\n")
     : node.type === "paragraph" || node.type === "heading" || node.type === "tableCell" ? shown(node).split("\n") : [];

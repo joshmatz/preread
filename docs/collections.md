@@ -2,7 +2,7 @@
 
 A collection is a reading list: one or more reviews, each pointing at a worktree and the base to compare it with, and each diff split into change groups that explain it. Your agent usually writes it with the [`preread` skill](../skills/preread/SKILL.md), but it's plain JSON you can write yourself.
 
-Add an optional `brief` to give the feature its own freely authored front page, with formatted prose, images and charts, questions, code excerpts, and passage comments. A review can have its own `brief` in the same format, for the pull request it ships as. See [Overviews](briefs.md) for the block format and a complete example. Group descriptions also support Markdown and have their own reading space above the diff.
+Add an optional `brief` to give the feature its own freely authored front page, with formatted prose, images and charts, questions, code excerpts, and passage comments. A review can have its own `brief` in the same format, for the pull request it ships as. See [Overviews](briefs.md) for the block format and a complete example. Collection, review and group descriptions support Markdown too, and a group’s description has its own reading space above the diff.
 
 ## Import and open
 

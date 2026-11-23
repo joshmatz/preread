@@ -65,3 +65,8 @@ test("a block with several top-level headings gives each its own section and cod
   assert.deepEqual([...owners], [["b", "a:2"]]);
   assert.deepEqual(headings.get("a")?.map((heading) => heading.key), ["a:0", "a:1", "a:2"]);
 });
+
+test("a heading keeps text that looks like HTML, as the page shows it", () => {
+  assert.deepEqual(parseMarkdown("## Read user:<id>:roleChangedAt").headings,
+    [{ index: 0, level: 2, text: "Read user:<id>:roleChangedAt", line: "Read user:<id>:roleChangedAt", repeat: 0 }]);
+});
