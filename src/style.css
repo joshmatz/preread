@@ -1097,8 +1097,10 @@ h2 {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   color: var(--accent);
 }
+/* An auto column would grow to fit a reply's longest code line and spill out of the card. */
 .thread-events {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin: 10px 0 0;
   padding: 0 0 0 12px;
