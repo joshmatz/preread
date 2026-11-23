@@ -219,6 +219,45 @@ test("a method call resolves through types to the package or repository file tha
   await assert.rejects(click("query.ts", "Object.keys", "keys"), /No definition found for “keys”/);
 });
 
+test("a constant, type, component or prop opens where it's defined, and a name defined on its own line says so", async t => {
+  const { click } = await worktree(t, {
+    "config.ts": "export const LIMIT = 20;\nexport interface Options {\n  mode: string;\n}\nexport enum Color { Red, Green }\n",
+    "Child.tsx": "export function Child({ value }: { value: number }) {\n  return <b>{value}</b>;\n}\nexport const Group = { Item: Child };\n",
+    "use.tsx": [
+      'import { LIMIT, Color, type Options } from "./config";',
+      'import * as config from "./config";',
+      'import { Child, Group } from "./Child";',
+      "export const total = LIMIT + config.LIMIT;",
+      "export const copy = { LIMIT };",
+      'const options: Options = { mode: "fast" };',
+      "const { mode } = options;",
+      "let kind: config.Options;",
+      "export const tint = Color.Green;",
+      "export const view = <Child value={LIMIT} />;",
+      "export const nested = <Group.Item value={mode.length}></Group.Item>;",
+    ].join("\n") + "\n",
+  });
+  for (const [context, name, file, line] of [
+    ["LIMIT + config", "LIMIT", "config.ts", 1],
+    ["config.LIMIT;", "LIMIT", "config.ts", 1],
+    ["{ LIMIT }", "LIMIT", "config.ts", 1],
+    ["options: Options", "Options", "config.ts", 2],
+    ["config.Options", "Options", "config.ts", 2],
+    ['{ mode: "fast" }', "mode", "config.ts", 3],
+    ["{ mode } =", "mode", "config.ts", 3],
+    ["Color.Green", "Green", "config.ts", 5],
+    ["<Child value", "Child", "Child.tsx", 1],
+    ["Child value=", "value", "Child.tsx", 1],
+    ["<Group.Item", "Item", "Child.tsx", 4],
+    ["</Group.Item>", "Group", "Child.tsx", 4],
+  ] as const) {
+    const found = await click("use.tsx", context, name);
+    assert.deepEqual([found.file, found.line], [file, line], `${name} in ${context}`);
+  }
+  await assert.rejects(click("use.tsx", "const total", "total"), /“total” is defined on this line/);
+  await assert.rejects(click("Child.tsx", "Child({ value }", "value"), /“value” is defined on this line/);
+});
+
 test("installed files must stay inside the worktree's node_modules", async t => {
   const outside = await realpath(await mkdtemp(join(tmpdir(), "outside-package-")));
   t.after(() => rm(outside, { recursive: true, force: true }));

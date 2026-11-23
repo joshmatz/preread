@@ -10,6 +10,7 @@ import { diffRows, drawDiff, rowAt } from "./draw-diff";
 import { displayedPatch } from "./whitespace-diff";
 import { AUTO_RENDER_LINES, diffSize } from "./diff-size";
 import { firstChange } from "./diff-context";
+import { definitionNames } from "./definition-names";
 import type { DiffFile } from "diff2html/lib/types";
 
 const mac = /Mac|iPad|iPhone/.test(navigator.platform);
@@ -38,46 +39,56 @@ export function useDefinitionModifier() {
   }, []);
 }
 
-// Diff rows supply their own Git line numbers. In a full file, preserve each
-// token's source position across newlines and nested syntax-highlight spans.
-export function definitionButtons(block: Element) {
-  const source = block.textContent ?? "";
-  const lines = source.split("\n");
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+const highlighted = ".hljs-subst,.hljs-string,.hljs-comment,.hljs-regexp,.hljs-keyword,.hljs-literal,.hljs-variable.language_,.hljs-name";
+function inCode(text: Text) {
+  const kind = text.parentElement?.closest(highlighted);
+  if (!kind || kind.matches(".hljs-subst")) return true;
+  // The highlighter reads a JSX attribute's {expression} as a string.
+  if (kind.matches(".hljs-string")) return kind.textContent!.startsWith("{");
+  // A lowercase JSX tag is an HTML element, defined nowhere in the worktree.
+  if (kind.matches(".hljs-name")) return !/^[a-z][\w-]*$/.test(kind.textContent!);
+  return false;
+}
+
+// A diff comes one hunk side at a time, so a line reads with the lines above it, and its rows
+// supply their own Git line numbers. A full file comes as one block, where each name keeps its
+// source position across newlines and nested syntax-highlight spans.
+export function definitionButtons(run: { line: Element; shown: boolean }[], extension: string) {
+  const source = run.map(({ line }) => line.textContent).join("\n");
+  const names = definitionNames(source, !/^[cm]?ts$/i.test(extension));
+  if (!names.length) return;
+  const breaks = [...source.matchAll(/\n/g)].map(match => match.index);
   const nodes: { text: Text; offset: number }[] = [];
-  let offset = 0;
-  while (walker.nextNode()) {
-    const text = walker.currentNode as Text;
-    nodes.push({ text, offset });
-    offset += text.length;
+  let start = 0;
+  for (const { line, shown } of run) {
+    let offset = start;
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    while (shown && walker.nextNode()) {
+      const text = walker.currentNode as Text;
+      nodes.push({ text, offset });
+      offset += text.length;
+    }
+    start += line.textContent!.length + 1;
   }
   // Work backwards so splitting a node preserves all earlier offsets.
-  let lineEnd = source.length;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    const lineStart = lineEnd - line.length;
-    lineEnd = lineStart - 1;
-    if (line.length > 10_000) continue;
-    const calls = [...line.matchAll(/(?<![\w$])([a-zA-Z_$][\w$]*)(?=\s*(?:\?\.\s*)?(?:<[^<>();]+>\s*)?\()/g)];
-    for (const match of calls.reverse()) {
-      const name = match[0];
-      if (/^(if|for|while|switch|catch|function|return|await|new|typeof|void|throw|import|super|with)$/.test(name)) continue;
-      const position = lineStart + match.index!;
-      while (nodes.length && nodes[nodes.length - 1].offset > position) nodes.pop();
-      const node = nodes.at(-1);
-      if (!node || node.text.parentElement?.closest(".hljs-string,.hljs-comment,.hljs-regexp,.hljs-keyword")) continue;
-      const within = position - node.offset;
-      if (within + name.length > node.text.length) continue;
-      const token = node.text.splitText(within);
-      token.splitText(name.length);
-      const button = document.createElement("button");
-      button.className = "definition-call";
-      button.setAttribute("aria-label", "Open definition of " + name);
-      button.dataset.column = String(match.index);
-      button.dataset.line = String(i + 1);
-      token.replaceWith(button);
-      button.append(token);
-    }
+  let line = breaks.length;
+  for (const { index, name, call } of names.reverse()) {
+    while (line && breaks[line - 1] > index) line--;
+    while (nodes.length && nodes[nodes.length - 1].offset > index) nodes.pop();
+    const node = nodes.at(-1);
+    if (!node || !inCode(node.text)) continue;
+    const within = index - node.offset;
+    if (within + name.length > node.text.length) continue;
+    const token = node.text.splitText(within);
+    token.splitText(name.length);
+    // A drag that starts on a focusable element selects nothing, so only calls take focus and Tab.
+    const target = document.createElement(call ? "button" : "span");
+    target.className = "definition-call";
+    if (call) target.setAttribute("aria-label", "Open definition of " + name);
+    target.dataset.column = String(index - (line ? breaks[line - 1] + 1 : 0));
+    target.dataset.line = String(line + 1);
+    token.replaceWith(target);
+    target.append(token);
   }
 }
 
@@ -226,7 +237,7 @@ const lineCount = (code: string) => Math.max(1, code.split("\n").length - (code.
 
 function SourceCode({ file, line, restore, visit, scroller, onFollow }: {
   file: SourceFile; line?: number; restore?: number; visit: number;
-  scroller: React.RefObject<HTMLDivElement | null>; onFollow: (button: HTMLButtonElement) => void;
+  scroller: React.RefObject<HTMLDivElement | null>; onFollow: (token: HTMLElement) => void;
 }) {
   const count = useMemo(() => lineCount(file.code), [file.code]);
   const numbers = useMemo(() => Array.from({ length: count }, (_, i) => i + 1).join("\n"), [count]);
@@ -240,9 +251,11 @@ function SourceCode({ file, line, restore, visit, scroller, onFollow }: {
   }, [file, line, restore, visit, scroller]);
   const ext = file.file.split(".").at(-1) ?? "";
   const lang = /^[cm]?tsx?$/.test(ext) ? "typescript" : /^[cm]?jsx?$/.test(ext) ? "javascript" : ext;
+  const decorate = useMemo(() => lang === "typescript" || lang === "javascript"
+    ? (block: Element) => definitionButtons([{ line: block, shown: true }], ext) : undefined, [lang, ext]);
   return <div ref={scroller} className="source-scroll" onClick={event => {
-    const button = event.target instanceof Element && event.target.closest<HTMLButtonElement>(".definition-call");
-    if (button && (event.detail === 0 || definitionModifier(event))) onFollow(button);
+    const token = event.target instanceof Element && event.target.closest<HTMLElement>(".definition-call");
+    if (token && (event.detail === 0 || definitionModifier(event))) onFollow(token);
   }}>
     <div className="source-sheet" style={{ "--digits": String(count).length, "--target-row": (line ?? 0) - 1 } as React.CSSProperties}>
       <div className="source-gutter" aria-hidden="true">
@@ -252,7 +265,7 @@ function SourceCode({ file, line, restore, visit, scroller, onFollow }: {
       {line ? <span key={visit} className="source-target" aria-hidden="true" /> : null}
       <pre className="definition-code" aria-label={file.file}>
         <HighlightedCode code={file.code} language={file.code.length > 100_000 ? "plaintext" : lang}
-          decorate={lang === "typescript" || lang === "javascript" ? definitionButtons : undefined} />
+          decorate={decorate} />
       </pre>
     </div>
   </div>;
@@ -265,7 +278,7 @@ type Row = { side: Side; line: number };
 function SourceDiff({ diff, displayed, target, restore, visit, scroller, split, wrap, ignoreWhitespace, onFollow }: {
   diff: FileDiff; displayed: string | DiffFile[]; target?: Row; restore?: number; visit: number;
   scroller: React.RefObject<HTMLDivElement | null>; split: boolean; wrap: boolean; ignoreWhitespace: boolean;
-  onFollow: (button: HTMLButtonElement, at: { file: string; side: Side; line: number }) => void;
+  onFollow: (token: HTMLElement, at: { file: string; side: Side; line: number }) => void;
 }) {
   const sheet = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -301,12 +314,12 @@ function SourceDiff({ diff, displayed, target, restore, visit, scroller, split, 
     });
   }, [diff, displayed, target?.side, target?.line, restore, visit, split, scroller]);
   return <div ref={scroller} className="source-scroll" onClick={event => {
-    const button = event.target instanceof Element && event.target.closest<HTMLButtonElement>(".definition-call");
-    if (!button || !(event.detail === 0 || definitionModifier(event))) return;
-    const key = diffRows(sheet.current!, split).keyOf(button);
+    const token = event.target instanceof Element && event.target.closest<HTMLElement>(".definition-call");
+    if (!token || !(event.detail === 0 || definitionModifier(event))) return;
+    const key = diffRows(sheet.current!, split).keyOf(token);
     if (!key) return;
     const [at, number] = key.split(":") as [Side, string];
-    onFollow(button, { file: at === "old" ? diff.oldPath ?? diff.path : diff.path, side: at, line: Number(number) });
+    onFollow(token, { file: at === "old" ? diff.oldPath ?? diff.path : diff.path, side: at, line: Number(number) });
   }}>
     <div ref={sheet} className={`diff-renderer source-diff${wrap ? " wrap-lines" : ""}`} />
   </div>;
@@ -390,10 +403,10 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
     if (path === place.file) return;
     go({ file: path, side: path.split("/").includes("node_modules") ? place.side : changes.get(path)?.side ?? side });
   }
-  async function follow(button: HTMLButtonElement, at = { file: place.file, side: place.side, line: Number(button.dataset.line) }) {
+  async function follow(token: HTMLElement, at = { file: place.file, side: place.side, line: Number(token.dataset.line) }) {
     const target = new URLSearchParams({ ...source, file: at.file, side: at.side, line: String(at.line),
-      column: button.dataset.column!, name: button.textContent! });
-    const data = await lookupDefinition(target, button);
+      column: token.dataset.column!, name: token.textContent! });
+    const data = await lookupDefinition(target, token);
     if (!data) return;
     setFiles(previous => new Map(previous).set(placeKey(data.file, at.side), data));
     if (data.package) setInstalled(previous => previous.includes(data.file) ? previous : [...previous, data.file]);

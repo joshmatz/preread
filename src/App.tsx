@@ -695,15 +695,15 @@ function DiffView({
       ) : (
         <div className={`diff-renderer ${visible ? "" : "deferred"}${commentable}`} ref={target}
           style={!visible ? { height: retainedHeight } : undefined} onClick={event => {
-            const button = event.target instanceof Element && event.target.closest<HTMLButtonElement>(".definition-call");
-            if (!button) { addComment(event); return; }
+            const token = event.target instanceof Element && event.target.closest<HTMLElement>(".definition-call");
+            if (!token) { addComment(event); return; }
             if (event.detail !== 0 && !definitionModifier(event)) return;
-            const key = diffRows(event.currentTarget, split).keyOf(button);
+            const key = diffRows(event.currentTarget, split).keyOf(token);
             if (!key) return;
             const [side, line] = key.split(":");
             const file = side === "old" ? preview.file.oldPath ?? preview.file.path : preview.file.path;
-            const params = new URLSearchParams({ ...source, file, side, line, column: button.dataset.column!, name: button.textContent! });
-            void lookupDefinition(params, button).then(data =>
+            const params = new URLSearchParams({ ...source, file, side, line, column: token.dataset.column!, name: token.textContent! });
+            void lookupDefinition(params, token).then(data =>
               data && setDefinition({ side: side as Side, data, id: Date.now() }));
           }}
           tabIndex={-1} aria-label={`Diff for ${preview.file.path}${chunkIndex === undefined ? "" : `, section ${chunkIndex + 1}`}`} />

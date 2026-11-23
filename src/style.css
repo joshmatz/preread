@@ -2746,13 +2746,13 @@ dialog.visual-gallery { inset: 16px; width: calc(100vw - 32px); max-width: none;
   cursor: text;
   user-select: text;
 }
-.definition-modifier :is(.diff-renderer, .definition-code) button.definition-call:hover {
+.definition-modifier :is(.diff-renderer, .definition-code) .definition-call:hover {
   cursor: pointer;
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-:is(.diff-renderer, .definition-code) button.definition-call[aria-busy="true"] { cursor: progress; }
+:is(.diff-renderer, .definition-code) .definition-call[aria-busy="true"] { cursor: progress; }
 :is(.diff-renderer, .definition-code) button.definition-call:focus-visible { outline: 2px solid var(--focus); }
 
 .definition-hint {

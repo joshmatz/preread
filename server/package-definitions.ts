@@ -23,8 +23,9 @@ export function lineOf(text: string, pos: number) {
 export const isPackagePath = (file: string) => file.split("/").includes("node_modules");
 export const isBareSpecifier = (spec: string) => !/^(\.{1,2}(\/|$)|\/|[a-z]+:\/\/)/i.test(spec);
 
+// Without `jsx`, the compiler leaves out every .tsx file an import reaches.
 const options: ts.CompilerOptions = {
-  allowJs: true, noLib: true, noEmit: true, types: [], skipLibCheck: true,
+  allowJs: true, jsx: ts.JsxEmit.Preserve, noLib: true, noEmit: true, types: [], skipLibCheck: true,
   esModuleInterop: true, allowSyntheticDefaultImports: true, maxNodeModuleJsDepth: 1,
   module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.Latest,
 };
@@ -129,6 +130,24 @@ const identifierAt = (file: ts.SourceFile, pos: number, name: string): ts.Identi
   return visit(file);
 };
 
+// A prop, an object literal's key or a destructured name stands for a property of the type around it.
+export function propertyOwner(token: ts.Identifier) {
+  const parent = token.parent;
+  if (ts.isJsxAttribute(parent) && parent.name === token) return parent.parent;
+  if ((ts.isPropertyAssignment(parent) || ts.isMethodDeclaration(parent)) && parent.name === token
+    && ts.isObjectLiteralExpression(parent.parent)) return parent.parent;
+  if (ts.isBindingElement(parent) && parent.name === token && !parent.propertyName
+    && ts.isObjectBindingPattern(parent.parent)) return parent.parent;
+}
+
+// A shorthand `{ limit }` stands for the value it copies.
+export function symbolAt(checker: ts.TypeChecker, token: ts.Identifier) {
+  if (ts.isShorthandPropertyAssignment(token.parent)) return checker.getShorthandAssignmentValueSymbol(token.parent);
+  const owner = propertyOwner(token);
+  const type = owner && (ts.isObjectBindingPattern(owner) ? checker.getTypeAtLocation(owner) : checker.getContextualType(owner));
+  return (type && checker.getPropertyOfType(type, token.text)) ?? checker.getSymbolAtLocation(token);
+}
+
 const extensions = [ts.Extension.Dts, ts.Extension.Dmts, ts.Extension.Dcts, ts.Extension.Tsx, ts.Extension.Ts,
   ts.Extension.Mts, ts.Extension.Cts, ts.Extension.Jsx, ts.Extension.Js, ts.Extension.Mjs, ts.Extension.Cjs];
 const extensionOf = (path: string) => extensions.find(extension => path.endsWith(extension)) ?? ts.Extension.Ts;
@@ -190,7 +209,7 @@ function resolveInstalled(root: string, start: { path: string; code: string; pos
   const checker = program.getTypeChecker();
   const source = program.getSourceFile(start.path);
   const token = source && identifierAt(source, start.pos, start.name);
-  let symbol = token && checker.getSymbolAtLocation(token);
+  let symbol = token && symbolAt(checker, token);
   if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
   const declarations = (symbol?.declarations ?? []).filter(node => repo
     ? ts.getNameOfDeclaration(node as ts.Declaration) !== token

@@ -2,10 +2,10 @@ import { Diff2HtmlUI } from "diff2html/lib/ui/js/diff2html-ui-slim.js";
 import type { DiffFile } from "diff2html/lib/types";
 import { refineWordHighlights } from "./diff-highlights";
 import { orderUnifiedChanges } from "./diff-order";
-import { highlightDiff } from "./highlight";
+import { highlightDiff, type Run } from "./highlight";
 
 export function drawDiff(element: HTMLElement, displayed: string | DiffFile[], { split, matching, ignoreWhitespace, decorate }: {
-  split: boolean; matching: "lines" | "none"; ignoreWhitespace: boolean; decorate?: (line: Element) => void;
+  split: boolean; matching: "lines" | "none"; ignoreWhitespace: boolean; decorate?: (run: Run, extension: string) => void;
 }) {
   new Diff2HtmlUI(element, displayed, {
     drawFileList: false,
@@ -42,8 +42,7 @@ export function drawDiff(element: HTMLElement, displayed: string | DiffFile[], {
       if (!change.textContent?.trim()) change.replaceWith(...change.childNodes);
     }
   }
-  highlightDiff(element);
-  if (decorate) element.querySelectorAll(".d2h-code-line-ctn").forEach(decorate);
+  highlightDiff(element, decorate);
 }
 
 export const insertedRows = ".line-comment-row, .line-comment-spacer";

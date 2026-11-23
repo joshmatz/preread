@@ -8,7 +8,7 @@ export { hljs };
 // The language the diff highlights a file in.
 export const pathLanguage = (path: string) => getLanguage(/\.([^./]+)$/.exec(path)?.[1] ?? "");
 
-type Run = { line: HTMLElement; shown: boolean }[];
+export type Run = { line: HTMLElement; shown: boolean }[];
 const blockComments = new Map<string, boolean>();
 const commentLine = /^\s*\*(?:\s|\/|$)/;
 
@@ -63,8 +63,8 @@ function paint(line: HTMLElement, html: string) {
 }
 
 // Replaces Diff2HtmlUI.highlightCode, which highlights each line alone and so
-// loses comments and strings that span lines.
-export function highlightDiff(root: HTMLElement) {
+// loses comments and strings that span lines. `decorate` reads the same runs.
+export function highlightDiff(root: HTMLElement, decorate?: (run: Run, extension: string) => void) {
   for (const file of root.querySelectorAll<HTMLElement>(".d2h-file-wrapper")) {
     const name = getLanguage(file.dataset.lang ?? "");
     const language = hljs.getLanguage(name) ? name : "plaintext";
@@ -79,6 +79,7 @@ export function highlightDiff(root: HTMLElement) {
         for (const run of [old, next]) {
           const html = highlightLines(run.map(({ line }) => line.textContent ?? ""), language);
           run.forEach(({ line, shown }, index) => shown && paint(line, html[index]));
+          if (decorate && run.length) decorate(run, file.dataset.lang ?? "");
         }
         old = [];
         next = [];

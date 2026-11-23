@@ -3,7 +3,8 @@ import ts from "typescript";
 import type { Mode } from "../src/types.ts";
 import { reviewSource, sourceHash } from "./review-source.ts";
 import {
-  installedAt, installedExport, isBareSpecifier, isPackagePath, lineOf, linkedModule, readInstalledFile, typedAt, type PackageInfo,
+  installedAt, installedExport, isBareSpecifier, isPackagePath, lineOf, linkedModule, propertyOwner, readInstalledFile, symbolAt,
+  typedAt, type PackageInfo,
 } from "./package-definitions.ts";
 
 const supported = /\.[cm]?[jt]sx?$/i;
@@ -59,6 +60,7 @@ export async function functionDefinition(path: string, base: string, mode: Mode,
     if (!files.has(file)) throw notFound(name);
     result = await repositoryDefinition();
   }
+  if (result.file === file && result.line === line) throw new Error(`“${name}” is defined on this line.`);
   return {
     ...result, paths: [...files], changes,
     editorTarget: result.package ? sourceHash(result.code) : await editorTarget(result.file, result.code),
@@ -96,6 +98,9 @@ export async function functionDefinition(path: string, base: string, mode: Mode,
     // Imports that leave the repository, tried in installed packages once the repository has no answer.
     const hops: { from: string; spec: string; exported: string }[] = [];
     let origin: string | undefined;
+    let clicked: ts.Identifier | undefined;
+    // A prop or key that declares itself, kept while the types may still name the property it fills.
+    let declared: Location | undefined;
     const visited = new Set<string>();
     async function lookup(p: string, exported?: string): Promise<Location | undefined> {
       const key = JSON.stringify([p, exported]);
@@ -133,15 +138,15 @@ export async function functionDefinition(path: string, base: string, mode: Mode,
           if (ts.isIdentifier(node) && node.getStart(ast) === pos && node.text === name) return node;
           return node.forEachChild(child => child.pos <= pos && pos < child.end ? tokenAt(child) : undefined);
         };
-        const token = tokenAt(ast);
+        const token = (clicked = tokenAt(ast));
         if (!token) return;
         const spec = importedFrom(checker, token);
         if (spec && isBareSpecifier(spec) && !modulePath(p, spec)) origin = spec;
-        if (ts.isPropertyAccessExpression(token.parent) && token.parent.name === token) {
-          const ns = checker.getSymbolAtLocation(token.parent.expression)?.declarations?.[0];
-          if (ns && ts.isNamespaceImport(ns)) return follow(ns.parent.parent.moduleSpecifier, name);
-        }
-        symbol = checker.getSymbolAtLocation(token);
+        const left = ts.isPropertyAccessExpression(token.parent) && token.parent.name === token ? token.parent.expression
+          : ts.isQualifiedName(token.parent) && token.parent.right === token ? token.parent.left : undefined;
+        const ns = left && checker.getSymbolAtLocation(left)?.declarations?.[0];
+        if (ns && ts.isNamespaceImport(ns)) return follow(ns.parent.parent.moduleSpecifier, name);
+        symbol = symbolAt(checker, token);
       }
       let decl = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
       if (!decl) return;
@@ -159,7 +164,12 @@ export async function functionDefinition(path: string, base: string, mode: Mode,
       if (ts.isImportClause(decl)) return follow(decl.parent.moduleSpecifier, "default");
       const implementation = symbol?.declarations?.find(d => ts.isFunctionLike(d) && "body" in d && d.body);
       const target = implementation ?? decl;
-      return { file: p, line: lineOf(text, target.getStart(ast)), code: text };
+      const found = { file: p, line: lineOf(text, target.getStart(ast)), code: text };
+      if (exported === undefined && clicked && ts.getNameOfDeclaration(target) === clicked && propertyOwner(clicked)) {
+        declared = found;
+        return;
+      }
+      return found;
     }
     const found = await lookup(file);
     if (found) return found;
@@ -176,6 +186,7 @@ export async function functionDefinition(path: string, base: string, mode: Mode,
     }
     const typed = typedAt(root, file, pos, name, await nearby());
     if (typed.found) return typed.found;
+    if (declared && !ts.isJsxAttribute(clicked!.parent)) return declared;
     throw missing ? new Error(`“${name}” comes from ${missing}, which isn't installed in this worktree.`) : notFound(name);
 
     // The clicked file and the repository files it imports, two levels deep, as the review shows them.
