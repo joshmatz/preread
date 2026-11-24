@@ -41,6 +41,8 @@
   --code-title: #6851ac;
   --code-comment: #7b8494;
   --code-symbol: #23764a;
+  --find-match: #fbe49a;
+  --find-current: #f6b43c;
   color: var(--text);
   background: var(--canvas);
 }
@@ -78,6 +80,8 @@
   --code-title: #b794fc;
   --code-comment: #838d9c;
   --code-symbol: #59c886;
+  --find-match: #54451c;
+  --find-current: #93600f;
 }
 * {
   box-sizing: border-box;
@@ -2863,7 +2867,30 @@ dialog.source-dialog[open] { display: flex; flex-direction: column; }
 .source-browser.explorer-hidden { grid-template-columns: 0 minmax(0, 1fr); }
 .source-browser > .sidebar-resizer { display: block; position: relative; z-index: 2; height: 100%; }
 .source-browser.explorer-hidden > :is(.source-explorer, .sidebar-resizer) { display: none; }
-.source-pane { grid-area: 1 / 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.source-pane { position: relative; grid-area: 1 / 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.source-find {
+  position: absolute;
+  top: 8px;
+  right: 20px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: min(360px, calc(100% - 28px));
+  padding: 3px 3px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: 0 6px 20px color-mix(in srgb, #15203a 14%, transparent);
+}
+.source-find:focus-within { border-color: var(--focus); }
+.source-find input { flex: 1; padding: 5px 0; border: 0; border-radius: 0; background: transparent; font-size: 12px; }
+.source-find input:focus-visible { outline: none; }
+.source-find-count { padding: 0 6px; color: var(--secondary); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.source-find button { width: 26px; height: 26px; flex: none; color: var(--secondary); }
+.source-find button:not(:disabled):hover { color: var(--text); }
+::highlight(preread-source-find) { background-color: var(--find-match); }
+::highlight(preread-source-find-current) { background-color: var(--find-current); }
 .source-notice { margin: 0; padding: 8px 16px; color: var(--secondary); font-size: 12px; border-bottom: 1px solid var(--border); }
 
 .source-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }

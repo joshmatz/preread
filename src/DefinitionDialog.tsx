@@ -1,8 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ExternalLink, Package, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ExternalLink, Package, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { Popover } from "./Popover";
 import { SourceExplorer, explorerChanges, whenLaidOut, type Reveal } from "./SourceExplorer";
 import { SidebarResizer } from "./SidebarResizer";
+import { SourceFind, type Step } from "./SourceFind";
 import type { ChangedFile, Mode } from "./types";
 import { BriefDialog } from "./BriefDialog";
 import { HighlightedCode } from "./HighlightedCode";
@@ -346,6 +347,10 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
   const [files, setFiles] = useState(() => new Map<string, SourceFile | { error: string }>([[placeKey(initial.file, side), initial]]));
   const [installed, setInstalled] = useState<string[]>(() => initial.package ? [initial.file] : []);
   const [reveal, setReveal] = useState<Reveal>();
+  const [find, setFind] = useState({ open: false, request: 0, query: "" });
+  const findButton = useRef<HTMLButtonElement>(null);
+  const findReturn = useRef<Element | null>(null);
+  const findStep = useRef<Step>(undefined);
   const scroller = useRef<HTMLDivElement>(null);
   const changes = useMemo(() => explorerChanges(initial.changes), [initial]);
   const paths = useMemo(() => [...initial.paths, ...installed], [initial, installed]);
@@ -357,6 +362,8 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
   const displayed = useMemo(() => current?.diff && displayedPatch(current.diff.patch, ignoreWhitespace), [current?.diff, ignoreWhitespace]);
   // With whitespace ignored, a reindented file can have no changed lines left to show.
   const changed = typeof displayed === "string" || !!displayed?.some(file => file.blocks.some(block => block.lines.length));
+  // Changes whenever the pane draws its code again, which leaves no match where it was.
+  const drawn = useMemo(() => ({}), [current, displayed, split]);
 
   useEffect(() => {
     if (files.has(key)) return;
@@ -387,13 +394,17 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
       return { places: [...trail, next], index: trail.length, visit: visit + 1 };
     });
   }
-  const step = useRef(go);
-  step.current = go;
+  const latest = useRef({ go, openFind, finding: find.open });
+  latest.current = { go, openFind, finding: find.open };
   useEffect(() => {
     const keys = (event: KeyboardEvent) => {
-      if (!definitionModifier(event) || event.shiftKey || event.altKey || (event.key !== "[" && event.key !== "]")) return;
+      if (!definitionModifier(event) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "f" && !event.shiftKey) latest.current.openFind();
+      else if (key === "g" && latest.current.finding) findStep.current?.(event.shiftKey ? -1 : 1);
+      else if ((key === "[" || key === "]") && !event.shiftKey) latest.current.go(key === "[" ? -1 : 1);
+      else return;
       event.preventDefault();
-      step.current(event.key === "[" ? -1 : 1);
     };
     addEventListener("keydown", keys);
     return () => removeEventListener("keydown", keys);
@@ -412,6 +423,18 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
     if (data.package) setInstalled(previous => previous.includes(data.file) ? previous : [...previous, data.file]);
     go({ file: data.file, side: at.side, line: data.line });
   }
+  // Selected text on one line becomes the query, as in an editor.
+  function openFind() {
+    const selection = getSelection();
+    const selected = selection && scroller.current?.contains(selection.anchorNode) ? selection.toString() : "";
+    if (!find.open) findReturn.current = document.activeElement;
+    setFind(({ request, query }) => ({ open: true, request: request + 1, query: selected && !selected.includes("\n") ? selected : query }));
+  }
+  function closeFind() {
+    const back = findReturn.current;
+    (back instanceof HTMLElement && back.isConnected && back !== document.body ? back : findButton.current)?.focus({ preventScroll: true });
+    setFind(find => ({ ...find, open: false }));
+  }
   function toggleExplorer(show: boolean) {
     setShowExplorer(show);
     try { localStorage.setItem("preread-source-explorer", show ? "shown" : "hidden"); } catch { /* Optional preference. */ }
@@ -420,6 +443,7 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
   const back = mac ? "⌘[" : "Ctrl+[";
   const forward = mac ? "⌘]" : "Ctrl+]";
   const toggleLabel = showExplorer ? "Hide Explorer" : "Show Explorer";
+  const findKey = mac ? "⌘F" : "Ctrl+F";
   const ToggleIcon = showExplorer ? PanelLeftClose : PanelLeftOpen;
   return <BriefDialog title={place.file + (place.line ? ":" + place.line : "")} fullscreen onClose={onClose}
     closeLabel="Close the source viewer"
@@ -434,8 +458,12 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
       toggleExplorer(true);
       setReveal({ path, folder });
     }} />}
-    actions={current?.editorTarget && editors?.data?.length ? <EditorButton key={place.file} editors={editors.data}
-      url={"/api/open-source?" + params} target={current.editorTarget} line={place.line ?? 1} /> : null}>
+    actions={<>
+      <button ref={findButton} title={`Find in file (${findKey})`} aria-label="Find in file" aria-keyshortcuts={mac ? "Meta+F" : "Control+F"}
+        onClick={openFind}><Search size={16} /></button>
+      {current?.editorTarget && editors?.data?.length ? <EditorButton key={place.file} editors={editors.data}
+        url={"/api/open-source?" + params} target={current.editorTarget} line={place.line ?? 1} /> : null}
+    </>}>
     <div className={"source-browser" + (showExplorer ? "" : " explorer-hidden")}>
       <SourceExplorer paths={paths} changes={changes} file={place.file} reveal={reveal} onSelect={selectFile} />
       <SidebarResizer storageKey="sourceExplorerWidth" label="Resize Explorer" />
@@ -447,6 +475,9 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
           : current ? <SourceCode file={current} line={place.line} restore={place.scrollTop} visit={history.visit}
             scroller={scroller} onFollow={follow} />
           : <p role="status" className="source-notice">{loaded && "error" in loaded ? loaded.error : "Loading source…"}</p>}
+        {/* After the code, so its effects run once the code is drawn and scrolled. */}
+        {find.open && <SourceFind query={find.query} request={find.request} drawn={drawn} split={split} scroller={scroller}
+          stepper={findStep} onQuery={query => setFind(find => ({ ...find, query }))} onClose={closeFind} />}
       </section>
     </div>
   </BriefDialog>;
