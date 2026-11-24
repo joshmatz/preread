@@ -89,6 +89,12 @@ export function whenLaidOut(element: HTMLElement, run: () => void) {
   return () => observer.disconnect();
 }
 
+// A folder row may be stuck to the top, so its branch gives its real position. A file row's parent
+// is its folder's branch.
+export const rowTop = (view: HTMLElement, row: HTMLElement) =>
+  (row.hasAttribute("aria-expanded") ? row.parentElement! : row).getBoundingClientRect().top
+    - view.getBoundingClientRect().top + view.scrollTop;
+
 // The deepest pinned folder draws the shadow, so only the bottom of the pinned stack has one.
 function markStuck(view: HTMLElement) {
   let deepest: HTMLElement | undefined;
@@ -141,9 +147,7 @@ export function SourceExplorer({ paths, changes, file, reveal, onSelect }: {
       const row = view.querySelector<HTMLElement>(`[data-path="${CSS.escape(scroll.path!)}"]`);
       if (!row) return;
       const rowHeight = row.offsetHeight;
-      // A folder row may be stuck to the top; its branch keeps the row's real position.
-      const box = row.parentElement!.classList.contains("tree-branch") ? row.parentElement! : row;
-      const top = box.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop;
+      const top = rowTop(view, row);
       const covered = (Number(row.getAttribute("aria-level")) - 1) * rowHeight;
       if (scroll.block === "start") view.scrollTop = top - covered;
       else if (top < view.scrollTop + covered || top + rowHeight > view.scrollTop + view.clientHeight)
@@ -166,8 +170,7 @@ export function SourceExplorer({ paths, changes, file, reveal, onSelect }: {
       return next;
     });
     // Collapsing a folder pinned at the top would otherwise leave the reader far below it.
-    const top = row.parentElement!.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop;
-    const slot = top - (Number(row.getAttribute("aria-level")) - 1) * row.offsetHeight;
+    const slot = rowTop(view, row) - (Number(row.getAttribute("aria-level")) - 1) * row.offsetHeight;
     if (view.scrollTop > slot) setScroll({ top: slot });
   }
 

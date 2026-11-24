@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
-import { explorerChanges, folderChanges, folderMark } from "../src/SourceExplorer.tsx";
+import { explorerChanges, folderChanges, folderMark, rowTop } from "../src/SourceExplorer.tsx";
 import { functionDefinition } from "../server/definitions.ts";
 import { readInstalledFile } from "../server/package-definitions.ts";
 import { reviewSource, sourceHash } from "../server/review-source.ts";
@@ -287,6 +287,16 @@ test("a folder takes the color of what changed inside it", () => {
   assert.equal(folderMark(folders.get("src/new")!), "A");
   assert.equal(folderMark(folders.get("docs")!), "D");
   assert.equal(folderMark(folders.get("lib")!), "M");
+});
+
+test("the Explorer finds a file row where it is, not where its folder starts", () => {
+  const at = (top: number) => ({ getBoundingClientRect: () => ({ top }) });
+  const tree = { ...at(44), scrollTop: 520 } as unknown as HTMLElement;
+  const file = { ...at(1133), parentElement: at(460), hasAttribute: () => false } as unknown as HTMLElement;
+  assert.equal(rowTop(tree, file), 1609);
+  // A folder row stuck to the top reads its branch, which starts where the row really is.
+  const stuck = { ...at(116), parentElement: at(-300), hasAttribute: (name: string) => name === "aria-expanded" } as unknown as HTMLElement;
+  assert.equal(rowTop(tree, stuck), 176);
 });
 
 test("a workspace package resolves to its source in the review, and its link never reads other worktree files", async t => {

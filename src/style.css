@@ -2983,8 +2983,9 @@ dialog.source-dialog[open] { display: flex; flex-direction: column; }
   background: repeating-linear-gradient(to right, var(--tree-guide) 0 1px, transparent 1px 12px);
   pointer-events: none;
 }
-/* Open folders pin under their parents, so the folders above stay in view in a long list. */
-.tree-branch > .tree-row {
+/* Open folders pin under their parents, so the folders above stay in view in a long list. A folder's file
+   rows are its siblings in the branch: pinned too, they would pile up out of sight under it. */
+.tree-branch > .tree-row[aria-expanded] {
   position: sticky;
   top: calc((var(--level) - 1) * var(--tree-row));
   z-index: calc(40 - var(--level));
