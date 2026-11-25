@@ -12,6 +12,7 @@ import { displayedPatch } from "./whitespace-diff";
 import { AUTO_RENDER_LINES, diffSize } from "./diff-size";
 import { firstChange } from "./diff-context";
 import { definitionNames } from "./definition-names";
+import { diffSyntax } from "./highlight";
 import type { DiffFile } from "diff2html/lib/types";
 
 const mac = /Mac|iPad|iPhone/.test(navigator.platform);
@@ -282,17 +283,19 @@ function SourceDiff({ diff, displayed, target, restore, visit, scroller, split, 
   onFollow: (token: HTMLElement, at: { file: string; side: Side; line: number }) => void;
 }) {
   const sheet = useRef<HTMLDivElement>(null);
+  const syntax = useMemo(() => diffSyntax(diff.patch), [diff.patch]);
   useLayoutEffect(() => {
     const element = sheet.current!;
     const { plus, minus } = diffSize(diff.patch);
     drawDiff(element, displayed, {
       split, ignoreWhitespace, matching: plus + minus < AUTO_RENDER_LINES ? "lines" : "none",
       decorate: scripts.test(diff.path) ? definitionButtons : undefined,
+      syntax,
     });
     // The whole file is one block, so its heading would only repeat the line counts.
     for (const heading of element.querySelectorAll("td.d2h-info")) heading.closest("tr")!.remove();
     return () => { element.innerHTML = ""; };
-  }, [diff, displayed, split, ignoreWhitespace]);
+  }, [diff, displayed, split, ignoreWhitespace, syntax]);
   useLayoutEffect(() => {
     const pane = scroller.current!;
     const element = sheet.current!;

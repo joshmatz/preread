@@ -101,6 +101,7 @@ import {
 } from "./diff-context";
 import { DefinitionDialog, definitionButtons, useDefinitionModifier, definitionModifier, lookupDefinition, openSourceFile, type Definition, type Side } from "./DefinitionDialog";
 import { changeFrom, diffRows, drawDiff, insertedRows, rowAt } from "./draw-diff";
+import { diffSyntax, pathLanguage, type DiffSyntax } from "./highlight";
 import "./style.css";
 
 const params = new URLSearchParams(location.search);
@@ -350,6 +351,7 @@ function DiffView({
   context,
   onContextChange,
   loadContext,
+  syntaxForFile,
   expandable = true,
   searchMatch,
   onSearchReady,
@@ -359,7 +361,8 @@ function DiffView({
   chunkIndex?: number;
   comments?: DiffComments;
   expandable?: boolean;
-  loadContext?: (signal: AbortSignal) => Promise<Diff>;
+  loadContext?: (signal?: AbortSignal) => Promise<Diff>;
+  syntaxForFile?: () => Promise<DiffSyntax | undefined>;
   searchMatch?: { match: SearchMatch; version: number };
   onSearchReady?: (row: HTMLElement) => void;
   preview: FilePreview;
@@ -396,6 +399,22 @@ function DiffView({
   else if (preview.diff.empty)
     message = "No text changes. This file may be empty or have a mode change.";
   const drawsRows = chunks.length === 1;
+  const { path, oldPath } = preview.file;
+  const contextHash = preview.contextHash ?? preview.diff.hash;
+  const readFull = useCallback((signal?: AbortSignal) => loadContext ? loadContext(signal) : request<Diff>(
+    "context",
+    { path: source.path, base: source.base, mode: source.mode, version: source.version, file: path, hash: contextHash },
+    signal,
+  ), [loadContext, source.path, source.base, source.mode, source.version, path, contextHash]);
+  const readSyntax = useMemo(() => {
+    if (syntaxForFile) return syntaxForFile;
+    if (pathLanguage(path) === "plaintext" && (!oldPath || pathLanguage(oldPath) === "plaintext")) return undefined;
+    let pending: Promise<DiffSyntax | undefined> | undefined;
+    // All visible chunks of this file use the same tokenization and context request.
+    return () => pending ??= Promise.resolve().then(() =>
+      diffSyntax(preview.diff.patch) ?? readFull().then(({ patch }) => diffSyntax(patch)),
+    ).catch(() => undefined);
+  }, [syntaxForFile, path, oldPath, preview.diff.patch, readFull]);
   // The drawing and the comment anchors read one result: whitespace matching can time out, so two runs may differ.
   const shownCache = useRef<{ patch: string; ignoreWhitespace: boolean; value: ReturnType<typeof displayedPatch> } | null>(null);
   const shown = () => {
@@ -496,11 +515,7 @@ function DiffView({
     try {
       let model = context;
       if (!model) {
-        const expanded = await (loadContext ? loadContext(signal) : request<Diff>(
-          "context",
-          { ...source, file: preview.file.path, hash: preview.contextHash ?? preview.diff.hash },
-          signal,
-        ));
+        const expanded = await readFull(signal);
         model = createContextModel(preview.diff.patch, expanded.patch);
       }
       if (!signal.aborted) {
@@ -550,6 +565,7 @@ function DiffView({
       ignoreWhitespace,
       matching: chunkIndex !== undefined || size.deferred ? "none" : "lines",
       decorate: !loadContext && /\.[cm]?[jt]sx?$/i.test(preview.file.path) ? definitionButtons : undefined,
+      syntax: readSyntax?.(),
     });
     // A type change diffs as a deletion plus an addition, which share no context.
     const gaps =
@@ -632,7 +648,7 @@ function DiffView({
       element.innerHTML = "";
       clearThreads();
     };
-  }, [patch, split, visible, context, ignoreWhitespace, expandable, chunkIndex, searchMatch, onSearchReady]);
+  }, [patch, split, visible, context, ignoreWhitespace, expandable, chunkIndex, searchMatch, onSearchReady, readSyntax]);
   useEffect(() => {
     if (target.current && visible) syncThreads(target.current);
   }, [threadKey, visible]);
@@ -689,7 +705,7 @@ function DiffView({
           preview={{ ...preview, diff: { ...preview.diff, patch: chunk } }}
           chunkIndex={index} eager={eager && index === 0} split={split} wrap={wrap}
           ignoreWhitespace={ignoreWhitespace} source={source} context={null}
-          onContextChange={onContextChange} loadContext={loadContext} expandable={false}
+          onContextChange={onContextChange} loadContext={loadContext} syntaxForFile={readSyntax} expandable={false}
           searchMatch={searchMatch?.match.chunk === index ? searchMatch : undefined}
           onSearchReady={onSearchReady} comments={comments} />)
       ) : (
@@ -757,13 +773,13 @@ function SinceViewedFile({ preview, section, source, split, wrap, ignoreWhitespa
       .catch((cause) => { if (!abort.signal.aborted) setError(cause.message); });
     return () => abort.abort();
   }, [values, retry]);
-  const loadContext = async (signal: AbortSignal) => {
+  const loadContext = useCallback(async (signal?: AbortSignal) => {
     const full = await request<SinceViewed>("since-viewed", { ...JSON.parse(values), context: "full" }, signal);
     if (!full.diff) throw new Error(full.message);
     if (full.diff.tooLarge)
       throw new Error("This file is too large to expand here. Open it locally for the full context.");
     return full.diff;
-  };
+  }, [values]);
   if (error) return <p className="warning" role="alert">{error}{" "}
     <button onClick={() => setRetry((value) => value + 1)}>Retry comparison</button></p>;
   if (!result) return <Loading>Comparing with the last viewed version…</Loading>;

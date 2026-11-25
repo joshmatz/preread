@@ -1,10 +1,71 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { highlightLines } from "../src/highlight.ts";
+import { createTwoFilesPatch, structuredPatch, formatPatch } from "diff";
+import { diffSyntax, highlightLines } from "../src/highlight.ts";
 
 const comment = (html: string) =>
   html.startsWith('<span class="hljs-comment">') && html.endsWith("</span>");
 const balanced = (html: string) => html.split("<span").length === html.split("</span>").length;
+
+test("a clipped hunk gets its string and comment state from each version of the file", () => {
+  const before = [
+    "const prompt = `",
+    "Read only.",
+    "Use the available tools.",
+    "Check the source.",
+    "List the files you read.",
+    "Summarize the result.",
+    "Say what you could not confirm.",
+    "`",
+    "/** Returns the available tools. */",
+    "export const tools = [read];",
+  ].join("\n") + "\n";
+  const after = before.replace("Read only.", "Read from the index.\nRead from the working tree.")
+    .replace("[read]", "[read, search]");
+  // Select the later hunk, as a grouped review or a chunk can do.
+  const clipped = structuredPatch("a/tools.ts", "b/tools.ts", before, after, undefined, undefined, { context: 2 });
+  assert.equal(clipped.hunks.length, 2);
+  clipped.hunks.shift();
+  assert.equal(diffSyntax(formatPatch(clipped)), undefined);
+
+  const full = formatPatch(structuredPatch("a/tools.ts", "b/tools.ts", before, after, undefined, undefined, { context: Infinity }));
+  const syntax = diffSyntax(full);
+  assert.ok(syntax);
+  const [{ oldStart, newStart }] = clipped.hunks;
+  for (const [side, start] of [["old", oldStart], ["new", newStart]] as const) {
+    const [close, doc, code] = syntax[side].slice(start - 1);
+    assert.match(close.html, /^<span class="hljs-string">`<\/span>$/);
+    assert.ok(comment(doc.html));
+    assert.match(code.html, /^<span class="hljs-keyword">export<\/span>/);
+  }
+  assert.equal(syntax.old[oldStart + 1].text, "export const tools = [read];");
+  assert.equal(syntax.new[newStart + 1].text, "export const tools = [read, search];");
+});
+
+test("edits inside a template literal stay string-colored across hidden lines", () => {
+  const before = [
+    "export const guide = `",
+    "Options",
+    "A person's pick makes one call.",
+    "Keep the original option available.",
+    "Summarize the result.",
+    "Activity",
+    "Record when the task ran.",
+    "People can read the activity later.`;",
+  ].join("\n") + "\n";
+  const after = before.replace("one call", "every call with no step between them")
+    .replace("Record when the task ran.", "Record each check with its answer.");
+  const patch = (context: number) =>
+    createTwoFilesPatch("a/guide.ts", "b/guide.ts", before, after, undefined, undefined, { context });
+  assert.equal(diffSyntax(patch(1)), undefined);
+  const syntax = diffSyntax(patch(Infinity));
+  assert.ok(syntax);
+  for (const side of ["old", "new"] as const) {
+    for (const line of [3, 7]) {
+      assert.match(syntax[side][line - 1].html, /^<span class="hljs-string">[^<]+<\/span>$/);
+    }
+  }
+});
 
 test("every line of a doc comment is highlighted as a comment", () => {
   const lines = highlightLines(
