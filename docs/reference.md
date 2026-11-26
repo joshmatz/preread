@@ -2,11 +2,21 @@
 
 ## Reviewing
 
-Mark a file **Viewed** to collapse it, or use **Mark all viewed** for a whole group. A group counts as reviewed when all of its files are Viewed, and a review is complete when every group is, including Other changes. The collection view shows progress for every review and rechecks it each time you open it.
+Mark a file **Viewed** to collapse it, or use **Mark all viewed** for a whole group. Once a group's header scrolls away, a bar at the top keeps the group's name and **Mark all viewed**, which folds the group and moves on to the next one. **Mark review viewed** beside the review's title marks every group left in it; in a collection with an overview, the top bar carries it as **Mark part viewed**. The collection page marks the whole collection. A group counts as reviewed when all of its files are Viewed, and a review is complete when every group is, including Other changes. The collection view shows progress for every review and rechecks it each time you open it.
 
 Viewed marks belong to the changes you read in a worktree, not to the review they appear in, so they carry over when a review moves to a new base. When a group shows only part of a file, its mark covers just that part, and edits elsewhere in the file leave it alone. When the changes you read are edited, the mark clears and the group needs reading again. Marks are saved in Preread’s data directory, so every browser using the server shares them. **Mark all viewed** also writes a receipt to disk, so another browser starts from it.
 
 Reviewed is a reading checkpoint. It doesn't approve anything on GitHub, and it isn't permission to push.
+
+## Following code
+
+In a JavaScript or TypeScript file, ⌘-click a name to open where it's defined (Ctrl-click off a Mac): a call, a constant, a type, a component, a prop, or a property. Holding the key underlines what you can follow. A name with no definition, or one clicked where it's declared, says so instead. A call into an installed package opens the package's source, with its name and version beside the path.
+
+Definitions open in a full-window source viewer of the worktree as the review shows it. A changed file shows as one whole-file diff in your layout and whitespace settings, and an unchanged file shows plain source. A file card's **Open in the source viewer** button opens its file at the change you were reading. The Explorer beside the code is the whole worktree, with changed folders colored and counted.
+
+- ⌘F finds text in the open file. Enter and ⇧Enter, or ⌘G and ⇧⌘G, step through the matches, and the search carries to the next file you open.
+- ⌘[ and ⌘] go back and forward through the places you opened.
+- **Open in VS Code**, Cursor, or Zed, or **Reveal in Finder**, shows while the file on disk matches what the viewer shows.
 
 ## Comments for your agent
 

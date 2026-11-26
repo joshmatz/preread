@@ -15,13 +15,14 @@
 <p align="center">
   <a href="#quick-start"><strong>Quick start</strong></a> ·
   <a href="#put-your-agent-on-it">Agent skill</a> ·
+  <a href="#how-i-use-it">How I use it</a> ·
   <a href="docs/collections.md">Collections</a> ·
   <a href="#your-code-stays-on-your-machine">Privacy</a>
 </p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/review-dark.png">
-  <img alt="Preread showing a review titled Retry failed webhook deliveries. The outline lists three described change groups plus Other changes. The first group is marked All viewed and collapsed; the second group's diff is open below it." src="docs/screenshots/review-light.png">
+  <img alt="Preread showing part 1 of 3 of a feature, Retry failed webhook deliveries. The Contents rail lists the feature overview and each part with its sections and change groups. Below the title, the linked pull request is open with 4 checks passed, and a banner says your agent replied to a comment. The first change group is marked All viewed and collapsed; the second group's diff is open below it." src="docs/screenshots/review-light.png">
 </picture>
 
 ## Your agents write faster than you can read
@@ -33,29 +34,31 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 ## How it works
 
 1. **Your agents work in worktrees.** One agent or ten, in one repository or several. Preread reads any Git checkout, whatever wrote the code.
-2. **Your agent writes the reading list.** A collection is a short manifest of reviews. Each names a worktree, the base to compare it with, and change groups that give each part of the diff a title and a note on what to check. It can open with an overview that tells the story and asks what the agent needs to know. The included [agent skill](skills/preread/SKILL.md) teaches your agent to write one and hand you the link.
-3. **You read.** Mark files Viewed as you go. A group is reviewed when all of its files are Viewed, and a review is complete when all of its groups are. If the code changes after you've read it, it goes back on your list.
+2. **Your agent writes the reading list.** A collection is a short manifest of reviews, usually one for each pull request the work will ship as. Each names a worktree, the base to compare it with, and change groups that give each part of the diff a title and a note on what to check. The feature, and each of its pull requests, can open with an overview that tells the story and asks what the agent needs to know. The included [agent skill](skills/preread/SKILL.md) teaches your agent to write one and hand you the link.
+3. **You read.** Start with the overview, open the code it points to, and mark files Viewed as you go. A group is reviewed when all of its files are Viewed, and a review is complete when all of its groups are. If the code changes after you've read it, it goes back on your list, showing only what changed.
 4. **Your agent reads your feedback and replies.** Answers, approved excerpts, and comments you leave in an overview or on the code are saved for your agent, which collects what is waiting on it with `pnpm feedback` and replies under each item. You reply back, and either of you resolves the thread when it’s settled.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/collection-dark.png">
-  <img alt="The collection view for Webhook delivery reliability: a progress bar reading 1 of 3 items reviewed, and a card for each review with its description and reviewed-group count." src="docs/screenshots/collection-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
+  <img alt="The feature overview for Webhook delivery reliability. The Contents rail lists its sections and its three parts with their progress. Below a short status, an architecture diagram of the delivery pipeline colors and tags each piece by the part that changes it. A Needs your attention panel lists an agent reply, an open question, an excerpt to approve, and the next code group." src="docs/screenshots/overview-light.png">
 </picture>
 
 ## What makes it different
 
-- **A feature overview before the code.** A freely authored page combines Markdown, multiple-choice questions, code excerpts, comments on selected passages, and local images, GIFs, and charts that open full screen to zoom, pan, or scrub. Each review can have its own overview for the pull request it ships as, a tab away from its code. A Contents rail lists every part with its review status and the open overview’s sections, and each section ends with the code groups it explains, ready to open or mark reviewed. Open one and **Back** returns you to the same spot in the overview. Answers and excerpt approvals stay with the content you read, and your agent collects them, with your comments, through `pnpm feedback`.
+- **A feature overview before the code.** Your agent can open the feature, and each pull request in it, with a page that tells the story: Markdown, questions for you to answer, code excerpts for you to approve, call trees that fold like an outline, and local images, GIFs, and diagrams that open full screen to zoom, pan, or scrub. A Contents rail lists every part with its review status. Each section ends with the code groups it explains, ready to open or mark reviewed. The code opens in the same frame, and **Back** returns you to your place in the overview.
+- **Change groups that say what to check.** Each one pairs files, or single hunks, with a title and a description in Markdown. A curated review shows only the hunks its groups select, so other work in the same files stays out of it. A review of the whole comparison puts anything unassigned under Other changes, so nothing hides.
+- **Follow any name to its definition.** ⌘-click a call, constant, type, component, or prop in JavaScript or TypeScript to open where it's defined, in a full-window viewer of the worktree as the review shows it. Calls into installed packages open too, with the package's name and version. A changed file reads there as one whole-file diff, beside an Explorer of the whole worktree, Find, Back and Forward, and a button that opens the line in your editor.
+- **Comments that stay with the code.** Comment on a line, a file, or a passage of an overview, in Markdown with syntax-colored code; a comment on an overview can carry screenshots you paste or drop in. A comment on a line follows it when edits move it, and your agent's replies appear under it within a second.
+- **Re-reads show only what changed.** A Viewed mark is tied to the diff you read. When that diff changes, the mark clears, and the group reopens on just the changes since you viewed it.
 - **One reading list across worktrees.** A collection spans worktrees and repositories. Each review has its own base, so a stacked branch shows only its own layer.
-- **Change groups that say what to check.** Each one pairs files, or single hunks, with a title and a short description. Anything unassigned lands in Other changes, so nothing hides.
-- **Progress that follows the code.** A Viewed mark is tied to the diff you read. When that diff changes, the mark clears and its group reopens.
+- **The pull request, once you open one.** Link a review to its GitHub pull request to see its state, checks, and review decision in the review picker, and whether your local head and base still match it.
 - **Updates on your agent's cue.** After a change, your agent runs `pnpm refresh`, and the page you have open re-reads in place and keeps your scroll position and your marks.
 - **Any stage of the work.** Branch commits, branch plus local edits, uncommitted changes, or staged changes.
-- **The pull request, once you open one.** Link a review to its GitHub pull request to see its state, checks, and review decision, and whether your local head and base still match it.
-- **A diff reader built for long reads.** Unified or split view, syntax highlighting, line wrapping, ignore whitespace, expandable context, before-and-after images, and comments on lines and files that your agent replies to.
+- **A diff reader built for long reads.** Unified or split view, syntax highlighting that reads the whole file, line wrapping, ignore whitespace, expandable context, and before-and-after images. The file outline shows folders, each file's kind, and a meter of its changed lines, and the line count keeps runtime code apart from tests and lockfiles. Deep in a long group, a bar at the top keeps the group's name and **Mark all viewed** in reach.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/split-dark.png">
-  <img alt="Split view of a stacked review whose base is the retry branch, so it shows only the dashboard layer: a table gains an Attempts column and a RetryBadge cell." src="docs/screenshots/split-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/source-viewer-dark.png">
+  <img alt="The source viewer after ⌘-clicking markRetrying in a diff. deliveries.ts opens at the function's definition as one whole-file diff, beside an Explorer of the worktree that marks changed files, with Back, Forward, Find, and Open in Cursor along the top." src="docs/screenshots/source-viewer-light.png">
 </picture>
 
 ## Quick start
@@ -111,6 +114,39 @@ If your agent runs in a desktop app with a built-in browser, such as the Codex o
 
 Rather write collections yourself? The [collections guide](docs/collections.md) covers the format.
 
+## How I use it
+
+I run several agents at once, each in its own worktree, and nothing gets pushed until I've read it in Preread. A feature usually goes like this:
+
+1. **Plan in an overview.** Before much code exists, I ask for a feature overview: what changes for the people who use it, a mockup or diagram, and each decision I need to make as a question with a recommended answer. I answer in the page, and the agent picks up my answers with `pnpm feedback`.
+2. **Build in worktrees.** Each agent builds in its own worktree and splits the work into pull requests of about 1,000 lines. Nothing is pushed yet.
+3. **"Show me in Preread."** The agent writes one review per pull request, each based on the branch below it, and gives each its own overview. Every description opens with what goes wrong today and what changes. Tests sit in their own groups, and each interface change comes with a recording of the real app. Where one of my decisions is the reason something works the way it does, the overview quotes me, with the date.
+4. **A first read I don't have to do.** For a feature over about 3,000 lines of code outside tests, agents with no chat history each read one area first. They list code to delete, guards with no shown need, and every place they had to stop and look something up. The lead agent fixes what holds up before it hands me the link.
+5. **Read.** The review opens in the browser built into my agent app, beside the conversation. Tests, fakes, lockfiles, snapshots, and generated files are already marked Viewed, so what's left is the logic. I read the overview, open the code it links, ⌘-click anything I don't recognize, and comment wherever something's off.
+6. **Feedback and a re-read.** I tell the agent I left comments. It reads them, fixes the code, replies under each one, and refreshes my page. Each group it changed reopens on just what changed since I viewed it.
+7. **Ship.** "Reviewed in Preread. Open the PRs." Only now does the agent push. A stack goes up one layer at a time, each once the one below is green, and each review links its pull request so the picker shows its checks.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/comments-dark.png">
+  <img alt="A comment on a line of worker.ts asks what happens when the endpoint times out. The agent's reply under it quotes the line as syntax-colored code and names the test that covers it, with Reply and Resolve below." src="docs/screenshots/comments-light.png">
+</picture>
+
+Someone else's pull request goes through the same loop: my agent checks the branch out into a worktree and writes the reading list. For design work on side projects, I often read only the overview and its recordings.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/gif-viewer-dark.png">
+  <img alt="A recording from the feature overview, open full screen. It shows a deliveries page paused at 0:08.7 of 0:14.3, where a tooltip on a Retrying in 2 min badge reads Attempt 2 of 8. A play button and a timeline to scrub run along the bottom, above the zoom controls." src="docs/screenshots/gif-viewer-light.png">
+</picture>
+
+The skill already does most of this. My own agent instructions add the rest:
+
+```text
+Don't push or open a pull request until I've read the work in Preread and said so.
+Before you hand over a review, mark Viewed each file that holds no logic: tests, fakes, lockfiles, snapshots, and generated files.
+For a feature over about 3,000 lines of code outside tests, have agents with no chat history read each area first, and fix what holds up before you hand it to me.
+Where a decision of mine is the reason for a behavior, quote my words there, with the date.
+```
+
 ## Your code stays on your machine
 
 Preread runs where the code is. It only reads your repositories: it never checks out, stages, commits, fetches, or pushes, and it never sends your code anywhere. Apart from Git filling in a partial clone, described below, its only network calls are optional pull request status reads through the GitHub CLI.
@@ -127,7 +163,7 @@ Git still applies a repository's own clean filters when it reads working-tree fi
 
 - [Overviews](docs/briefs.md): writing feature and part overviews, collecting answers and passage comments, and handing feedback to your agent.
 - [Collections](docs/collections.md): the manifest format, the CLI, and how imports are checked.
-- [Reference](docs/reference.md): reviewing, keeping pages current, configuration, and limits.
+- [Reference](docs/reference.md): reviewing, following code to its definitions, comments, keeping pages current, configuration, and limits.
 - [DESIGN.md](DESIGN.md): the interface decisions.
 - [AGENTS.md](AGENTS.md): rules for agents working on this repository.
 
