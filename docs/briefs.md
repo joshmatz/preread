@@ -124,9 +124,10 @@ Give it the language `call-tree`, on a code block or a fence, and the reader see
 
 ## Write for a person
 
-The reader decides from the brief and opens code only to check it. Put the state of the work and the decisions on the first screen.
+The reader decides from the brief and opens code only to check it. Put the problem, what changes, and the decisions on the first screen.
 
-- Start with where the work stands: what is built and tested, what is pushed, and the steps outside the code, such as keys, vendor settings, templates, or a live test.
+- Start with the problem, told as one named example, and then what changes for the people who use the product. Don’t open with a status section such as "Where it stands": the last line of the description says what is built, tested, and pushed, and the brief shows it under its title.
+- Give the steps outside the code, such as keys, vendor settings, templates, or a live test, their own section, and only when there are any.
 - Spend the words where consequences spread: migrations, changes to features people already use, the overall experience, how the parts fit together, and how data is protected. Give each technical decision its reason and the option it beat.
 - Let a recording of the real app stand in for a review of interface code, and leave tests out of the brief.
 - Give each user journey its own section: two short paragraphs on what changes for the people who use it, then a recording of the real app and at most one diagram. Keep a section under about 150 words.
