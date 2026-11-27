@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ExternalLink, Package, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ExternalLink, FoldVertical, Package, PanelLeftClose, PanelLeftOpen, Search, UnfoldVertical } from "lucide-react";
 import { Popover } from "./Popover";
 import { SourceExplorer, explorerChanges, whenLaidOut, type Reveal } from "./SourceExplorer";
 import { SidebarResizer } from "./SidebarResizer";
@@ -7,13 +7,13 @@ import { SourceFind, type Step } from "./SourceFind";
 import type { ChangedFile, Mode } from "./types";
 import { BriefDialog } from "./BriefDialog";
 import { HighlightedCode } from "./HighlightedCode";
-import { diffRows, drawDiff, rowAt } from "./draw-diff";
+import { diffRows, drawDiff, foldOver, foldRemoved, rowAt, setFolded } from "./draw-diff";
 import { displayedPatch } from "./whitespace-diff";
 import { AUTO_RENDER_LINES, diffSize } from "./diff-size";
 import { firstChange } from "./diff-context";
 import { definitionNames } from "./definition-names";
 import { diffSyntax } from "./highlight";
-import type { DiffFile } from "diff2html/lib/types";
+import { LineType, type DiffFile } from "diff2html/lib/types";
 
 const mac = /Mac|iPad|iPhone/.test(navigator.platform);
 export const definitionModifier = (event: { metaKey: boolean; ctrlKey: boolean }) =>
@@ -277,8 +277,23 @@ const scripts = /\.[cm]?[jt]sx?$/i;
 
 type Row = { side: Side; line: number };
 
-function SourceDiff({ diff, displayed, target, restore, visit, scroller, split, wrap, ignoreWhitespace, onFollow }: {
-  diff: FileDiff; displayed: string | DiffFile[]; target?: Row; restore?: number; visit: number;
+// The first row in view, kept in place while rows above it fold or open. A fold's row gives way to
+// the first line it held.
+function holdPlace(pane: HTMLElement, element: HTMLElement) {
+  const top = pane.getBoundingClientRect().top;
+  const row = [...element.querySelectorAll<HTMLTableRowElement>(".d2h-diff-tbody > tr")]
+    .find(row => row.getBoundingClientRect().bottom > top);
+  if (!row) return () => {};
+  const offset = row.getBoundingClientRect().top - top;
+  const held = row.matches(".removed-fold") ? row.nextElementSibling : null;
+  return () => {
+    const shown = row.isConnected ? foldOver(row)?.markers[0] ?? row : held;
+    if (shown) pane.scrollTop += shown.getBoundingClientRect().top - top - offset;
+  };
+}
+
+function SourceDiff({ diff, displayed, line, change, collapse, restore, visit, scroller, split, wrap, ignoreWhitespace, onFollow }: {
+  diff: FileDiff; displayed: string | DiffFile[]; line?: Row; change?: Row; collapse: boolean; restore?: number; visit: number;
   scroller: React.RefObject<HTMLDivElement | null>; split: boolean; wrap: boolean; ignoreWhitespace: boolean;
   onFollow: (token: HTMLElement, at: { file: string; side: Side; line: number }) => void;
 }) {
@@ -297,26 +312,47 @@ function SourceDiff({ diff, displayed, target, restore, visit, scroller, split, 
     return () => { element.innerHTML = ""; };
   }, [diff, displayed, split, ignoreWhitespace, syntax]);
   useLayoutEffect(() => {
+    if (!collapse) return;
+    const element = sheet.current!;
+    const pane = scroller.current!;
+    const keep = holdPlace(pane, element);
+    const unfold = foldRemoved(element, split);
+    keep();
+    return () => {
+      const keep = holdPlace(pane, element);
+      unfold();
+      keep();
+    };
+  }, [diff, displayed, split, ignoreWhitespace, syntax, collapse]);
+  useLayoutEffect(() => {
     const pane = scroller.current!;
     const element = sheet.current!;
     return whenLaidOut(pane, () => {
       for (const row of element.querySelectorAll(".source-target-row")) row.classList.remove("source-target-row");
+      const target = line ?? change;
       const row = target && rowAt(element, split, target.side, target.line);
-      if (row) {
+      const fold = foldOver(row);
+      // A definition or comment opens the fold over its line; the change a card was at lands on the fold.
+      if (fold && line) setFolded(fold, false);
+      let marked: Element[] = [];
+      if (fold && !line) marked = fold.markers;
+      else if (row) {
         const { sides } = diffRows(element, split);
         const table = sides.findIndex(rows => rows.includes(row));
         const index = sides[table].indexOf(row);
-        // Reflow between removing and adding the class, so the arrival animation replays.
-        void element.offsetWidth;
-        for (const rows of split ? [sides[table], sides[table ^ 1]] : [sides[table]]) rows?.[index]?.classList.add("source-target-row");
+        marked = (split ? [sides[table], sides[table ^ 1]] : [sides[table]]).flatMap(rows => rows?.[index] ?? []);
       }
+      // Reflow between removing and adding the class, so the arrival animation replays.
+      void element.offsetWidth;
+      for (const each of marked) each.classList.add("source-target-row");
       const first = firstChange(diff.patch);
-      const anchor = row || (first && rowAt(element, split, first.side, first.line));
+      const start = marked[0] ?? (first && rowAt(element, split, first.side, first.line));
+      const anchor = foldOver(start)?.markers[0] ?? start;
       const top = anchor ? anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop : 0;
       pane.scrollLeft = 0;
       pane.scrollTop = restore ?? (anchor ? top - pane.clientHeight / 3 : 0);
     });
-  }, [diff, displayed, target?.side, target?.line, restore, visit, split, scroller]);
+  }, [diff, displayed, line?.side, line?.line, change?.side, change?.line, restore, visit, split, scroller]);
   return <div ref={scroller} className="source-scroll" onClick={event => {
     const token = event.target instanceof Element && event.target.closest<HTMLElement>(".definition-call");
     if (!token || !(event.detail === 0 || definitionModifier(event))) return;
@@ -339,6 +375,9 @@ const explorerShown = () => {
   } catch { /* Optional preference. */ }
   return window.innerWidth > 580;
 };
+const removedCollapsed = () => {
+  try { return localStorage.getItem("preread-source-removed") === "collapsed"; } catch { return false; }
+};
 
 export function DefinitionDialog({ source, side, initial, change, split, wrap, ignoreWhitespace, onClose }: {
   source: DefinitionSource; side: Side; initial: Definition; change?: Row; split: boolean; wrap: boolean; ignoreWhitespace: boolean;
@@ -346,6 +385,7 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
 }) {
   const editors = useRead<string[]>("/api/editors");
   const [showExplorer, setShowExplorer] = useState(explorerShown);
+  const [collapse, setCollapse] = useState(removedCollapsed);
   const [history, setHistory] = useState({ places: [{ file: initial.file, side, line: initial.line, change }] as Place[], index: 0, visit: 0 });
   const [files, setFiles] = useState(() => new Map<string, SourceFile | { error: string }>([[placeKey(initial.file, side), initial]]));
   const [installed, setInstalled] = useState<string[]>(() => initial.package ? [initial.file] : []);
@@ -365,6 +405,8 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
   const displayed = useMemo(() => current?.diff && displayedPatch(current.diff.patch, ignoreWhitespace), [current?.diff, ignoreWhitespace]);
   // With whitespace ignored, a reindented file can have no changed lines left to show.
   const changed = typeof displayed === "string" || !!displayed?.some(file => file.blocks.some(block => block.lines.length));
+  const removable = useMemo(() => typeof displayed === "string" ? diffSize(displayed).minus > 0
+    : !!displayed?.some(file => file.blocks.some(block => block.lines.some(line => line.type === LineType.DELETE))), [displayed]);
   // Changes whenever the pane draws its code again, which leaves no match where it was.
   const drawn = useMemo(() => ({}), [current, displayed, split]);
 
@@ -442,12 +484,18 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
     setShowExplorer(show);
     try { localStorage.setItem("preread-source-explorer", show ? "shown" : "hidden"); } catch { /* Optional preference. */ }
   }
+  function toggleRemoved(next: boolean) {
+    setCollapse(next);
+    try { localStorage.setItem("preread-source-removed", next ? "collapsed" : "shown"); } catch { /* Optional preference. */ }
+  }
 
   const back = mac ? "⌘[" : "Ctrl+[";
   const forward = mac ? "⌘]" : "Ctrl+]";
   const toggleLabel = showExplorer ? "Hide Explorer" : "Show Explorer";
   const findKey = mac ? "⌘F" : "Ctrl+F";
   const ToggleIcon = showExplorer ? PanelLeftClose : PanelLeftOpen;
+  const removedLabel = !removable ? "No removed lines in this file" : collapse ? "Show removed lines" : "Collapse removed lines";
+  const RemovedIcon = collapse ? UnfoldVertical : FoldVertical;
   return <BriefDialog title={place.file + (place.line ? ":" + place.line : "")} fullscreen onClose={onClose}
     closeLabel="Close the source viewer"
     leading={<div className="source-history">
@@ -462,6 +510,8 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
       setReveal({ path, folder });
     }} />}
     actions={<>
+      <button title={removedLabel} aria-label={removedLabel} disabled={!removable}
+        onClick={() => toggleRemoved(!collapse)}><RemovedIcon size={16} /></button>
       <button ref={findButton} title={`Find in file (${findKey})`} aria-label="Find in file" aria-keyshortcuts={mac ? "Meta+F" : "Control+F"}
         onClick={openFind}><Search size={16} /></button>
       {current?.editorTarget && editors?.data?.length ? <EditorButton key={place.file} editors={editors.data}
@@ -472,8 +522,9 @@ export function DefinitionDialog({ source, side, initial, change, split, wrap, i
       <SidebarResizer storageKey="sourceExplorerWidth" label="Resize Explorer" />
       <section className="source-pane">
         {current?.editorTarget === null && <p className="source-notice">Showing the reviewed version. The file on disk is different or gone.</p>}
-        {current?.diff && changed ? <SourceDiff diff={current.diff} displayed={displayed!}
-          target={place.line ? { side: place.side, line: place.line } : place.change} restore={place.scrollTop} visit={history.visit} scroller={scroller} split={split} wrap={wrap}
+        {current?.diff && changed ? <SourceDiff diff={current.diff} displayed={displayed!} collapse={collapse}
+          line={place.line ? { side: place.side, line: place.line } : undefined} change={place.change}
+          restore={place.scrollTop} visit={history.visit} scroller={scroller} split={split} wrap={wrap}
           ignoreWhitespace={ignoreWhitespace} onFollow={follow} />
           : current ? <SourceCode file={current} line={place.line} restore={place.scrollTop} visit={history.visit}
             scroller={scroller} onFollow={follow} />

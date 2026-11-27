@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
-import { diffRows } from "./draw-diff";
+import { diffRows, foldOver, setFolded } from "./draw-diff";
 
 // Where `query` starts in `text`, ignoring case, one match after another as a browser's find does.
 export function occurrences(text: string, query: string) {
@@ -59,6 +59,10 @@ function search(pane: HTMLElement, split: boolean, query: string) {
   return ranges;
 }
 
+const foldAround = (range: Range) => foldOver(range.startContainer.parentElement?.closest("tr"));
+// A match in folded removed lines sits where its fold's row does.
+const boxOf = (range: Range) => (foldAround(range)?.markers[0] ?? range).getBoundingClientRect();
+
 type Anchor = { top: number; bottom: number; left: number };
 // The first match at or after `anchor` in reading order, or the count when every match is before it.
 function firstFrom(ranges: Range[], anchor: Anchor) {
@@ -66,7 +70,7 @@ function firstFrom(ranges: Range[], anchor: Anchor) {
   let high = ranges.length;
   while (low < high) {
     const middle = (low + high) >> 1;
-    const box = ranges[middle].getBoundingClientRect();
+    const box = boxOf(ranges[middle]);
     if (box.bottom <= anchor.top + 1 || (box.top < anchor.bottom - 1 && box.left < anchor.left)) low = middle + 1;
     else high = middle;
   }
@@ -85,6 +89,8 @@ function paint(ranges: Range[], current: number) {
 
 // Line numbers stick to the left edge as code scrolls sideways under them.
 function reveal(pane: HTMLElement, range: Range, bar: HTMLElement) {
+  const fold = foldAround(range);
+  if (fold) setFolded(fold, false);
   const box = range.getBoundingClientRect();
   const view = pane.getBoundingClientRect();
   const cover = bar.getBoundingClientRect();
@@ -147,7 +153,7 @@ export function SourceFind({ query, request, drawn, split, scroller, stepper, on
     else if (redrawn || !ranges.length) show(-1, false);
     else {
       // Typing on from a match keeps it when it still matches.
-      const anchor = previous?.startContainer.isConnected ? previous.getBoundingClientRect() : viewTop();
+      const anchor = previous?.startContainer.isConnected ? boxOf(previous) : viewTop();
       show(firstFrom(ranges, anchor) % ranges.length, true);
     }
   }, [query, drawn, split]);

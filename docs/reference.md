@@ -12,7 +12,7 @@ Reviewed is a reading checkpoint. It doesn't approve anything on GitHub, and it 
 
 In a JavaScript or TypeScript file, ⌘-click a name to open where it's defined (Ctrl-click off a Mac): a call, a constant, a type, a component, a prop, or a property. Holding the key underlines what you can follow. A name with no definition, or one clicked where it's declared, says so instead. A call into an installed package opens the package's source, with its name and version beside the path.
 
-Definitions open in a full-window source viewer of the worktree as the review shows it. A changed file shows as one whole-file diff in your layout and whitespace settings, and an unchanged file shows plain source. A file card's **Open in the source viewer** button opens its file at the change you were reading. The Explorer beside the code is the whole worktree, with changed folders colored and counted.
+Definitions open in a full-window source viewer of the worktree as the review shows it. A changed file shows as one whole-file diff in your layout and whitespace settings, and an unchanged file shows plain source. **Collapse removed lines** folds each run of removed lines into one row, so the file reads as it is now: click a row to show its lines, and the viewer remembers the choice. A file card's **Open in the source viewer** button opens its file at the change you were reading. The Explorer beside the code is the whole worktree, with changed folders colored and counted.
 
 - ⌘F finds text in the open file. Enter and ⇧Enter, or ⌘G and ⇧⌘G, step through the matches, and the search carries to the next file you open.
 - ⌘[ and ⌘] go back and forward through the places you opened.

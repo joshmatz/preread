@@ -51,7 +51,7 @@ export function drawDiff(element: HTMLElement, displayed: string | DiffFile[], {
   } else highlightDiff(element, decorate, syntax);
 }
 
-export const insertedRows = ".line-comment-row, .line-comment-spacer";
+export const insertedRows = ".line-comment-row, .line-comment-spacer, .removed-fold";
 const lineNumber = (cell: Element | null | undefined) => {
   const value = Number(cell?.textContent?.trim() || NaN);
   return value > 0 ? value : 0;
@@ -118,4 +118,74 @@ export function changeFrom(element: HTMLElement, split: boolean, top: number, ne
   const side = cell.classList.contains("d2h-del") ? "old" as const : "new" as const;
   const line = lineNumber(split ? cell : cell.querySelector(side === "old" ? ".line-num1" : ".line-num2"));
   return line ? { side, line } : undefined;
+}
+
+type RowKind = "removed" | "added" | "context" | "empty";
+// Runs of rows that show only removed lines, as [start, end) indexes. In split view, `beside`
+// holds the new side's rows, and a removed line paired with an added one stays shown.
+export function removedRuns(rows: RowKind[], beside?: RowKind[]) {
+  const runs: { start: number; end: number }[] = [];
+  rows.forEach((kind, index) => {
+    if (kind !== "removed" || (beside && beside[index] !== "empty")) return;
+    const last = runs.at(-1);
+    if (last?.end === index) last.end += 1;
+    else runs.push({ start: index, end: index + 1 });
+  });
+  return runs;
+}
+
+const rowKind = (row: HTMLTableRowElement): RowKind =>
+  row.querySelector("td.d2h-emptyplaceholder") ? "empty"
+    : row.querySelector("td.d2h-del") ? "removed"
+    : row.querySelector("td.d2h-ins") ? "added" : "context";
+
+type Fold = { rows: HTMLTableRowElement[]; markers: HTMLTableRowElement[]; button: HTMLButtonElement };
+const folds = new WeakMap<Element, Fold>();
+export const foldOver = (row: Element | null | undefined) =>
+  row instanceof HTMLTableRowElement && row.hidden ? folds.get(row) : undefined;
+export function setFolded({ rows, button }: Fold, folded: boolean) {
+  for (const row of rows) row.hidden = folded;
+  button.setAttribute("aria-expanded", String(!folded));
+}
+
+const chevron = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+// Folds each run of removed lines into one row whose button shows them, and returns what unfolds them all.
+export function foldRemoved(element: HTMLElement, split: boolean) {
+  const { sides } = diffRows(element, split);
+  const made: Fold[] = [];
+  for (let pair = 0; pair < sides.length; pair += split ? 2 : 1) {
+    const rows = sides[pair];
+    const beside = split ? sides[pair + 1] : undefined;
+    for (const { start, end } of removedRuns(rows.map(rowKind), beside?.map(rowKind))) {
+      const tables = beside ? [rows, beside] : [rows];
+      const markers = tables.map((side, index) => {
+        const marker = document.createElement("tr");
+        marker.className = index ? "removed-fold beside" : "removed-fold";
+        const gutter = document.createElement("td");
+        gutter.className = split ? "d2h-code-side-linenumber" : "d2h-code-linenumber";
+        marker.append(gutter, document.createElement("td"));
+        side[start].before(marker);
+        return marker;
+      });
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "removed-fold-button";
+      button.innerHTML = chevron;
+      button.append(`${end - start} removed ${end - start === 1 ? "line" : "lines"}`);
+      markers[0].cells[1].append(button);
+      const fold = { rows: tables.flatMap((side) => side.slice(start, end)), markers, button };
+      button.addEventListener("click", () => setFolded(fold, !fold.rows[0].hidden));
+      for (const row of fold.rows) folds.set(row, fold);
+      setFolded(fold, true);
+      made.push(fold);
+    }
+  }
+  return () => {
+    for (const fold of made) {
+      setFolded(fold, false);
+      for (const row of fold.rows) folds.delete(row);
+      for (const marker of fold.markers) marker.remove();
+    }
+  };
 }
