@@ -111,7 +111,7 @@ Write the manifest outside every reviewed repository, for example in a temporary
 - Target paths are exact and repository-relative. Omit `ranges` to include the whole file.
 - A range uses one-based diff line numbers on the `new` side, or `old` for deleted lines. It selects every complete hunk that has a changed line inside the range; hunks are never split.
 - Give each intended hunk to one group. With group-only scope, anything unassigned is outside the review; verify that no intended change was omitted. With comparison scope, anything unassigned appears under Other changes.
-- `pullRequest` is optional. Preread reads its status through the user's signed-in `gh` CLI.
+- `pullRequest` is optional. Preread reads its status through the user's signed-in `gh` CLI and shows it under the review's description, on its overview and in its code. The feature overview lists every part's PR.
 
 ## Write a feature brief
 

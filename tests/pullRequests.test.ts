@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { PullRequestChips } from "../src/PullRequest.tsx";
 import {
   parsePullRequest,
   comparisonMatch,
@@ -9,6 +12,7 @@ import {
 import { createPullRequestReader, normalizeStatus } from "../server/pullRequests.ts";
 import { validateCollection } from "../server/collections.ts";
 import type { Comparison } from "../src/types.ts";
+import type { Review } from "../src/review-types.ts";
 
 const raw = {
   number: 42,
@@ -144,4 +148,36 @@ test("matching commit labels never claim a working or differently based diff mat
   assert.match(comparisonMatch({ ...comparison, head: "other" }, "branch", status), /head differ/);
   for (const mode of ["working", "staged", "all"] as const)
     assert.match(comparisonMatch(comparison, mode, status), /different scope/);
+});
+test("the feature overview lists each part's PR in part order and names only what keeps it from merging", () => {
+  const link = (number: number) => `https://github.com/owner/repo/pull/${number}`;
+  const part = (id: string, pullRequest?: string): Review =>
+    ({ id, title: `Part ${id}`, description: "", path: "/tmp/repo", base: "main", mode: "branch", groups: [], pullRequest });
+  const status = (rollup: { conclusion: string }[], changes: { state?: "MERGED"; reviewDecision?: string } = {}) =>
+    ({ loading: false, result: { url, status: normalizeStatus({ ...raw, statusCheckRollup: rollup, ...changes }, "today") } });
+  const passed = [{ conclusion: "SUCCESS" }];
+  const failing = [{ conclusion: "FAILURE" }, { conclusion: "FAILURE" }, { conclusion: "SUCCESS" }];
+  const html = renderToStaticMarkup(createElement(PullRequestChips, {
+    reviews: [part("a", link(11)), part("b"), part("c", link(12)), part("d", link(13)), part("e", link(14)), part("f", link(15))],
+    entries: {
+      [link(11)]: status(passed),
+      [link(12)]: status(failing, { reviewDecision: "CHANGES_REQUESTED" }),
+      [link(13)]: status(passed, { reviewDecision: "CHANGES_REQUESTED" }),
+      [link(14)]: status(failing, { state: "MERGED" }),
+    },
+  }));
+  const chips = [...html.matchAll(/<a class="pr-chip"[^>]*aria-label="([^"]*)"[^>]*>(.*?)<\/a>/g)];
+  assert.match(html, /5 pull requests/);
+  assert.deepEqual(chips.map(([, label]) => label), [
+    "Part 1, Part a: PR #11, Open, 1 check passed",
+    "Part 3, Part c: PR #12, Open, 2 failing, Changes requested",
+    "Part 4, Part d: PR #13, Open, 1 check passed, Changes requested",
+    "Part 5, Part e: PR #14, Merged",
+    "Part 6, Part f: PR #15, Checking GitHub…",
+  ]);
+  assert.deepEqual(chips.map(([, , body]) => /pr-(open|draft|merged|closed|checking)/.exec(body)?.[1]),
+    ["open", "open", "open", "merged", "checking"]);
+  assert.deepEqual(chips.map(([, , body]) => /pr-chip-blocker">([^<]*)</.exec(body)?.[1] ?? ""),
+    ["", "2 failing", "Changes requested", "", ""]);
+  assert.equal(renderToStaticMarkup(createElement(PullRequestChips, { reviews: [part("a")], entries: {} })), "");
 });

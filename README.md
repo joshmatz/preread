@@ -40,7 +40,7 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
-  <img alt="The feature overview for Webhook delivery reliability. The Contents rail lists its sections and its three parts with their progress. Below a short status, an architecture diagram of the delivery pipeline colors and tags each piece by the part that changes it. A Needs your attention panel lists an agent reply, an open question, an excerpt to approve, and the next code group." src="docs/screenshots/overview-light.png">
+  <img alt="The feature overview for Webhook delivery reliability. The Contents rail lists its sections and its three parts with their progress. Under the description, the two linked pull requests are listed by number. Below a short status, an architecture diagram of the delivery pipeline colors and tags each piece by the part that changes it. A Needs your attention panel lists an agent reply, an open question, an excerpt to approve, and the next code group." src="docs/screenshots/overview-light.png">
 </picture>
 
 ## What makes it different
@@ -51,7 +51,7 @@ A pre-read is the memo you get before a meeting, so you walk in knowing what mat
 - **Comments that stay with the code.** Comment on a line, a file, or a passage of an overview, in Markdown with syntax-colored code; a comment on an overview can carry screenshots you paste or drop in. A comment on a line follows it when edits move it, and your agent's replies appear under it within a second.
 - **Re-reads show only what changed.** A Viewed mark is tied to the diff you read. When that diff changes, the mark clears, and the group reopens on just the changes since you viewed it.
 - **One reading list across worktrees.** A collection spans worktrees and repositories. Each review has its own base, so a stacked branch shows only its own layer.
-- **The pull request, once you open one.** Link a review to its GitHub pull request to see its state, checks, and review decision in the review picker, and whether your local head and base still match it.
+- **The pull request, once you open one.** Link a review to its GitHub pull request to see its state, checks, and review decision under its title and in the review picker, and whether your local head and base still match it. The feature overview lists every part's pull request.
 - **Updates on your agent's cue.** After a change, your agent runs `pnpm refresh`, and the page you have open re-reads in place and keeps your scroll position and your marks.
 - **Any stage of the work.** Branch commits, branch plus local edits, uncommitted changes, or staged changes.
 - **A diff reader built for long reads.** Unified or split view, syntax highlighting that reads the whole file, line wrapping, ignore whitespace, expandable context, and before-and-after images. The file outline shows folders, each file's kind, and a meter of its changed lines, and the line count keeps runtime code apart from tests and lockfiles. Deep in a long group, a bar at the top keeps the group's name and **Mark all viewed** in reach.

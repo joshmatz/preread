@@ -71,7 +71,7 @@ import { onScreen, reached, useScrollPlace } from "./scroll-place";
 import { noContentNote, pathDiff, reviewable, type PathPart } from "./change-notes";
 import { useCollectionProgress } from "./useCollectionProgress";
 import { codeGroups, collectionProgress, markedFile, progressLabel, progressSource, unviewedGroups, withFileViews } from "./progress";
-import { PullRequest, PullRequestLine } from "./PullRequest";
+import { PullRequest, PullRequestChips, PullRequestLine } from "./PullRequest";
 import { LineCounts } from "./LineCounts";
 import { ImageDiff } from "./ImageDiff";
 import { BrandMark } from "./BrandMark";
@@ -2164,9 +2164,11 @@ export default function App() {
       onFeature={() => { shut(); showCollection(); }}
       onReview={(id) => { shut(); if (id === review.id) window.scrollTo(0, 0); else openReviewEntry(id); }} />;
   };
+  const pullRequestCard = review?.pullRequest && <PullRequest url={review.pullRequest} entry={pullRequests[review.pullRequest]}
+    comparison={comparison} mode={review.mode} onRefresh={() => refreshPullRequest(review.id)} />;
   const codeFrame = framed && collection && review && (
     <ReviewFrame className="code-frame" eyebrow={`Part ${partIndex + 1} of ${collection.reviews.length}`} title={review.title}
-      summary={review.description && <Description key={`description:${collectionId}/${reviewId}`} className="feature-brief-summary" text={review.description} />}
+      summary={<>{review.description && <Description key={`description:${collectionId}/${reviewId}`} className="feature-brief-summary" text={review.description} />}{pullRequestCard}</>}
       tabs={review.brief && <BriefTabs label="Part views" current="code"
         feedback={reviewFeedback ? openThreads(reviewFeedback) : "…"} replies={reviewFeedback?.person}
         code={itemProgress[review.id] ? codeGroups([review], progressSources).remaining.length : "…"}
@@ -2192,8 +2194,6 @@ export default function App() {
         {!collection.brief && markReviewButton}
         {!collection.brief && <MarkErrors messages={markErrors} />}
         <ReviewVisuals key={`visuals:${collectionId}/${reviewId}`} collection={collectionId} review={reviewId} visuals={review.visuals} />
-        {review.pullRequest && <PullRequest url={review.pullRequest} entry={pullRequests[review.pullRequest]} comparison={comparison}
-          mode={review.mode} onRefresh={() => refreshPullRequest(review.id)} />}
       </div>
       {notices}
       {loading}
@@ -2421,15 +2421,7 @@ export default function App() {
             )}
             {review && <ReviewVisuals key={`visuals:${collectionId}/${reviewId}`}
               collection={collectionId} review={reviewId} visuals={review.visuals} />}
-            {review?.pullRequest && (
-              <PullRequest
-                url={review.pullRequest}
-                entry={pullRequests[review.pullRequest]}
-                comparison={comparison}
-                mode={review.mode}
-                onRefresh={() => refreshPullRequest(review.id)}
-              />
-            )}
+            {pullRequestCard}
             {repo && (
               <div className="review-bar">
                 <nav className="review-tabs" aria-label="Review sections">
@@ -2492,10 +2484,10 @@ export default function App() {
           </div>
         )}
         {tab === "collection" && collection?.brief && <FeatureBrief key={collection.id} collection={collection} brief={collectionBrief}
-          progress={itemProgress} sources={progressSources} marking={marking} initialView={briefView} initialBlock={featureJump} onJumped={() => setFeatureJump("")}
+          pullRequests={<PullRequestChips reviews={collection.reviews} entries={pullRequests} />} progress={itemProgress} sources={progressSources} marking={marking} initialView={briefView} initialBlock={featureJump} onJumped={() => setFeatureJump("")}
           onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief} />}
         {tab === "brief" && collection && review?.brief && <FeatureBrief key={`${collection.id}/${review.id}`} collection={collection} review={review}
-          brief={reviewBrief} progress={itemProgress} sources={progressSources} marking={marking} initialView={briefView} initialBlock={briefJump}
+          brief={reviewBrief} pullRequests={pullRequestCard} progress={itemProgress} sources={progressSources} marking={marking} initialView={briefView} initialBlock={briefJump}
           initialFeedback={replyJump ? "person" : undefined} onJumped={() => { setBriefJump(""); setReplyJump(false); }} onCode={openCodeReference} onReview={openReviewEntry} onFeature={showCollection} onMark={markFromBrief}
           onCodeTab={() => { setTab("changes"); window.scrollTo(0, 0); }} codeComments={codeComments} />}
         {tab === "collection" && collection && !collection.brief && (

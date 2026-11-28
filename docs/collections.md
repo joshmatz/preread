@@ -67,7 +67,7 @@ Delete removes a collection from the picker and refreshes open pages. Its review
 | `base` | Any ref Git can resolve locally. `branch` and `all` compare against it. `working` and `staged` compare with HEAD and ignore it, but the field is still required, so use `""`. Preread never fetches, so make sure the ref has the commits you expect. |
 | `mode` | `branch` compares the merge base of `base` and HEAD with HEAD. `all` adds staged, unstaged, and untracked changes. `working` compares HEAD with the working tree, including untracked files. `staged` compares HEAD with the index. |
 | `scope` | Use `groups` for a curated review: include only complete hunks selected by named groups, with file counts and line totals limited to those changes. Requires at least one group. Use `comparison` (the default for existing manifests) to include the entire comparison, with unassigned changes under Other changes. |
-| `pullRequest` | Optional GitHub pull request URL. |
+| `pullRequest` | Optional GitHub pull request URL. Its state, checks and review decision show under the review's description and in the review picker, and the feature overview lists it with every other part's. |
 | `brief` | Optional, on the collection or on a review: an ordered document in the [brief format](briefs.md). Briefs are stored apart from the manifest, so an import that omits one keeps the saved brief. Write one for each review that ships as its own pull request. |
 | `targets[].path` | Exact, repository-relative file path. |
 | `targets[].ranges` | Optional. One-based diff line numbers on the `new` side, or `old` for deleted lines. A range selects every complete hunk with a changed line inside it; hunks are never split. |

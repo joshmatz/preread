@@ -70,6 +70,10 @@
   line-clamp:4
 }
 
+.feature-brief-heading .pull-request {
+  margin:16px 0 0
+}
+
 .brief-tabs {
   display:flex;
   gap:28px;

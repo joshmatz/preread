@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowRight, Check, CheckCheck, LoaderCircle, MessageSquare, X } from "lucide-react";
 import type { Collection, ProgressSource, Review, ReviewProgress } from "./review-types";
@@ -52,8 +52,8 @@ const emptyStructure: BriefStructure = { outline: [], sections: [], headings: ne
 const headingElement = (heading: OutlineHeading) => document.getElementById(`brief-block-${heading.block}`)
   ?.querySelectorAll<HTMLElement>("[data-brief-text] > .markdown > :is(h1,h2,h3)")[heading.index];
 
-export function FeatureBrief({ collection, review, brief, progress, sources, marking, initialView = "brief", initialBlock, initialFeedback, onJumped, onCode, onReview, onFeature, onCodeTab, onMark, codeComments }: {
-  collection: Collection; review?: Review; brief: BriefState; progress: Record<string, ReviewProgress>; sources: Record<string, ProgressSource>;
+export function FeatureBrief({ collection, review, brief, pullRequests, progress, sources, marking, initialView = "brief", initialBlock, initialFeedback, onJumped, onCode, onReview, onFeature, onCodeTab, onMark, codeComments }: {
+  collection: Collection; review?: Review; brief: BriefState; pullRequests?: ReactNode; progress: Record<string, ReviewProgress>; sources: Record<string, ProgressSource>;
   marking: string; initialView?: View; initialBlock?: string; initialFeedback?: ThreadTurn; onJumped?: () => void; onCode: (reference: CodeJump, view: View) => void;
   onReview: (review: string, block?: string, open?: "feedback" | "replies") => void; onFeature: () => void; onCodeTab?: () => void; onMark: MarkGroups;
   codeComments?: CodeComments;
@@ -315,7 +315,7 @@ export function FeatureBrief({ collection, review, brief, progress, sources, mar
     }
   };
   return <><ReviewFrame eyebrow={review ? `Part ${partIndex + 1} of ${collection.reviews.length}` : "Feature overview"} title={title}
-    summary={summary && <Description key={readingKey} className="feature-brief-summary" text={summary} />}
+    summary={<>{summary && <Description key={readingKey} className="feature-brief-summary" text={summary} />}{pullRequests}</>}
     tabs={<BriefTabs label={review ? "Part views" : "Feature views"} current={view} code={checking ? "…" : remaining.length}
       feedback={openThreads(own)} replies={own.person}
       onBrief={() => setView("brief")} onCode={openCodeTab} onFeedback={() => setView("feedback")} />}

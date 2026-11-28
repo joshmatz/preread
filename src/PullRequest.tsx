@@ -1,5 +1,6 @@
-import { ExternalLink, GitPullRequest, RefreshCw } from "lucide-react";
+import { ExternalLink, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, RefreshCw } from "lucide-react";
 import type { Comparison, Mode } from "./types";
+import type { Review } from "./review-types";
 import type { PullRequestEntry } from "./usePullRequests";
 import {
   checksLabel,
@@ -30,6 +31,44 @@ export function PullRequestLine({ url, entry }: { url: string; entry?: PullReque
         {facts.map((fact) => ` · ${fact}`)}
       </span>
     </span>
+  );
+}
+
+const stateIcons = { Open: GitPullRequest, Draft: GitPullRequestDraft, Merged: GitMerge, Closed: GitPullRequestClosed };
+
+// A stack can hold dozens of parts, so a chip spells out only what keeps its PR from merging.
+export function PullRequestChips({ reviews, entries }: { reviews: Review[]; entries: Record<string, PullRequestEntry> }) {
+  const linked = reviews.flatMap((review, index) => review.pullRequest ? [{ review, part: index + 1, url: review.pullRequest }] : []);
+  if (!linked.length) return null;
+  return (
+    <div className="pr-chips">
+      <span className="pr-chips-label">{linked.length === 1 ? "Pull request" : `${linked.length} pull requests`}</span>
+      <ul>
+        {linked.map(({ review, part, url }) => {
+          const result = entries[url]?.result;
+          const status = result?.status;
+          const state = status ? pullRequestState(status) : undefined;
+          const Icon = state ? stateIcons[state] : GitPullRequest;
+          const number = parsePullRequest(url).number;
+          const blocker = status?.state === "OPEN"
+            ? status.checks.failed ? `${status.checks.failed} failing` : status.reviewDecision === "CHANGES_REQUESTED" ? "Changes requested" : ""
+            : "";
+          const facts = status
+            ? [state, ...pullRequestFacts(status), ...(result?.error ? ["Last known status"] : [])]
+            : [result?.error ? "Status unavailable" : "Checking GitHub…"];
+          return (
+            <li key={review.id}>
+              <a className="pr-chip" href={url} target="_blank" rel="noreferrer"
+                aria-label={`Part ${part}, ${review.title}: PR #${number}, ${facts.join(", ")}`}
+                title={[`Part ${part} · ${review.title}`, `PR #${number}${status ? ` · ${status.title}` : ""}`, facts.join(" · ")].join("\n")}>
+                <Icon size={13} className={`pr-${state?.toLowerCase() ?? "checking"}`} aria-hidden="true" />#{number}
+                {blocker && <span className="pr-chip-blocker">{blocker}</span>}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
